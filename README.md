@@ -1,6 +1,8 @@
 # pcap2json
 High Speed PCAP to JSON conversion utility
 
+```
+
 fmad engineering all rights reserved
 http://www.fmad.io
 
@@ -13,7 +15,11 @@ cat /tmp/test.pcap | pcap2json > test.json
 Command Line Arguments:
  --mac               : include MAC information into the JSON output
 
+```
+
 # Example output
+
+```json
 
 {"Device":"fmadio20v2-149","EpochTS":1479537432875808699,"CaptureSize":   139,"WireSize":   139,"MAC.Src":"00:24:dc:77:87:16","MAC.Dst":"00:17:cb:da:a1:4a","MAC.Proto":034887,"MPLSLabel":  67,"MPLS.BOS":1,"MPLS.TC":2,"MPLS.L2":3,"MPLS.TTL":62,"MPLSDepth":0,"IP.Proto":   6,"IP.Src":"69.184.78.84","IP.Dst":"137.6.79.68","TCP.PortSrc":8195,"TCP.PortDst":8196,"TCP.SeqNo":195728138,"TCP.AckNo":498718303,"TCP.FIN":0,"TCP.SYN":0,"TCP.RST":0,"TCP.PSH":0,"TCP.ACK":1,"TCP.Window":32}
 {"Device":"fmadio20v2-149","EpochTS":1479537432875809385,"CaptureSize":  1382,"WireSize":  1382,"MAC.Src":"4c:96:14:f5:88:52","MAC.Dst":"00:19:e2:97:b8:00","MAC.Proto":034887,"MPLSLabel":  19,"MPLS.BOS":1,"MPLS.TC":5,"MPLS.L2":3,"MPLS.TTL":127,"MPLSDepth":1,"IP.Proto":  17,"IP.Src":"10.162.5.37","IP.Dst":"10.161.16.85","UDP.PortSrc":12500,"UDP.PortDst":12500}
@@ -27,4 +33,6 @@ Command Line Arguments:
 {"Device":"fmadio20v2-149","EpochTS":1479537433394891977,"CaptureSize":   106,"WireSize":   106,"MAC.Src":"00:24:dc:77:85:cc","MAC.Dst":"00:1d:b5:a0:49:4a","MAC.Proto":034887,"MPLSLabel":  68,"MPLS.BOS":1,"MPLS.TC":2,"MPLS.L2":4,"MPLS.TTL":63,"MPLSDepth":0,"IP.Proto":   6,"IP.Src":"69.184.72.77","IP.Dst":"21.16.11.243","TCP.PortSrc":8195,"TCP.PortDst":33231,"TCP.SeqNo":978301924,"TCP.AckNo":1976086552,"TCP.FIN":0,"TCP.SYN":0,"TCP.RST":0,"TCP.PSH":0,"TCP.ACK":1,"TCP.Window":601}
 {"Device":"fmadio20v2-149","EpochTS":1479537432875807000,"CaptureSize":   139,"WireSize":   139,"MAC.Src":"00:24:dc:77:87:16","MAC.Dst":"00:17:cb:da:a1:4a","MAC.Proto":034887,"MPLSLabel":  67,"MPLS.BOS":1,"MPLS.TC":2,"MPLS.L2":3,"MPLS.TTL":63,"MPLSDepth":0,"IP.Proto":   6,"IP.Src":"69.184.72.94","IP.Dst":"137.6.51.48","TCP.PortSrc":8195,"TCP.PortDst":8197,"TCP.SeqNo":2864033917,"TCP.AckNo":3077974715,"TCP.FIN":0,"TCP.SYN":0,"TCP.RST":0,"TCP.PSH":0,"TCP.ACK":1,"TCP.Window":64}
 {"Device":"fmadio20v2-149","EpochTS":1479537432875808699,"CaptureSize":   139,"WireSize":   139,"MAC.Src":"00:24:dc:77:87:16","MAC.Dst":"00:17:cb:da:a1:4a","MAC.Proto":034887,"MPLSLabel":  67,"MPLS.BOS":1,"MPLS.TC":2,"MPLS.L2":3,"MPLS.TTL":62,"MPLSDepth":0,"IP.Proto":   6,"IP.Src":"69.184.78.84","IP.Dst":"137.6.79.68","TCP.PortSrc":8195,"TCP.PortDst":8196,"TCP.SeqNo":195728138,"TCP.AckNo":498718303,"TCP.FIN":0,"TCP.SYN":0,"TCP.RST":0,"TCP.PSH":0,"TCP.ACK":1,"TCP.Window":32}
+
+```
 
