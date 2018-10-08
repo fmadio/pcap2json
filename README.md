@@ -1,6 +1,9 @@
 # pcap2json
 High Speed PCAP to JSON conversion utility
 
+
+Used for importing PCAP meta data into Elastic Search
+
 ```
 
 fmad engineering all rights reserved
