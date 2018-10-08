@@ -69,8 +69,25 @@ typedef struct
 // tunables
 
 bool			g_Verbose				= false;				// verbose print mode
-
 bool			g_JSON_MAC				= false;				// print MAC address in output
+
+//---------------------------------------------------------------------------------------------
+
+static void help(void)
+{
+	fprintf(stderr, "fmad engineering all rights reserved\n");
+	fprintf(stderr, "http://www.fmad.io\n");
+	fprintf(stderr, "\n");
+	fprintf(stderr, "pcap2json is a high speed PCAP meta data extraction utility\n");
+	fprintf(stderr, "\n");
+	fprintf(stderr, "example converting a pcap to json:\n");
+	fprintf(stderr, "\n");
+	fprintf(stderr, "cat /tmp/test.pcap | pcap2json > test.json\n");
+	fprintf(stderr, "\n");
+	fprintf(stderr, "Command Line Arguments:\n");
+	fprintf(stderr, " --mac               : include MAC information into the JSON output\n");
+	fprintf(stderr, "\n");
+}
 
 //---------------------------------------------------------------------------------------------
 
@@ -93,18 +110,10 @@ int main(int argc, char* argv[])
 			g_JSON_MAC = true;
 		}
 
-
-		// input file
-		if (strcmp(argv[i], "-r") == 0)
+		if (strcmp(argv[i], "--help") == 0)
 		{
-			FileInName = argv[i+1];
-			i++;
-		}
-		// output file 
-		if (strcmp(argv[i], "-w") == 0)
-		{
-			FileOutName = argv[i+1];
-			i++;
+			help();
+			return 0;
 		}
 	}
 
