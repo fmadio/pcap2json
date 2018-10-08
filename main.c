@@ -187,7 +187,7 @@ int main(int argc, char* argv[])
 		u64 PacketTS = (u64)PktHeader->Sec * 1000000000ULL + (u64)PktHeader->NSec * TScale;
 
 		// pcap meta data
-		fprintf(FileOut, "{'Device':'%s','EpochTS':%lli,'CaptureSize':%6i,'WireSize':%6i", 
+		fprintf(FileOut, "{\"Device\":\"%s\",\"EpochTS\":%lli,\"CaptureSize\":%6i,\"WireSize\":%6i", 
 								DeviceName, 
 								PacketTS, 
 								PktHeader->LengthCapture, 
@@ -199,7 +199,7 @@ int main(int argc, char* argv[])
 		u16 EtherProto 	= swap16(Ether->Proto);
 		if (g_JSON_MAC)
 		{
-			fprintf(FileOut, ",'MACSrc':'%02x:%02x:%02x:%02x:%02x:%02x','MACDst':'%02x:%02x:%02x:%02x:%02x:%02x','MACProto':0x%04x",
+			fprintf(FileOut, ",\"MAC.Src\":\"%02x:%02x:%02x:%02x:%02x:%02x\",\"MAC.Dst\":\"%02x:%02x:%02x:%02x:%02x:%02x\",\"MAC.Proto\":%06i",
 					Ether->Dst[0],
 					Ether->Dst[1],
 					Ether->Dst[2],
@@ -218,11 +218,53 @@ int main(int argc, char* argv[])
 			);
 		}
 
+		// MPLS decoder	
+		if (EtherProto == ETHER_PROTO_MPLS)
+		{
+			MPLSHeader_t* MPLS = (MPLSHeader_t*)(Payload);
+
+			u32 MPLSDepth = 0;
+
+			// for now only process outer tag
+			// assume there is a sane limint on the encapsulation count
+			if (!MPLS->BOS)
+			{
+				MPLS += 1;
+				MPLSDepth++;
+			}
+			if (!MPLS->BOS)
+			{
+				MPLS += 1;
+				MPLSDepth++;
+			}
+			if (!MPLS->BOS)
+			{
+				MPLS += 1;
+				MPLSDepth++;
+			}
+
+			fprintf(FileOut,",\"MPLSLabel\":%4i,\"MPLS.BOS\":%i,\"MPLS.TC\":%i,\"MPLS.L2\":%i,\"MPLS.TTL\":%i,\"MPLSDepth\":%i",
+					MPLS_LABEL(MPLS),
+					MPLS->BOS,	
+					MPLS->TC,
+					MPLS->L2,
+					MPLS->TTL,
+					MPLSDepth
+			);
+
+			// update to next header
+			if (MPLS->BOS)
+			{
+				EtherProto = ETHER_PROTO_IPV4;
+				Payload = (u8*)(MPLS + 1);
+			}
+		}
+
 		// ipv4 info
 		if (EtherProto == ETHER_PROTO_IPV4)
 		{
 			IP4Header_t* IP4 = (IP4Header_t*)Payload;
-			fprintf(FileOut,",'IPProto':0x%02x,'IPSrc':'%i.%i.%i.%i,'IPDst':'%i.%i.%i.%i'", 
+			fprintf(FileOut,",\"IP.Proto\":%4i,\"IP.Src\":\"%i.%i.%i.%i\",\"IP.Dst\":\"%i.%i.%i.%i\"", 
 					IP4->Proto,
 					IP4->Src.IP[0],
 					IP4->Src.IP[1],
@@ -243,12 +285,19 @@ int main(int argc, char* argv[])
 			{
 				TCPHeader_t* TCP = (TCPHeader_t*)(Payload + IPOffset);
 
-				fprintf(FileOut,",'TCPPortSrc':%i,'TCPPortDst':%i,'SeqNo':%i,'AckNo':%i,'Flags':0x%04x,'Window':%i",
+				u16 Flags = swap16(TCP->Flags);
+
+				fprintf(FileOut,",\"TCP.PortSrc\":%i,\"TCP.PortDst\":%i,\"TCP.SeqNo\":%u,\"TCP.AckNo\":%u,\"TCP.FIN\":%i,\"TCP.SYN\":%i,\"TCP.RST\":%i,\"TCP.PSH\":%i,\"TCP.ACK\":%i,\"TCP.Window\":%i",
 						swap16(TCP->PortSrc),
 						swap16(TCP->PortDst),
 						swap32(TCP->SeqNo),
 						swap32(TCP->AckNo),
-						swap16(TCP->Flags)
+						TCP_FLAG_FIN(Flags),
+						TCP_FLAG_SYN(Flags),
+						TCP_FLAG_RST(Flags),
+						TCP_FLAG_PSH(Flags),
+						TCP_FLAG_ACK(Flags),
+						swap16(TCP->Window)	
 				);
 			}
 			break;
@@ -256,7 +305,7 @@ int main(int argc, char* argv[])
 			{
 				UDPHeader_t* UDP = (UDPHeader_t*)(Payload + IPOffset);
 
-				fprintf(FileOut,",'UDPPortSrc':%i,'UDPPortDst':%i",
+				fprintf(FileOut,",\"UDP.PortSrc\":%i,\"UDP.PortDst\":%i",
 						swap16(UDP->PortSrc),
 						swap16(UDP->PortDst)
 				);

@@ -421,6 +421,13 @@ typedef struct
 } __attribute__((packed)) fEther_t;
 
 #define ETHER_PROTO_IPV4		0x0800 
+#define ETHER_PROTO_IPV6		0x86dd 
+#define ETHER_PROTO_IP  		0x0888		// special made up type indicating ipv4 or ipv6 
+#define ETHER_PROTO_VLAN		0x8100	
+#define ETHER_PROTO_VNTAG		0x8926		// vntag / etag
+#define ETHER_PROTO_MPLS		0x8847
+
+
 typedef struct
 {
 	union
@@ -450,9 +457,14 @@ typedef struct
 #define IPv4_PROTO_TCP			6
 #define IPv4_PROTO_UDP			17	
 
-#define TCP_FLAG_SYN(a) ((a >>(8+1))&1)
-#define TCP_FLAG_ACK(a) ((a >>(8+4))&1)
 #define TCP_FLAG_FIN(a) ((a >>(8+0))&1)
+#define TCP_FLAG_SYN(a) ((a >>(8+1))&1)
+#define TCP_FLAG_RST(a) ((a >>(8+2))&1)
+#define TCP_FLAG_PSH(a) ((a >>(8+3))&1)
+#define TCP_FLAG_ACK(a) ((a >>(8+4))&1)
+#define TCP_FLAG_URG(a) ((a >>(8+5))&1)
+#define TCP_FLAG_ECE(a) ((a >>(8+6))&1)
+#define TCP_FLAG_CWR(a) ((a >>(8+7))&1)
 
 typedef struct
 {
@@ -475,6 +487,53 @@ typedef struct
 	u16			CSUM;
 
 } __attribute__((packed)) UDPHeader_t;
+
+// VLAN 
+typedef struct
+{
+	u16			VIDhi	: 4;
+	u16			DEI		: 1;
+	u16			PCP		: 3;
+	u16			VIDlo	: 8;
+
+} __attribute__((packed)) VLANTag_t;
+#define VLANTag_ID(a) (( a->VIDhi << 8 ) | a->VIDlo )
+
+typedef struct
+{
+	u16			VIDhi	: 4;
+	u16			DEI		: 1;
+	u16			PCP		: 3;
+	u16			VIDlo	: 8;
+
+	u16		 	Proto;		
+
+} __attribute__((packed)) VLANHeader_t;
+
+// just skip the tag its 4 bytes + 2 bytes for the proto (2 more than a vlan tag)
+typedef struct
+{
+	u8			pad[4];
+
+} __attribute__((packed)) VNTag_t; 
+
+// NOTE: the bit pattern is all fucked up due to it being bigedian structure with gcc bitfieds 
+typedef struct
+{
+	u32			L0		: 8; 	// label[19:12]	
+	u32			L1		: 8; 	// label[11:4]	
+
+
+	u32			BOS		: 1;	
+	u32			TC		: 3;	
+
+	u32			L2		: 4;	// label[3:0]	
+
+	u32			TTL		: 8;	
+
+} __attribute__((packed)) MPLSHeader_t;
+#define MPLS_LABEL(a)  ( (a->L0 << 12) | (a->L1<<4) | a->L2 )
+
 
 // pcap headers
 
