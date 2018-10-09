@@ -85,7 +85,8 @@ static void help(void)
 	fprintf(stderr, "cat /tmp/test.pcap | pcap2json > test.json\n");
 	fprintf(stderr, "\n");
 	fprintf(stderr, "Command Line Arguments:\n");
-	fprintf(stderr, " --mac               : include MAC information into the JSON output\n");
+	fprintf(stderr, " --mac                  : include MAC information into the JSON output\n");
+	fprintf(stderr, " --capture-name <name>  : capture name to use for ES Index data\n");
 	fprintf(stderr, "\n");
 }
 
@@ -95,6 +96,17 @@ int main(int argc, char* argv[])
 {
 	u8* FileInName 		= NULL;
 	u8* FileOutName 	= NULL;
+
+	// get the hosts name
+	u8 DeviceName[128];
+	gethostname(DeviceName, sizeof(DeviceName));	
+
+	u8 ClockStr[128];
+	clock_str(ClockStr, clock_date() );
+
+	u8 CaptureName[256];
+	sprintf(CaptureName, "%s_%s", DeviceName, ClockStr); 
+
 
 	for (int i=0; i < argc; i++)
 	{
@@ -110,6 +122,12 @@ int main(int argc, char* argv[])
 			g_JSON_MAC = true;
 		}
 
+		// capture name 
+		if (strcmp(argv[i], "--capture-name") == 0)
+		{
+			strncpy(CaptureName, argv[i+1], sizeof(CaptureName));	
+			fprintf(stderr, "Capture Name[%s]\n", CaptureName);
+		}
 		if (strcmp(argv[i], "--help") == 0)
 		{
 			help();
@@ -118,10 +136,6 @@ int main(int argc, char* argv[])
 	}
 
 	CycleCalibration();
-
-	// get the hosts name
-	u8 DeviceName[128];
-	gethostname(DeviceName, sizeof(DeviceName));	
 
 	FILE* FileIn 	= stdin;
 	FILE* FileOut 	= stdout;
@@ -195,6 +209,9 @@ int main(int argc, char* argv[])
 
 		u64 PacketTS = (u64)PktHeader->Sec * 1000000000ULL + (u64)PktHeader->NSec * TScale;
 
+		// ES header for bulk upload
+		fprintf(FileOut, "{\"index\":{\"_index\":\"%s\",\"_type\":\"pcap_file\",\"_score\":null}}\n", CaptureName);
+
 		// pcap meta data
 		fprintf(FileOut, "{\"Device\":\"%s\",\"EpochTS\":%lli,\"CaptureSize\":%6i,\"WireSize\":%6i", 
 								DeviceName, 
@@ -208,7 +225,7 @@ int main(int argc, char* argv[])
 		u16 EtherProto 	= swap16(Ether->Proto);
 		if (g_JSON_MAC)
 		{
-			fprintf(FileOut, ",\"MAC.Src\":\"%02x:%02x:%02x:%02x:%02x:%02x\",\"MAC.Dst\":\"%02x:%02x:%02x:%02x:%02x:%02x\",\"MAC.Proto\":%06i",
+			fprintf(FileOut, ",\"MAC.Src\":\"%02x:%02x:%02x:%02x:%02x:%02x\",\"MAC.Dst\":\"%02x:%02x:%02x:%02x:%02x:%02x\",\"MAC.Proto\":%6i",
 					Ether->Dst[0],
 					Ether->Dst[1],
 					Ether->Dst[2],
