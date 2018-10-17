@@ -490,6 +490,8 @@ static void help(void)
 	fprintf(stderr, "Command Line Arguments:\n");
 	fprintf(stderr, " --mac                  : include MAC information into the JSON output\n");
 	fprintf(stderr, " --capture-name <name>  : capture name to use for ES Index data\n");
+	fprintf(stderr, " --json-packet          : write JSON packet data\n");
+	fprintf(stderr, " --json-flow            : write JSON flow data\n");
 	fprintf(stderr, "\n");
 }
 
@@ -511,7 +513,7 @@ int main(int argc, char* argv[])
 	sprintf(CaptureName, "%s_%s", DeviceName, ClockStr); 
 
 	bool IsJSONPacket	= false;
-	bool IsJSONFlow		= true;
+	bool IsJSONFlow		= false;
 
 	for (int i=0; i < argc; i++)
 	{
@@ -519,6 +521,21 @@ int main(int argc, char* argv[])
 		{
 			g_Verbose = true;
 		}
+
+		// output json packet data 
+		if (strcmp(argv[i], "--json-packet") == 0)
+		{
+			fprintf(stderr, "Write JSON Packet meta data\n");
+			IsJSONPacket = true;	
+		}
+		// output json flow data 
+		if (strcmp(argv[i], "--json-flow") == 0)
+		{
+			fprintf(stderr, "Write JSON Flow meta data\n");
+			IsJSONFlow = true;	
+		}
+
+
 
 		// include MAC address
 		if (strcmp(argv[i], "--mac") == 0)
@@ -542,8 +559,8 @@ int main(int argc, char* argv[])
 
 	CycleCalibration();
 
-	printf("FlowRecord: %i\n", sizeof(FlowRecord_t));
-	assert(sizeof(FlowRecord_t) == 64);
+	//printf("FlowRecord: %i\n", sizeof(FlowRecord_t));
+	//assert(sizeof(FlowRecord_t) == 64);
 
 	FILE* FileIn 	= stdin;
 	FILE* FileOut 	= stdout;
