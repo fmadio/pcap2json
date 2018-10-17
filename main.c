@@ -70,7 +70,7 @@ typedef struct
 
 typedef struct
 {
-	u16				Ether;				// ethernet protocol
+	u16				EtherProto;			// ethernet protocol
 	u8				EtherSrc[6];		// ethernet src mac
 	u8				EtherDst[6];		// ethernet dst mac
 
@@ -281,7 +281,7 @@ static void JSONFlow(FILE* FileOut, u8* DeviceName, u8* CaptureName, u64 PacketT
 	u8* Payload 	= (u8*)(Ether + 1);
 	u16 EtherProto 	= swap16(Ether->Proto);
 
-	Flow->Ether			= EtherProto;
+	Flow->EtherProto	= EtherProto;
 	Flow->EtherSrc[0]	= Ether->Src[0];
 	Flow->EtherSrc[1]	= Ether->Src[1];
 	Flow->EtherSrc[2]	= Ether->Src[2];
@@ -421,10 +421,57 @@ static void JSONFlow(FILE* FileOut, u8* DeviceName, u8* CaptureName, u64 PacketT
 	}
 
 	// generate SHA1
-	u32 SHA1State[5];
-
+	u32 SHA1State[5] = { 0, 0, 0, 0, 0 };
 	sha1_compress(SHA1State, (u8*)Flow);
 
+
+	// print flow info
+	fprintf(FileOut, "{\"hash\":\"%08x%08x%08x%08x%08x\"",	SHA1State[0],
+															SHA1State[1],
+															SHA1State[2],
+															SHA1State[3],
+															SHA1State[4]);
+
+	fprintf(FileOut, ",\"MACSrc\":\"%02x:%02x:%02x:%02x:%02x:%02x\",\"MACDst\":\"%02x:%02x:%02x:%02x:%02x:%02x\",\"MACProto\":%i",
+
+														Flow->EtherSrc[0],
+														Flow->EtherSrc[1],
+														Flow->EtherSrc[2],
+														Flow->EtherSrc[3],
+														Flow->EtherSrc[4],
+														Flow->EtherSrc[5],
+
+														Flow->EtherDst[0],
+														Flow->EtherDst[1],
+														Flow->EtherDst[2],
+														Flow->EtherDst[3],
+														Flow->EtherDst[4],
+														Flow->EtherDst[5],
+
+														Flow->EtherProto
+	);
+
+	fprintf(FileOut, ",\"VLAN.0\":%i,\"VLAN.1\":%i",  Flow->VLAN[0], Flow->VLAN[1]);
+	fprintf(FileOut, ",\"MPLS.0\":%i,\"MPLS.1\":%i",  Flow->MPLS[0], Flow->MPLS[1]);
+
+	fprintf(FileOut, ",\"IPv4.Src\":\"%i.%i.%i.%i\",\"IPv4.Dst\":\"%i.%i.%i.%i\" ",
+										Flow->IPSrc[0],
+										Flow->IPSrc[1],
+										Flow->IPSrc[2],
+										Flow->IPSrc[3],
+
+										Flow->IPDst[0],
+										Flow->IPDst[1],
+										Flow->IPDst[2],
+										Flow->IPDst[3]
+	);
+
+	fprintf(FileOut, ",\"Port.Src\":%i,\"Port.Dst\":%i",
+										Flow->PortSrc,
+										Flow->PortDst	
+	);
+
+	fprintf(FileOut, "\n");
 }
 
 //---------------------------------------------------------------------------------------------
