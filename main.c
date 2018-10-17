@@ -214,13 +214,17 @@ static void FlowInsert(FlowRecord_t* Flow, u32* SHA1, u32 Length, u64 TS)
 
 //---------------------------------------------------------------------------------------------
 
-static void FlowDump(FILE* FileOut, u64 TS) 
+static void FlowDump(FILE* FileOut, u8* DeviceName, u8* CaptureName, u64 TS) 
 {
 	for (int i=0; i < s_FlowCnt; i++)
 	{
 		FlowRecord_t* Flow = &s_FlowList[i];	
 
-		fprintf(FileOut, "{\"TS\":\"%s\",%lli", FormatTS(TS), s_FlowCnt);
+		// ES header for bulk upload
+		fprintf(FileOut, "{\"index\":{\"_index\":\"%s\",\"_type\":\"flow_record\",\"_score\":null}}\n", CaptureName);
+
+		// actual payload
+		fprintf(FileOut, "{\"TS\":\"%s\",%lli,\"Device\":\"%s\"", FormatTS(TS), s_FlowCnt, DeviceName);
 
 		// print flow info
 		fprintf(FileOut, ",\"hash\":\"%08x%08x%08x%08x%08x\"",	Flow->SHA1[0],
@@ -627,7 +631,7 @@ static void JSONFlow(FILE* FileOut, u8* DeviceName, u8* CaptureName, u64 PacketT
 		LastPacketTS = PacketTS;
 
 		//fprintf(FileOut, "TS %lli %lli\n", dTS, PacketTS);
-		FlowDump(FileOut, PacketTS);
+		FlowDump(FileOut, DeviceName, CaptureName, PacketTS);
 
 		// reset index and counts
 		FlowReset();
@@ -817,7 +821,10 @@ int main(int argc, char* argv[])
 	}
 
 	// output last flow data
-	FlowDump(FileOut, LastTS);
+	if (IsJSONFlow)
+	{
+		FlowDump(FileOut, DeviceName, CaptureName, LastTS);
+	}
 
 	printf("Total Flows: %i\n", s_FlowCnt);
 }
