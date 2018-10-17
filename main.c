@@ -31,61 +31,34 @@ double TSC2Nano = 0;
 void sha1_compress(uint32_t state[static 5], const uint8_t block[static 64]);
 
 //---------------------------------------------------------------------------------------------
-// pcap headers
-/*
-#define PCAPHEADER_MAGIC_NANO		0xa1b23c4d
-#define PCAPHEADER_MAGIC_USEC		0xa1b2c3d4
-#define PCAPHEADER_MAJOR			2
-#define PCAPHEADER_MINOR			4
-#define PCAPHEADER_LINK_ETHERNET	1
-#define PCAPHEADER_LINK_ERF			197	
 
-//-------------------------------------------------------------------------------------------------
-
-typedef struct
+typedef struct FlowRecord_t 
 {
-	u32				Sec;				// time stamp sec since epoch 
-	u32				NSec;				// nsec fraction since epoch
+	u16						EtherProto;			// ethernet protocol
+	u8						EtherSrc[6];		// ethernet src mac
+	u8						EtherDst[6];		// ethernet dst mac
 
-	u32				LengthCapture;		// captured length, inc trailing / aligned data
-	u32				LengthWire;			// length on the wire
+	u16						VLAN[4];			// vlan tags
+	u16						MPLS[4];			// MPLS tags
 
-} __attribute__((packed)) PCAPPacket_t;
+	u8						IPSrc[4];			// source IP
+	u8						IPDst[4];			// source IP
 
-// per file header
+	u8						IPProto;			// IP protocol
 
-typedef struct
-{
+	u16						PortSrc;			// tcp/udp port source
+	u16						PortDst;			// tcp/udp port source
 
-	u32				Magic;
-	u16				Major;
-	u16				Minor;
-	u32				TimeZone;
-	u32				SigFlag;
-	u32				SnapLen;
-	u32				Link;
+	u64						FirstTS;			// first TS seen
+	u64						LastTS;				// last TS seen 
+	
+	u32						SHA1[5];			// SHA of the flow
 
-} __attribute__((packed)) PCAPHeader_t;
-*/
+	struct FlowRecord_t*	Next;				// next flow record
+	struct FlowRecord_t*	Prev;				// previous flow record
 
-typedef struct
-{
-	u16				EtherProto;			// ethernet protocol
-	u8				EtherSrc[6];		// ethernet src mac
-	u8				EtherDst[6];		// ethernet dst mac
-
-	u16				VLAN[4];			// vlan tags
-	u16				MPLS[4];			// MPLS tags
-
-	u8				IPSrc[4];			// source IP
-	u8				IPDst[4];			// source IP
-
-	u8				IPProto;			// IP protocol
-
-	u16				PortSrc;			// tcp/udp port source
-	u16				PortDst;			// tcp/udp port source
-
-	u8				pad[21];			// pad out to 64B
+	u64						TotalPkt;			// total packets
+	u64						TotalByte;			// total bytes
 
 } __attribute__((packed)) FlowRecord_t;
 
@@ -93,6 +66,225 @@ typedef struct
 // tunables
 bool			g_Verbose				= false;				// verbose print mode
 bool			g_JSON_MAC				= false;				// print MAC address in output
+
+static u64				s_FlowMax		= 4*1024*1024;			// maximum number of flows 
+static u64				s_FlowCnt		= 0;					// total number of flows
+static FlowRecord_t*	s_FlowList		= NULL;					// list of statically allocated flows
+
+static FlowRecord_t**	s_FlowHash		= NULL;					// flash hash index
+
+//---------------------------------------------------------------------------------------------
+// generate a 20bit hash index 
+static u32 HashIndex(u32* SHA1)
+{
+	u8* Data8 = (u8*)SHA1;
+
+	// FNV1a 80b hash 
+	const u32 Prime  = 0x01000193; //   16777619
+	const u32  Seed  = 0x811C9DC5; // 2166136261
+
+	u32 Hash = Seed;
+	Hash = ((u32)Data8[ 0] ^ Hash) * Prime;
+	Hash = ((u32)Data8[ 1] ^ Hash) * Prime;
+	Hash = ((u32)Data8[ 2] ^ Hash) * Prime;
+	Hash = ((u32)Data8[ 3] ^ Hash) * Prime;
+
+	Hash = ((u32)Data8[ 4] ^ Hash) * Prime;
+	Hash = ((u32)Data8[ 5] ^ Hash) * Prime;
+	Hash = ((u32)Data8[ 6] ^ Hash) * Prime;
+	Hash = ((u32)Data8[ 7] ^ Hash) * Prime;
+
+	Hash = ((u32)Data8[ 8] ^ Hash) * Prime;
+	Hash = ((u32)Data8[ 9] ^ Hash) * Prime;
+	Hash = ((u32)Data8[10] ^ Hash) * Prime;
+	Hash = ((u32)Data8[11] ^ Hash) * Prime;
+
+	Hash = ((u32)Data8[12] ^ Hash) * Prime;
+	Hash = ((u32)Data8[13] ^ Hash) * Prime;
+	Hash = ((u32)Data8[14] ^ Hash) * Prime;
+	Hash = ((u32)Data8[15] ^ Hash) * Prime;
+
+	Hash = ((u32)Data8[16] ^ Hash) * Prime;
+	Hash = ((u32)Data8[17] ^ Hash) * Prime;
+	Hash = ((u32)Data8[18] ^ Hash) * Prime;
+	Hash = ((u32)Data8[19] ^ Hash) * Prime;
+
+	// reduce down to 20bits for set/way index
+	return (Hash & 0x000fffff) ^ (Hash >> 20);
+}
+
+//---------------------------------------------------------------------------------------------
+
+static FlowRecord_t* FlowAlloc(void)
+{
+	assert(s_FlowCnt < s_FlowMax);
+
+	FlowRecord_t* Flow = &s_FlowList[ s_FlowCnt ]; 
+	memset(Flow, 0, sizeof(FlowRecord_t) );
+
+	s_FlowCnt++;
+
+	return Flow;
+}
+
+//---------------------------------------------------------------------------------------------
+
+static void FlowInsert(FlowRecord_t* Flow, u32* SHA1, u32 Length, u64 TS)
+{
+	u32 Index = HashIndex(SHA1);
+
+	FlowRecord_t* F = NULL;
+
+	bool IsFlowNew = false;
+
+	// first record ?
+	if (s_FlowHash[ Index ] == NULL)
+	{
+		F = FlowAlloc();
+
+		memcpy(F, Flow, sizeof(FlowRecord_t));
+
+		F->SHA1[0] = SHA1[0];
+		F->SHA1[1] = SHA1[1];
+		F->SHA1[2] = SHA1[2];
+		F->SHA1[3] = SHA1[3];
+		F->SHA1[4] = SHA1[4];
+
+		F->Next		= NULL;
+		F->Prev		= NULL;
+
+		s_FlowHash[Index] = F;
+
+		IsFlowNew = true;
+	}
+	else
+	{
+		F = s_FlowHash[ Index ];
+
+		// iterate in search of the flow
+		FlowRecord_t* FPrev = NULL;
+		while (F)
+		{
+			bool IsHit = true;
+
+			IsHit &= (F->SHA1[0] == SHA1[0]);
+			IsHit &= (F->SHA1[1] == SHA1[1]);
+			IsHit &= (F->SHA1[2] == SHA1[2]);
+			IsHit &= (F->SHA1[3] == SHA1[3]);
+			IsHit &= (F->SHA1[4] == SHA1[4]);
+
+			if (IsHit)
+			{
+				break;
+			}
+
+			FPrev = F;
+			F = F->Next;
+		}
+
+		// new flow
+		if (!F)
+		{
+			F = FlowAlloc();
+
+			memcpy(F, Flow, sizeof(FlowRecord_t));
+
+			F->SHA1[0] = SHA1[0];
+			F->SHA1[1] = SHA1[1];
+			F->SHA1[2] = SHA1[2];
+			F->SHA1[3] = SHA1[3];
+			F->SHA1[4] = SHA1[4];
+
+			F->Next		= NULL;
+			F->Prev		= NULL;
+
+			FPrev->Next = F;
+			F->Prev		= FPrev;
+
+			IsFlowNew = true;
+		}
+	}
+
+	// update flow stats
+	F->TotalPkt		+= 1;
+	F->TotalByte	+= Length;
+	F->FirstTS		= (F->FirstTS == 0) ? TS : F->FirstTS;
+	F->LastTS		=  TS;
+}
+
+//---------------------------------------------------------------------------------------------
+
+static void FlowDump(FILE* FileOut, u64 TS) 
+{
+	for (int i=0; i < s_FlowCnt; i++)
+	{
+		FlowRecord_t* Flow = &s_FlowList[i];	
+
+		fprintf(FileOut, "{\"TS\":\"%s\",%lli", FormatTS(TS), s_FlowCnt);
+
+		// print flow info
+		fprintf(FileOut, ",\"hash\":\"%08x%08x%08x%08x%08x\"",	Flow->SHA1[0],
+																Flow->SHA1[1],
+																Flow->SHA1[2],
+																Flow->SHA1[3],
+																Flow->SHA1[4]);
+
+		fprintf(FileOut, ",\"MACSrc\":\"%02x:%02x:%02x:%02x:%02x:%02x\",\"MACDst\":\"%02x:%02x:%02x:%02x:%02x:%02x\",\"MACProto\":%i",
+
+															Flow->EtherSrc[0],
+															Flow->EtherSrc[1],
+															Flow->EtherSrc[2],
+															Flow->EtherSrc[3],
+															Flow->EtherSrc[4],
+															Flow->EtherSrc[5],
+
+															Flow->EtherDst[0],
+															Flow->EtherDst[1],
+															Flow->EtherDst[2],
+															Flow->EtherDst[3],
+															Flow->EtherDst[4],
+															Flow->EtherDst[5],
+
+															Flow->EtherProto
+		);
+
+		fprintf(FileOut, ",\"VLAN.0\":%i,\"VLAN.1\":%i",  Flow->VLAN[0], Flow->VLAN[1]);
+		fprintf(FileOut, ",\"MPLS.0\":%i,\"MPLS.1\":%i",  Flow->MPLS[0], Flow->MPLS[1]);
+
+		fprintf(FileOut, ",\"IPv4.Src\":\"%i.%i.%i.%i\",\"IPv4.Dst\":\"%i.%i.%i.%i\" ",
+											Flow->IPSrc[0],
+											Flow->IPSrc[1],
+											Flow->IPSrc[2],
+											Flow->IPSrc[3],
+
+											Flow->IPDst[0],
+											Flow->IPDst[1],
+											Flow->IPDst[2],
+											Flow->IPDst[3]
+		);
+
+		fprintf(FileOut, ",\"Port.Src\":%i,\"Port.Dst\":%i",
+											Flow->PortSrc,
+											Flow->PortDst	
+		);
+
+		fprintf(FileOut, ",\"TotalPkt\":%lli,\"TotalByte\":%lli",
+											Flow->TotalPkt,
+											Flow->TotalByte	
+		);
+
+		fprintf(FileOut, "}\n");
+	}
+}
+
+//---------------------------------------------------------------------------------------------
+static void FlowReset(void)
+{
+	memset(s_FlowHash, 0, sizeof(FlowRecord_t*) * (2 << 20) );
+	memset(s_FlowList, 0, sizeof(FlowRecord_t) * s_FlowMax );
+
+	s_FlowCnt = 0;
+}
 
 //---------------------------------------------------------------------------------------------
 //
@@ -424,54 +616,22 @@ static void JSONFlow(FILE* FileOut, u8* DeviceName, u8* CaptureName, u64 PacketT
 	u32 SHA1State[5] = { 0, 0, 0, 0, 0 };
 	sha1_compress(SHA1State, (u8*)Flow);
 
+	// insert to flow table
+	FlowInsert(Flow, SHA1State, PktHeader->LengthWire, PacketTS);
 
-	// print flow info
-	fprintf(FileOut, "{\"hash\":\"%08x%08x%08x%08x%08x\"",	SHA1State[0],
-															SHA1State[1],
-															SHA1State[2],
-															SHA1State[3],
-															SHA1State[4]);
+	// purge the flow records every 100msec
+	static u64 LastPacketTS = 0;
+	s64 dTS = PacketTS - LastPacketTS;
+	if (dTS > 1e9)
+	{
+		LastPacketTS = PacketTS;
 
-	fprintf(FileOut, ",\"MACSrc\":\"%02x:%02x:%02x:%02x:%02x:%02x\",\"MACDst\":\"%02x:%02x:%02x:%02x:%02x:%02x\",\"MACProto\":%i",
+		//fprintf(FileOut, "TS %lli %lli\n", dTS, PacketTS);
+		FlowDump(FileOut, PacketTS);
 
-														Flow->EtherSrc[0],
-														Flow->EtherSrc[1],
-														Flow->EtherSrc[2],
-														Flow->EtherSrc[3],
-														Flow->EtherSrc[4],
-														Flow->EtherSrc[5],
-
-														Flow->EtherDst[0],
-														Flow->EtherDst[1],
-														Flow->EtherDst[2],
-														Flow->EtherDst[3],
-														Flow->EtherDst[4],
-														Flow->EtherDst[5],
-
-														Flow->EtherProto
-	);
-
-	fprintf(FileOut, ",\"VLAN.0\":%i,\"VLAN.1\":%i",  Flow->VLAN[0], Flow->VLAN[1]);
-	fprintf(FileOut, ",\"MPLS.0\":%i,\"MPLS.1\":%i",  Flow->MPLS[0], Flow->MPLS[1]);
-
-	fprintf(FileOut, ",\"IPv4.Src\":\"%i.%i.%i.%i\",\"IPv4.Dst\":\"%i.%i.%i.%i\" ",
-										Flow->IPSrc[0],
-										Flow->IPSrc[1],
-										Flow->IPSrc[2],
-										Flow->IPSrc[3],
-
-										Flow->IPDst[0],
-										Flow->IPDst[1],
-										Flow->IPDst[2],
-										Flow->IPDst[3]
-	);
-
-	fprintf(FileOut, ",\"Port.Src\":%i,\"Port.Dst\":%i",
-										Flow->PortSrc,
-										Flow->PortDst	
-	);
-
-	fprintf(FileOut, "\n");
+		// reset index and counts
+		FlowReset();
+	}
 }
 
 //---------------------------------------------------------------------------------------------
@@ -559,9 +719,6 @@ int main(int argc, char* argv[])
 
 	CycleCalibration();
 
-	//printf("FlowRecord: %i\n", sizeof(FlowRecord_t));
-	//assert(sizeof(FlowRecord_t) == 64);
-
 	FILE* FileIn 	= stdin;
 	FILE* FileOut 	= stdout;
 
@@ -584,7 +741,6 @@ int main(int argc, char* argv[])
 	case PCAPHEADER_MAGIC_USEC: fprintf(stderr, "PCAP Micro\n"); TScale = 1000; break;
 	}
 
-	u64 LastTS					= 0;
 	u64 NextPrintTS				= 0;
 
 	u8* 			Pkt			= malloc(1024*1024);	
@@ -594,6 +750,18 @@ int main(int argc, char* argv[])
 	u64				StartTSC		= rdtsc();
 	u64				LastTSC			= rdtsc();
 	u64				PCAPOffsetLast	= 0;
+	u64 			LastTS			= 0;
+
+	// allocate and clear flow index
+	s_FlowHash = (FlowRecord_t **)malloc( sizeof(FlowRecord_t *) * (2 << 20) );
+	assert(s_FlowHash != NULL);
+
+	// allocate statically allocated flow list
+	s_FlowList = (FlowRecord_t *)malloc (sizeof(FlowRecord_t) * s_FlowMax );
+	assert(s_FlowList != NULL);
+
+	// reset flow info
+	FlowReset();
 
 	while (!feof(FileIn))
 	{
@@ -644,7 +812,14 @@ int main(int argc, char* argv[])
 		{
 			JSONFlow(FileOut, DeviceName, CaptureName, PacketTS, PktHeader);
 		}
+
+		LastTS = PacketTS;
 	}
+
+	// output last flow data
+	FlowDump(FileOut, LastTS);
+
+	printf("Total Flows: %i\n", s_FlowCnt);
 }
 
 /* vim: set ts=4 sts=4 */
