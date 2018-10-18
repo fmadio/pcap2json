@@ -49,16 +49,22 @@ typedef struct FlowRecord_t
 	u16						PortSrc;			// tcp/udp port source
 	u16						PortDst;			// tcp/udp port source
 
-	u64						FirstTS;			// first TS seen
-	u64						LastTS;				// last TS seen 
+	u8						pad[21];			// SHA1 calcuated on the first 64B
+
+	//-------------------------------------------------------------------------------
 	
 	u32						SHA1[5];			// SHA of the flow
 
-	struct FlowRecord_t*	Next;				// next flow record
-	struct FlowRecord_t*	Prev;				// previous flow record
+	u64						FirstTS;			// first TS seen
+	u64						LastTS;				// last TS seen 
 
 	u64						TotalPkt;			// total packets
 	u64						TotalByte;			// total bytes
+
+	TCPHeader_t				TCPHeader;			// copy of the TCP Header
+
+	struct FlowRecord_t*	Next;				// next flow record
+	struct FlowRecord_t*	Prev;				// previous flow record
 
 } __attribute__((packed)) FlowRecord_t;
 
@@ -66,6 +72,9 @@ typedef struct FlowRecord_t
 // tunables
 bool			g_Verbose				= false;				// verbose print mode
 bool			g_JSON_MAC				= false;				// print MAC address in output
+
+static bool				s_IsJSONPacket	= false;				// output JSON packet format
+static bool				s_IsJSONFlow	= false;				// output JSON flow format
 
 static u64				s_FlowMax		= 4*1024*1024;			// maximum number of flows 
 static u64				s_FlowCnt		= 0;					// total number of flows
@@ -214,47 +223,89 @@ static void FlowInsert(FlowRecord_t* Flow, u32* SHA1, u32 Length, u64 TS)
 
 //---------------------------------------------------------------------------------------------
 
-static void FlowDump(FILE* FileOut, u8* DeviceName, u8* IndexName, u64 TS) 
+static void FlowDump(FILE* FileOut, u8* DeviceName, u8* IndexName, u64 TS, FlowRecord_t* Flow) 
 {
-	for (int i=0; i < s_FlowCnt; i++)
+	// ES header for bulk upload
+	fprintf(FileOut, "{\"index\":{\"_index\":\"%s\",\"_type\":\"flow_record\",\"_score\":null}}\n", IndexName);
+
+	// actual payload
+	fprintf(FileOut, "{\"timestamp\":%f,\"TS\":\"%s\",\"FlowCnt\":%lli,\"Device\":\"%s\"", TS/1e6, FormatTS(TS), s_FlowCnt, DeviceName);
+
+	// print flow info
+	fprintf(FileOut, ",\"hash\":\"%08x%08x%08x%08x%08x\"",	Flow->SHA1[0],
+															Flow->SHA1[1],
+															Flow->SHA1[2],
+															Flow->SHA1[3],
+															Flow->SHA1[4]);
+
+	fprintf(FileOut, ",\"MACSrc\":\"%02x:%02x:%02x:%02x:%02x:%02x\",\"MACDst\":\"%02x:%02x:%02x:%02x:%02x:%02x\"",
+
+														Flow->EtherSrc[0],
+														Flow->EtherSrc[1],
+														Flow->EtherSrc[2],
+														Flow->EtherSrc[3],
+														Flow->EtherSrc[4],
+														Flow->EtherSrc[5],
+
+														Flow->EtherDst[0],
+														Flow->EtherDst[1],
+														Flow->EtherDst[2],
+														Flow->EtherDst[3],
+														Flow->EtherDst[4],
+														Flow->EtherDst[5]
+	);
+
+	// output human readable Ether protocol info
+	u8 MACProto[128];
+	switch (Flow->EtherProto)
 	{
-		FlowRecord_t* Flow = &s_FlowList[i];	
+	case ETHER_PROTO_ARP:
+		strcpy(MACProto, "ARP");
+		break;
+	case ETHER_PROTO_IPV4:
+		strcpy(MACProto, "IPv4");
+		break;
+	case ETHER_PROTO_IPV6:
+		strcpy(MACProto, "IPv6");
+		break;
+	case ETHER_PROTO_VLAN:
+		strcpy(MACProto, "VLAN");
+		break;
+	case ETHER_PROTO_VNTAG:
+		strcpy(MACProto, "VNTAG");
+		break;
+	case ETHER_PROTO_MPLS:
+		strcpy(MACProto, "MPLS");
+		break;
+	default:
+		sprintf(MACProto, "%04x", Flow->EtherProto);
+		break;
+	}
+	fprintf(FileOut, ",\"MACProto\":\"%s\"", MACProto); 
 
-		// ES header for bulk upload
-		fprintf(FileOut, "{\"index\":{\"_index\":\"%s\",\"_type\":\"flow_record\",\"_score\":null}}\n", IndexName);
+	// print VLAN is valid
+	if (Flow->VLAN[0] != 0)
+	{
+		fprintf(FileOut, ",\"VLAN.0\":%i",  Flow->VLAN[0]);
+	}
+	if (Flow->VLAN[1] != 0)
+	{
+		fprintf(FileOut, ",\"VLAN.1\":%i",  Flow->VLAN[1]);
+	}
 
-		// actual payload
-		fprintf(FileOut, "{\"timestamp\":%f,\"TS\":\"%s\",\"FlowCnt\":%lli,\"Device\":\"%s\"", TS/1e6, FormatTS(TS), s_FlowCnt, DeviceName);
+	// print MPLS info
+	if (Flow->MPLS[0])
+	{
+		fprintf(FileOut, ",\"MPLS.0\":%i",  Flow->MPLS[0]);
+	}
+	if (Flow->MPLS[1])
+	{
+		fprintf(FileOut, ",\"MPLS.1\":%i",  Flow->MPLS[1]);
+	}
 
-		// print flow info
-		fprintf(FileOut, ",\"hash\":\"%08x%08x%08x%08x%08x\"",	Flow->SHA1[0],
-																Flow->SHA1[1],
-																Flow->SHA1[2],
-																Flow->SHA1[3],
-																Flow->SHA1[4]);
-
-		fprintf(FileOut, ",\"MACSrc\":\"%02x:%02x:%02x:%02x:%02x:%02x\",\"MACDst\":\"%02x:%02x:%02x:%02x:%02x:%02x\",\"MACProto\":%i",
-
-															Flow->EtherSrc[0],
-															Flow->EtherSrc[1],
-															Flow->EtherSrc[2],
-															Flow->EtherSrc[3],
-															Flow->EtherSrc[4],
-															Flow->EtherSrc[5],
-
-															Flow->EtherDst[0],
-															Flow->EtherDst[1],
-															Flow->EtherDst[2],
-															Flow->EtherDst[3],
-															Flow->EtherDst[4],
-															Flow->EtherDst[5],
-
-															Flow->EtherProto
-		);
-
-		fprintf(FileOut, ",\"VLAN.0\":%i,\"VLAN.1\":%i",  Flow->VLAN[0], Flow->VLAN[1]);
-		fprintf(FileOut, ",\"MPLS.0\":%i,\"MPLS.1\":%i",  Flow->MPLS[0], Flow->MPLS[1]);
-
+	// IPv4 proto info
+	if (Flow->EtherProto ==  ETHER_PROTO_IPV4)
+	{
 		fprintf(FileOut, ",\"IPv4.Src\":\"%i.%i.%i.%i\",\"IPv4.Dst\":\"%i.%i.%i.%i\" ",
 											Flow->IPSrc[0],
 											Flow->IPSrc[1],
@@ -267,18 +318,66 @@ static void FlowDump(FILE* FileOut, u8* DeviceName, u8* IndexName, u64 TS)
 											Flow->IPDst[3]
 		);
 
-		fprintf(FileOut, ",\"Port.Src\":%i,\"Port.Dst\":%i",
+		// convert to readable names for common protocols 
+		u8 IPProto[128];
+		switch (Flow->IPProto) 
+		{
+		case IPv4_PROTO_UDP:	strcpy(IPProto, "UDP");		break;
+		case IPv4_PROTO_TCP:	strcpy(IPProto, "TCP");		break;
+		case IPv4_PROTO_IGMP:	strcpy(IPProto, "IGMP"); 	break;
+		case IPv4_PROTO_ICMP:	strcpy(IPProto, "ICMP"); 	break;
+		case IPv4_PROTO_GRE:	strcpy(IPProto, "GRE"); 	break;
+		case IPv4_PROTO_VRRP:	strcpy(IPProto, "VRRP"); 	break;
+		default:
+			sprintf(IPProto, "%02x", Flow->IPProto);
+			break;
+		}
+		fprintf(FileOut, ",\"IPv4.Proto\":\"%s\"", IPProto);
+
+		// per protocol info
+		switch (Flow->IPProto)
+		{
+		case IPv4_PROTO_UDP:
+		{
+			fprintf(FileOut, ",\"UDP.Port.Src\":%i,\"UDP.Port.Dst\":%i",
 											Flow->PortSrc,
 											Flow->PortDst	
-		);
+			);
+		}
+		break;
 
-		fprintf(FileOut, ",\"TotalPkt\":%lli,\"TotalByte\":%lli",
-											Flow->TotalPkt,
-											Flow->TotalByte	
-		);
-
-		fprintf(FileOut, "}\n");
+		case IPv4_PROTO_TCP:
+		{
+			if (s_IsJSONPacket)
+			{
+				TCPHeader_t* TCP = &Flow->TCPHeader; 
+				u16 Flags = swap16(TCP->Flags);
+				fprintf(FileOut,",\"TCP.SeqNo\":%u,\"TCP.AckNo\":%u,\"TCP.FIN\":%i,\"TCP.SYN\":%i,\"TCP.RST\":%i,\"TCP.PSH\":%i,\"TCP.ACK\":%i,\"TCP.Window\":%i",
+						swap32(TCP->SeqNo),
+						swap32(TCP->AckNo),
+						TCP_FLAG_FIN(Flags),
+						TCP_FLAG_SYN(Flags),
+						TCP_FLAG_RST(Flags),
+						TCP_FLAG_PSH(Flags),
+						TCP_FLAG_ACK(Flags),
+						swap16(TCP->Window)
+				);
+			}
+			fprintf(FileOut, ",\"TCP.Port.Src\":%i,\"TCP.Port.Dst\":%i",
+										Flow->PortSrc,
+										Flow->PortDst	
+			);
+		}
+		break;
+		}
 	}
+
+	fprintf(FileOut, ",\"TotalPkt\":%lli,\"TotalByte\":%lli",
+									Flow->TotalPkt,
+									Flow->TotalByte	
+	);
+
+	fprintf(FileOut, "}\n");
 }
 
 //---------------------------------------------------------------------------------------------
@@ -294,15 +393,16 @@ static void FlowReset(void)
 //
 // output packet metadata in JSON format
 //
+/*
 static void JSONPacket(FILE* FileOut, u8* DeviceName, u8* CaptureName, u64 PacketTS, PCAPPacket_t* PktHeader)
 {
 	// ES header for bulk upload
 	fprintf(FileOut, "{\"index\":{\"_index\":\"%s\",\"_type\":\"pcap_file\",\"_score\":null}}\n", CaptureName);
 
 	// pcap meta data
-	fprintf(FileOut, "{\"Device\":\"%s\",\"EpochTS\":%lli,\"CaptureSize\":%6i,\"WireSize\":%6i", 
+	fprintf(FileOut, "{\"Device\":\"%s\",\"timestamp\":%lli,\"CaptureSize\":%6i,\"WireSize\":%6i", 
 							DeviceName, 
-							PacketTS, 
+							PacketTS / 1e6, 
 							PktHeader->LengthCapture, 
 							PktHeader->LengthWire); 
 
@@ -312,7 +412,7 @@ static void JSONPacket(FILE* FileOut, u8* DeviceName, u8* CaptureName, u64 Packe
 	u16 EtherProto 	= swap16(Ether->Proto);
 	if (g_JSON_MAC)
 	{
-		fprintf(FileOut, ",\"MAC.Src\":\"%02x:%02x:%02x:%02x:%02x:%02x\",\"MAC.Dst\":\"%02x:%02x:%02x:%02x:%02x:%02x\",\"MAC.Proto\":%6i",
+		fprintf(FileOut, ",\"MAC.Src\":\"%02x:%02x:%02x:%02x:%02x:%02x\",\"MAC.Dst\":\"%02x:%02x:%02x:%02x:%02x:%02x\"",
 				Ether->Dst[0],
 				Ether->Dst[1],
 				Ether->Dst[2],
@@ -325,9 +425,7 @@ static void JSONPacket(FILE* FileOut, u8* DeviceName, u8* CaptureName, u64 Packe
 				Ether->Src[2],
 				Ether->Src[3],
 				Ether->Src[4],
-				Ether->Src[5],
-
-				EtherProto	
+				Ether->Src[5]
 		);
 	}
 
@@ -362,6 +460,9 @@ static void JSONPacket(FILE* FileOut, u8* DeviceName, u8* CaptureName, u64 Packe
 			EtherProto 		= swap16(Proto[0]);
 			Payload 		= (u8*)(Proto + 1);
 		}
+
+		// final VLAN tags
+		fprintf(FileOut,",\"VLAN.ID\":%i", VLANTag_ID(Header));
 	}
 
 	// MPLS decoder	
@@ -389,7 +490,7 @@ static void JSONPacket(FILE* FileOut, u8* DeviceName, u8* CaptureName, u64 Packe
 			MPLSDepth++;
 		}
 
-		fprintf(FileOut,",\"MPLSLabel\":%4i,\"MPLS.BOS\":%i,\"MPLS.TC\":%i,\"MPLS.L2\":%i,\"MPLS.TTL\":%i,\"MPLSDepth\":%i",
+		fprintf(FileOut,",\"MPLS.Label\":%4i,\"MPLS.BOS\":%i,\"MPLS.TC\":%i,\"MPLS.L2\":%i,\"MPLS.TTL\":%i,\"MPLSDepth\":%i",
 				MPLS_LABEL(MPLS),
 				MPLS->BOS,	
 				MPLS->TC,
@@ -447,6 +548,7 @@ static void JSONPacket(FILE* FileOut, u8* DeviceName, u8* CaptureName, u64 Packe
 			);
 		}
 		break;
+
 		case IPv4_PROTO_UDP:
 		{
 			UDPHeader_t* UDP = (UDPHeader_t*)(Payload + IPOffset);
@@ -461,12 +563,13 @@ static void JSONPacket(FILE* FileOut, u8* DeviceName, u8* CaptureName, u64 Packe
 	}
 	fprintf(FileOut, "}\n");
 }
+*/
 
 //---------------------------------------------------------------------------------------------
 //
 // output flow information
 //
-static void JSONFlow(FILE* FileOut, u8* DeviceName, u8* CaptureName, u64 PacketTS, PCAPPacket_t* PktHeader)
+static void DecodePacket(FILE* FileOut, u8* DeviceName, u8* CaptureName, u64 PacketTS, PCAPPacket_t* PktHeader)
 {
 	FlowRecord_t	sFlow;	
 	FlowRecord_t*	Flow = &sFlow;	
@@ -576,6 +679,9 @@ static void JSONFlow(FILE* FileOut, u8* DeviceName, u8* CaptureName, u64 PacketT
 		}
 	}
 
+	// update final ethernet protocol
+	Flow->EtherProto	= EtherProto;
+
 	// ipv4 info
 	if (EtherProto == ETHER_PROTO_IPV4)
 	{
@@ -603,6 +709,9 @@ static void JSONFlow(FILE* FileOut, u8* DeviceName, u8* CaptureName, u64 PacketT
 
 			Flow->PortSrc	= swap16(TCP->PortSrc);
 			Flow->PortDst	= swap16(TCP->PortDst);
+
+			// make a copy of the tcp header 
+			Flow->TCPHeader = TCP[0];
 		}
 		break;
 		case IPv4_PROTO_UDP:
@@ -617,24 +726,44 @@ static void JSONFlow(FILE* FileOut, u8* DeviceName, u8* CaptureName, u64 PacketT
 	}
 
 	// generate SHA1
+	// nice way to grab all packets for a single flow, search for the sha1 hash	
 	u32 SHA1State[5] = { 0, 0, 0, 0, 0 };
 	sha1_compress(SHA1State, (u8*)Flow);
 
-	// insert to flow table
-	FlowInsert(Flow, SHA1State, PktHeader->LengthWire, PacketTS);
+	Flow->SHA1[0] = SHA1State[0];
+	Flow->SHA1[1] = SHA1State[1];
+	Flow->SHA1[2] = SHA1State[2];
+	Flow->SHA1[3] = SHA1State[3];
+	Flow->SHA1[4] = SHA1State[4];
 
-	// purge the flow records every 100msec
-	static u64 LastPacketTS = 0;
-	s64 dTS = PacketTS - LastPacketTS;
-	if (dTS > 1e9)
+	// packet mode then print the flow
+	if (s_IsJSONPacket)
 	{
-		LastPacketTS = PacketTS;
+		FlowDump(FileOut, DeviceName, CaptureName, PacketTS, Flow);
+	}
 
-		//fprintf(FileOut, "TS %lli %lli\n", dTS, PacketTS);
-		FlowDump(FileOut, DeviceName, CaptureName, PacketTS);
+	// update the flow records
+	if (s_IsJSONFlow)
+	{
+		// insert to flow table
+		FlowInsert(Flow, SHA1State, PktHeader->LengthWire, PacketTS);
 
-		// reset index and counts
-		FlowReset();
+		// purge the flow records every 100msec
+		static u64 LastPacketTS = 0;
+		s64 dTS = PacketTS - LastPacketTS;
+		if (dTS > 1e9)
+		{
+			LastPacketTS = PacketTS;
+			for (int i=0; i < s_FlowCnt; i++)
+			{
+				FlowRecord_t* Flow = &s_FlowList[i];	
+
+				FlowDump(FileOut, DeviceName, CaptureName, PacketTS, Flow);
+			}
+
+			// reset index and counts
+			FlowReset();
+		}
 	}
 }
 
@@ -676,9 +805,6 @@ int main(int argc, char* argv[])
 	u8 CaptureName[256];
 	sprintf(CaptureName, "%s_%s", DeviceName, ClockStr); 
 
-	bool IsJSONPacket	= false;
-	bool IsJSONFlow		= false;
-
 	for (int i=0; i < argc; i++)
 	{
 		if (strcmp(argv[i], "-v") == 0)
@@ -690,16 +816,14 @@ int main(int argc, char* argv[])
 		if (strcmp(argv[i], "--json-packet") == 0)
 		{
 			fprintf(stderr, "Write JSON Packet meta data\n");
-			IsJSONPacket = true;	
+			s_IsJSONPacket = true;	
 		}
 		// output json flow data 
 		if (strcmp(argv[i], "--json-flow") == 0)
 		{
 			fprintf(stderr, "Write JSON Flow meta data\n");
-			IsJSONFlow = true;	
+			s_IsJSONFlow = true;	
 		}
-
-
 
 		// include MAC address
 		if (strcmp(argv[i], "--mac") == 0)
@@ -808,25 +932,21 @@ int main(int argc, char* argv[])
 
 
 		// output per packet JSON meta data
-		if (IsJSONPacket)
-		{
-			JSONPacket(FileOut, DeviceName, CaptureName, PacketTS, PktHeader);
-		}
-		if (IsJSONFlow)
-		{
-			JSONFlow(FileOut, DeviceName, CaptureName, PacketTS, PktHeader);
-		}
+		DecodePacket(FileOut, DeviceName, CaptureName, PacketTS, PktHeader);
 
 		LastTS = PacketTS;
 	}
 
 	// output last flow data
-	if (IsJSONFlow)
+	if (s_IsJSONFlow)
 	{
-		FlowDump(FileOut, DeviceName, CaptureName, LastTS);
+		for (int i=0; i < s_FlowCnt; i++)
+		{
+			FlowRecord_t* Flow = &s_FlowList[i];	
+			FlowDump(FileOut, DeviceName, CaptureName, LastTS, Flow);
+		}
+		printf("Total Flows: %i\n", s_FlowCnt);
 	}
-
-	printf("Total Flows: %i\n", s_FlowCnt);
 }
 
 /* vim: set ts=4 sts=4 */

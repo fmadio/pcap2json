@@ -28,5 +28,3 @@ while (IsExit != true) do
 	os.execute(Cmd)
 end
 
-
-

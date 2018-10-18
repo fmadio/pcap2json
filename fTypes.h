@@ -420,6 +420,7 @@ typedef struct
 
 } __attribute__((packed)) fEther_t;
 
+#define ETHER_PROTO_ARP			0x0806 
 #define ETHER_PROTO_IPV4		0x0800 
 #define ETHER_PROTO_IPV6		0x86dd 
 #define ETHER_PROTO_IP  		0x0888		// special made up type indicating ipv4 or ipv6 
@@ -454,8 +455,12 @@ typedef struct
 
 } __attribute__((packed)) IP4Header_t;
 
+#define IPv4_PROTO_ICMP			1
+#define IPv4_PROTO_IGMP			2
 #define IPv4_PROTO_TCP			6
 #define IPv4_PROTO_UDP			17	
+#define IPv4_PROTO_GRE			0x2f	
+#define IPv4_PROTO_VRRP			0x70	
 
 #define TCP_FLAG_FIN(a) ((a >>(8+0))&1)
 #define TCP_FLAG_SYN(a) ((a >>(8+1))&1)
