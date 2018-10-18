@@ -16,7 +16,6 @@ example converting a pcap to json:
 cat /tmp/test.pcap | pcap2json > test.json
 
 Command Line Arguments:
- --mac                  : include MAC information into the JSON output
  --capture-name <name>  : capture name to use for ES Index data
  --json-packet          : write JSON packet data
  --json-flow            : write JSON flow data
