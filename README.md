@@ -9,7 +9,7 @@ Used for importing PCAP meta data into Elastic Search
 fmad engineering all rights reserved
 http://www.fmad.io
 
-pcap2json is a high speed PCAP meta data extraction utility
+pcap2json is a high speed PCAP meta data extraction utility for import into Elastic Search
 
 example converting a pcap to json:
 
@@ -20,17 +20,30 @@ Command Line Arguments:
 
 ```
 
+# Generate ElasticSearch mapping
+
+/usr/local/bin/curl -H "Content-Type: application/json"  -XPUT "192.168.2.115:9200/interop17?pretty" --data-binary "@mappings.flow.json"
+
+# Upload packet data directly into Elastic stack
+
+
+$ cat /mnt/store1/tmp/interop17_hotstage_20170609_133953.717.953.280.pcap | ./pcap2json  --json-packet --capture-name interop17 | ./bulk_upload.lua
+
+The bulk_upload.lua script saves the output of pcap2json every 1000 lines, then issues a ElasticSearch Bulk curl POST request for those 1000 lines. And repeats until there is no data left.
+
+
 # Example output
 
 ```json
-{"Device":"fmadio20v2-149","EpochTS":1407517230654141000,"CaptureSize":   167,"WireSize":   167,"MAC.Src":"00:16:3e:ef:36:38","MAC.Dst":"00:10:18:72:00:3c","MAC.Proto":002048,"IP.Proto":  17,"IP.Src":"10.5.9.1","IP.Dst":"10.5.9.2","UDP.PortSrc":53,"UDP.PortDst":54655}
-{"Device":"fmadio20v2-149","EpochTS":1407517230654147000,"CaptureSize":   135,"WireSize":   135,"MAC.Src":"00:16:3e:ef:36:38","MAC.Dst":"00:10:18:72:00:3c","MAC.Proto":002048,"IP.Proto":  17,"IP.Src":"10.5.9.1","IP.Dst":"10.5.9.2","UDP.PortSrc":53,"UDP.PortDst":54655}
-{"Device":"fmadio20v2-149","EpochTS":1407517230655239000,"CaptureSize":   150,"WireSize":   150,"MAC.Src":"e0:3f:49:6a:af:a1","MAC.Dst":"00:10:18:72:00:3c","MAC.Proto":002048,"IP.Proto":   6,"IP.Src":"54.183.128.64","IP.Dst":"10.5.9.102","TCP.PortSrc":22222,"TCP.PortDst":51697,"TCP.SeqNo":2728668290,"TCP.AckNo":4050065242,"TCP.FIN":0,"TCP.SYN":0,"TCP.RST":0,"TCP.PSH":0,"TCP.ACK":0,"TCP.Window":1452}
-{"Device":"fmadio20v2-149","EpochTS":1407517230657285000,"CaptureSize":   150,"WireSize":   150,"MAC.Src":"00:10:18:72:00:3c","MAC.Dst":"e0:3f:49:6a:af:a1","MAC.Proto":002048,"IP.Proto":   6,"IP.Src":"10.5.9.102","IP.Dst":"54.183.128.64","TCP.PortSrc":51697,"TCP.PortDst":22222,"TCP.SeqNo":4050065242,"TCP.AckNo":2728668374,"TCP.FIN":0,"TCP.SYN":0,"TCP.RST":0,"TCP.PSH":0,"TCP.ACK":0,"TCP.Window":1444}
-{"Device":"fmadio20v2-149","EpochTS":1407517230679346000,"CaptureSize":    66,"WireSize":    66,"MAC.Src":"e0:3f:49:6a:af:a1","MAC.Dst":"00:10:18:72:00:3c","MAC.Proto":002048,"IP.Proto":   6,"IP.Src":"54.183.128.64","IP.Dst":"10.5.9.102","TCP.PortSrc":22222,"TCP.PortDst":51697,"TCP.SeqNo":2728668374,"TCP.AckNo":4050065326,"TCP.FIN":0,"TCP.SYN":0,"TCP.RST":0,"TCP.PSH":0,"TCP.ACK":0,"TCP.Window":1452}
-{"Device":"fmadio20v2-149","EpochTS":1407517230683090000,"CaptureSize":    84,"WireSize":    84,"MAC.Src":"00:10:18:72:00:3c","MAC.Dst":"00:16:3e:ef:36:38","MAC.Proto":002048,"IP.Proto":  17,"IP.Src":"10.5.9.2","IP.Dst":"10.5.9.1","UDP.PortSrc":33168,"UDP.PortDst":53}
-{"Device":"fmadio20v2-149","EpochTS":1407517230683095000,"CaptureSize":    84,"WireSize":    84,"MAC.Src":"00:10:18:72:00:3c","MAC.Dst":"00:16:3e:ef:36:38","MAC.Proto":002048,"IP.Proto":  17,"IP.Src":"10.5.9.2","IP.Dst":"10.5.9.1","UDP.PortSrc":33168,"UDP.PortDst":53}
-{"Device":"fmadio20v2-149","EpochTS":1407517230683390000,"CaptureSize":   167,"WireSize":   167,"MAC.Src":"00:16:3e:ef:36:38","MAC.Dst":"00:10:18:72:00:3c","MAC.Proto":002048,"IP.Proto":  17,"IP.Src":"10.5.9.1","IP.Dst":"10.5.9.2","UDP.PortSrc":53,"UDP.PortDst":33168}
-{"Device":"fmadio20v2-149","EpochTS":1407517230683392000,"CaptureSize":   135,"WireSize":   135,"MAC.Src":"00:16:3e:ef:36:38","MAC.Dst":"00:10:18:72:00:3c","MAC.Proto":002048,"IP.Proto":  17,"IP.Src":"10.5.9.1","IP.Dst":"10.5.9.2","UDP.PortSrc":53,"UDP.PortDst":33168}
+{"index":{"_index":"interop17","_type":"flow_record","_score":null}}
+{"timestamp":1497015814284.541992,"TS":"13:43:34.284.542.042","FlowCnt":0,"Device":"fmadio20v2-149","hash":"d80b04ebb1a14bdc72ed17cde664cda755b39d8d","MACSrc":"7c:e2:ca:bd:97:d9","MACDst":"00:0e:52:80:00:16","MACProto":"IPv4","IPv4.Src":"150.100.29.14","IPv4.Dst":"130.128.19.30" ,"IPv4.Proto":"UDP","UDP.Port.Src":10662,"UDP.Port.Dst":5004,"TotalPkt":0,"TotalByte":0}
+{"index":{"_index":"interop17","_type":"flow_record","_score":null}}
+{"timestamp":1497015814284.543213,"TS":"13:43:34.284.543.223","FlowCnt":0,"Device":"fmadio20v2-149","hash":"d80b04ebb1a14bdc72ed17cde664cda755b39d8d","MACSrc":"7c:e2:ca:bd:97:d9","MACDst":"00:0e:52:80:00:16","MACProto":"IPv4","IPv4.Src":"150.100.29.14","IPv4.Dst":"130.128.19.30" ,"IPv4.Proto":"UDP","UDP.Port.Src":10662,"UDP.Port.Dst":5004,"TotalPkt":0,"TotalByte":0}
+{"index":{"_index":"interop17","_type":"flow_record","_score":null}}
+{"timestamp":1497015814284.544189,"TS":"13:43:34.284.544.362","FlowCnt":0,"Device":"fmadio20v2-149","hash":"d80b04ebb1a14bdc72ed17cde664cda755b39d8d","MACSrc":"7c:e2:ca:bd:97:d9","MACDst":"00:0e:52:80:00:16","MACProto":"IPv4","IPv4.Src":"150.100.29.14","IPv4.Dst":"130.128.19.30" ,"IPv4.Proto":"UDP","UDP.Port.Src":10662,"UDP.Port.Dst":5004,"TotalPkt":0,"TotalByte":0}
+{"index":{"_index":"interop17","_type":"flow_record","_score":null}}
+{"timestamp":1497015814284.549072,"TS":"13:43:34.284.548.992","FlowCnt":0,"Device":"fmadio20v2-149","hash":"d80b04ebb1a14bdc72ed17cde664cda755b39d8d","MACSrc":"7c:e2:ca:bd:97:d9","MACDst":"00:0e:52:80:00:16","MACProto":"IPv4","IPv4.Src":"150.100.29.14","IPv4.Dst":"130.128.19.30" ,"IPv4.Proto":"UDP","UDP.Port.Src":10662,"UDP.Port.Dst":5004,"TotalPkt":0,"TotalByte":0}
+{"index":{"_index":"interop17","_type":"flow_record","_score":null}}
+{"timestamp":1497015814284.549316,"TS":"13:43:34.284.549.405","FlowCnt":0,"Device":"fmadio20v2-149","hash":"b6183e3af206ac1c43eefb261f4ec03811ff1a45","MACSrc":"7c:e2:ca:bd:97:d9","MACDst":"00:0e:52:80:00:16","MACProto":"IPv4","IPv4.Src":"45.0.191.123","IPv4.Dst":"205.177.226.213" ,"IPv4.Proto":"UDP","UDP.Port.Src":10500,"UDP.Port.Dst":20986,"TotalPkt":0,"TotalByte":0}
 ```
 
