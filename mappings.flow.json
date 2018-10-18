@@ -1,0 +1,110 @@
+{
+    "mappings" : {
+      "flow_record" : {
+        "properties" : {
+          "Device" : {
+            "type" : "text",
+            "fields" : {
+              "keyword" : {
+                "type" : "keyword",
+                "ignore_above" : 256
+              }
+            }
+          },
+          "FlowCnt" : {
+            "type" : "long"
+          },
+          "IPv4" : {
+            "properties" : {
+              "Dst" : {
+                "type" : "ip"
+                }
+              ,
+              "Src" : {
+                "type" : "ip"
+              }
+            }
+          },
+          "MACDst" : {
+            "type" : "text",
+            "fields" : {
+              "keyword" : {
+                "type" : "keyword",
+                "ignore_above" : 256
+              }
+            }
+          },
+          "MACProto" : {
+            "type" : "string"
+          },
+          "MACSrc" : {
+            "type" : "text",
+            "fields" : {
+              "keyword" : {
+                "type" : "keyword",
+                "ignore_above" : 256
+              }
+            }
+          },
+          "MPLS" : {
+            "properties" : {
+              "0" : {
+                "type" : "long"
+              },
+              "1" : {
+                "type" : "long"
+              }
+            }
+          },
+          "Port" : {
+            "properties" : {
+              "Dst" : {
+                "type" : "long"
+              },
+              "Src" : {
+                "type" : "long"
+              }
+            }
+          },
+          "TS" : {
+            "type" : "text",
+            "fields" : {
+              "keyword" : {
+                "type" : "keyword",
+                "ignore_above" : 256
+              }
+            }
+          },
+          "TotalByte" : {
+            "type" : "long"
+          },
+          "TotalPkt" : {
+            "type" : "long"
+          },
+          "VLAN" : {
+            "properties" : {
+              "0" : {
+                "type" : "long"
+              },
+              "1" : {
+                "type" : "long"
+              }
+            }
+          },
+          "hash" : {
+            "type" : "text",
+            "fields" : {
+              "keyword" : {
+                "type" : "keyword",
+                "ignore_above" : 256
+              }
+            }
+          },
+          "timestamp" : {
+            "type" : "date",
+            "format" : "epoch_millis"
+          }
+        }
+      }
+    }
+}

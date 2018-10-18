@@ -214,17 +214,17 @@ static void FlowInsert(FlowRecord_t* Flow, u32* SHA1, u32 Length, u64 TS)
 
 //---------------------------------------------------------------------------------------------
 
-static void FlowDump(FILE* FileOut, u8* DeviceName, u8* CaptureName, u64 TS) 
+static void FlowDump(FILE* FileOut, u8* DeviceName, u8* IndexName, u64 TS) 
 {
 	for (int i=0; i < s_FlowCnt; i++)
 	{
 		FlowRecord_t* Flow = &s_FlowList[i];	
 
 		// ES header for bulk upload
-		fprintf(FileOut, "{\"index\":{\"_index\":\"%s\",\"_type\":\"flow_record\",\"_score\":null}}\n", CaptureName);
+		fprintf(FileOut, "{\"index\":{\"_index\":\"%s\",\"_type\":\"flow_record\",\"_score\":null}}\n", IndexName);
 
 		// actual payload
-		fprintf(FileOut, "{\"TS\":\"%s\",%lli,\"Device\":\"%s\"", FormatTS(TS), s_FlowCnt, DeviceName);
+		fprintf(FileOut, "{\"timestamp\":%f,\"TS\":\"%s\",\"FlowCnt\":%lli,\"Device\":\"%s\"", TS/1e6, FormatTS(TS), s_FlowCnt, DeviceName);
 
 		// print flow info
 		fprintf(FileOut, ",\"hash\":\"%08x%08x%08x%08x%08x\"",	Flow->SHA1[0],
