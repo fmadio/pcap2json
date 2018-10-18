@@ -70,8 +70,7 @@ typedef struct FlowRecord_t
 
 //---------------------------------------------------------------------------------------------
 // tunables
-bool			g_Verbose				= false;				// verbose print mode
-bool			g_JSON_MAC				= false;				// print MAC address in output
+bool					g_Verbose		= false;				// verbose print mode
 
 static bool				s_IsJSONPacket	= false;				// output JSON packet format
 static bool				s_IsJSONFlow	= false;				// output JSON flow format
@@ -222,6 +221,9 @@ static void FlowInsert(FlowRecord_t* Flow, u32* SHA1, u32 Length, u64 TS)
 }
 
 //---------------------------------------------------------------------------------------------
+// write a flow record out as a JSON file
+// this is designed for ES bulk data upload using the 
+// mappings.json file as the index 
 
 static void FlowDump(FILE* FileOut, u8* DeviceName, u8* IndexName, u64 TS, FlowRecord_t* Flow) 
 {
@@ -381,6 +383,7 @@ static void FlowDump(FILE* FileOut, u8* DeviceName, u8* IndexName, u64 TS, FlowR
 }
 
 //---------------------------------------------------------------------------------------------
+// clear out the flow records 
 static void FlowReset(void)
 {
 	memset(s_FlowHash, 0, sizeof(FlowRecord_t*) * (2 << 20) );
@@ -391,183 +394,7 @@ static void FlowReset(void)
 
 //---------------------------------------------------------------------------------------------
 //
-// output packet metadata in JSON format
-//
-/*
-static void JSONPacket(FILE* FileOut, u8* DeviceName, u8* CaptureName, u64 PacketTS, PCAPPacket_t* PktHeader)
-{
-	// ES header for bulk upload
-	fprintf(FileOut, "{\"index\":{\"_index\":\"%s\",\"_type\":\"pcap_file\",\"_score\":null}}\n", CaptureName);
-
-	// pcap meta data
-	fprintf(FileOut, "{\"Device\":\"%s\",\"timestamp\":%lli,\"CaptureSize\":%6i,\"WireSize\":%6i", 
-							DeviceName, 
-							PacketTS / 1e6, 
-							PktHeader->LengthCapture, 
-							PktHeader->LengthWire); 
-
-	// ether header info
-	fEther_t* Ether = (fEther_t*)(PktHeader + 1);	
-	u8* Payload 	= (u8*)(Ether + 1);
-	u16 EtherProto 	= swap16(Ether->Proto);
-	if (g_JSON_MAC)
-	{
-		fprintf(FileOut, ",\"MAC.Src\":\"%02x:%02x:%02x:%02x:%02x:%02x\",\"MAC.Dst\":\"%02x:%02x:%02x:%02x:%02x:%02x\"",
-				Ether->Dst[0],
-				Ether->Dst[1],
-				Ether->Dst[2],
-				Ether->Dst[3],
-				Ether->Dst[4],
-				Ether->Dst[5],
-
-				Ether->Src[0],
-				Ether->Src[1],
-				Ether->Src[2],
-				Ether->Src[3],
-				Ether->Src[4],
-				Ether->Src[5]
-		);
-	}
-
-	// VLAN decoder
-	if (EtherProto == ETHER_PROTO_VLAN)
-	{
-		VLANTag_t* Header 	= (VLANTag_t*)(Ether+1);
-		u16* Proto 			= (u16*)(Header + 1);
-
-		// update to the acutal proto / ipv4 header
-		EtherProto 			= swap16(Proto[0]);
-		Payload 			= (u8*)(Proto + 1);
-
-		// VNTag unpack (BME) 
-		if (EtherProto == ETHER_PROTO_VNTAG)
-		{
-			VNTag_t* Header = (VNTag_t*)(Proto+1);
-			Proto 			= (u16*)(Header + 1);
-
-			// update to the acutal proto / ipv4 header
-			EtherProto 		= swap16(Proto[0]);
-			Payload 		= (u8*)(Proto + 1);
-		}
-
-		// is it double tagged ? 
-		if (EtherProto == ETHER_PROTO_VLAN)
-		{
-			Header 			= (VLANTag_t*)(Proto+1);
-			Proto 			= (u16*)(Header + 1);
-
-			// update to the acutal proto / ipv4 header
-			EtherProto 		= swap16(Proto[0]);
-			Payload 		= (u8*)(Proto + 1);
-		}
-
-		// final VLAN tags
-		fprintf(FileOut,",\"VLAN.ID\":%i", VLANTag_ID(Header));
-	}
-
-	// MPLS decoder	
-	if (EtherProto == ETHER_PROTO_MPLS)
-	{
-		MPLSHeader_t* MPLS = (MPLSHeader_t*)(Payload);
-
-		u32 MPLSDepth = 0;
-
-		// for now only process outer tag
-		// assume there is a sane limint on the encapsulation count
-		if (!MPLS->BOS)
-		{
-			MPLS += 1;
-			MPLSDepth++;
-		}
-		if (!MPLS->BOS)
-		{
-			MPLS += 1;
-			MPLSDepth++;
-		}
-		if (!MPLS->BOS)
-		{
-			MPLS += 1;
-			MPLSDepth++;
-		}
-
-		fprintf(FileOut,",\"MPLS.Label\":%4i,\"MPLS.BOS\":%i,\"MPLS.TC\":%i,\"MPLS.L2\":%i,\"MPLS.TTL\":%i,\"MPLSDepth\":%i",
-				MPLS_LABEL(MPLS),
-				MPLS->BOS,	
-				MPLS->TC,
-				MPLS->L2,
-				MPLS->TTL,
-				MPLSDepth
-		);
-
-		// update to next header
-		if (MPLS->BOS)
-		{
-			EtherProto = ETHER_PROTO_IPV4;
-			Payload = (u8*)(MPLS + 1);
-		}
-	}
-
-	// ipv4 info
-	if (EtherProto == ETHER_PROTO_IPV4)
-	{
-		IP4Header_t* IP4 = (IP4Header_t*)Payload;
-		fprintf(FileOut,",\"IP.Proto\":%4i,\"IP.Src\":\"%i.%i.%i.%i\",\"IP.Dst\":\"%i.%i.%i.%i\"", 
-				IP4->Proto,
-				IP4->Src.IP[0],
-				IP4->Src.IP[1],
-				IP4->Src.IP[2],
-				IP4->Src.IP[3],
-
-				IP4->Dst.IP[0],
-				IP4->Dst.IP[1],
-				IP4->Dst.IP[2],
-				IP4->Dst.IP[3]
-		);
-
-		// IPv4 protocol decoders 
-		u32 IPOffset = (IP4->Version & 0x0f)*4; 
-		switch (IP4->Proto)
-		{
-		case IPv4_PROTO_TCP:
-		{
-			TCPHeader_t* TCP = (TCPHeader_t*)(Payload + IPOffset);
-
-			u16 Flags = swap16(TCP->Flags);
-
-			fprintf(FileOut,",\"TCP.PortSrc\":%i,\"TCP.PortDst\":%i,\"TCP.SeqNo\":%u,\"TCP.AckNo\":%u,\"TCP.FIN\":%i,\"TCP.SYN\":%i,\"TCP.RST\":%i,\"TCP.PSH\":%i,\"TCP.ACK\":%i,\"TCP.Window\":%i",
-					swap16(TCP->PortSrc),
-					swap16(TCP->PortDst),
-					swap32(TCP->SeqNo),
-					swap32(TCP->AckNo),
-					TCP_FLAG_FIN(Flags),
-					TCP_FLAG_SYN(Flags),
-					TCP_FLAG_RST(Flags),
-					TCP_FLAG_PSH(Flags),
-					TCP_FLAG_ACK(Flags),
-					swap16(TCP->Window)	
-			);
-		}
-		break;
-
-		case IPv4_PROTO_UDP:
-		{
-			UDPHeader_t* UDP = (UDPHeader_t*)(Payload + IPOffset);
-
-			fprintf(FileOut,",\"UDP.PortSrc\":%i,\"UDP.PortDst\":%i",
-					swap16(UDP->PortSrc),
-					swap16(UDP->PortDst)
-			);
-		}
-		break;
-		}
-	}
-	fprintf(FileOut, "}\n");
-}
-*/
-
-//---------------------------------------------------------------------------------------------
-//
-// output flow information
+// parse a packet and generate a flow record 
 //
 static void DecodePacket(FILE* FileOut, u8* DeviceName, u8* CaptureName, u64 PacketTS, PCAPPacket_t* PktHeader)
 {
@@ -727,6 +554,9 @@ static void DecodePacket(FILE* FileOut, u8* DeviceName, u8* CaptureName, u64 Pac
 
 	// generate SHA1
 	// nice way to grab all packets for a single flow, search for the sha1 hash	
+	// NOTE: FlowRecord_t setup so the first 64B contains only the flow info
+	//       with packet and housekeeping info stored after. sha1_compress
+	//       runs on the first 64B only 
 	u32 SHA1State[5] = { 0, 0, 0, 0, 0 };
 	sha1_compress(SHA1State, (u8*)Flow);
 
@@ -736,7 +566,7 @@ static void DecodePacket(FILE* FileOut, u8* DeviceName, u8* CaptureName, u64 Pac
 	Flow->SHA1[3] = SHA1State[3];
 	Flow->SHA1[4] = SHA1State[4];
 
-	// packet mode then print the flow
+	// packet mode then print record as a packet 
 	if (s_IsJSONPacket)
 	{
 		FlowDump(FileOut, DeviceName, CaptureName, PacketTS, Flow);
@@ -781,7 +611,6 @@ static void help(void)
 	fprintf(stderr, "cat /tmp/test.pcap | pcap2json > test.json\n");
 	fprintf(stderr, "\n");
 	fprintf(stderr, "Command Line Arguments:\n");
-	fprintf(stderr, " --mac                  : include MAC information into the JSON output\n");
 	fprintf(stderr, " --capture-name <name>  : capture name to use for ES Index data\n");
 	fprintf(stderr, " --json-packet          : write JSON packet data\n");
 	fprintf(stderr, " --json-flow            : write JSON flow data\n");
@@ -823,13 +652,6 @@ int main(int argc, char* argv[])
 		{
 			fprintf(stderr, "Write JSON Flow meta data\n");
 			s_IsJSONFlow = true;	
-		}
-
-		// include MAC address
-		if (strcmp(argv[i], "--mac") == 0)
-		{
-			fprintf(stderr, "Including MAC Address\n");
-			g_JSON_MAC = true;
 		}
 
 		// capture name 
@@ -930,8 +752,7 @@ int main(int argc, char* argv[])
 
 		u64 PacketTS = (u64)PktHeader->Sec * 1000000000ULL + (u64)PktHeader->NSec * TScale;
 
-
-		// output per packet JSON meta data
+		// process each packet 
 		DecodePacket(FileOut, DeviceName, CaptureName, PacketTS, PktHeader);
 
 		LastTS = PacketTS;
