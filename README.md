@@ -5,19 +5,23 @@ High Speed PCAP to JSON conversion utility
 Used for importing PCAP meta data into Elastic Search
 
 ```
-
+fmadio@fmadio20v2-149:/mnt/store0/git/pcap2json$ ./pcap2json  --help
 fmad engineering all rights reserved
 http://www.fmad.io
 
-pcap2json is a high speed PCAP meta data extraction utility for import into Elastic Search
+pcap2json is a high speed PCAP meta data extraction utility
 
 example converting a pcap to json:
 
 cat /tmp/test.pcap | pcap2json > test.json
 
 Command Line Arguments:
- --mac               : include MAC information into the JSON output
+ --mac                  : include MAC information into the JSON output
+ --capture-name <name>  : capture name to use for ES Index data
+ --json-packet          : write JSON packet data
+ --json-flow            : write JSON flow data
 
+fmadio@fmadio20v2-149:/mnt/store0/git/pcap2json$
 ```
 
 # Generate ElasticSearch mapping
