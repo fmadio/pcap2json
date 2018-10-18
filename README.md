@@ -22,12 +22,14 @@ Command Line Arguments:
 
 # Generate ElasticSearch mapping
 
+```
 /usr/local/bin/curl -H "Content-Type: application/json"  -XPUT "192.168.2.115:9200/interop17?pretty" --data-binary "@mappings.flow.json"
-
+```
 # Upload packet data directly into Elastic stack
 
-
+```
 $ cat /mnt/store1/tmp/interop17_hotstage_20170609_133953.717.953.280.pcap | ./pcap2json  --json-packet --capture-name interop17 | ./bulk_upload.lua
+```
 
 The bulk_upload.lua script saves the output of pcap2json every 1000 lines, then issues a ElasticSearch Bulk curl POST request for those 1000 lines. And repeats until there is no data left.
 
