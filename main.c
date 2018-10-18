@@ -804,7 +804,7 @@ int main(int argc, char* argv[])
 		}
 		PCAPOffset += PktHeader->LengthCapture; 
 
-		u64 PacketTS = (u64)PktHeader->Sec * 1000000000ULL + (u64)PktHeader->NSec * TScale;
+    u64 PacketTS = (u64)PktHeader->Sec * 1000ULL + (u64)PktHeader->NSec * TScale;
 
 
 		// output per packet JSON meta data
