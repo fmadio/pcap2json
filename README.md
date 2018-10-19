@@ -26,7 +26,7 @@ fmadio@fmadio20v2-149:/mnt/store0/git/pcap2json$
 # Generate ElasticSearch mapping
 
 ```
-/usr/local/bin/curl -H "Content-Type: application/json"  -XPUT "192.168.2.115:9200/interop17?pretty" --data-binary "@mappings.flow.json"
+/usr/local/bin/curl -H "Content-Type: application/json"  -XPUT "192.168.2.115:9200/interop17?pretty" --data-binary "@mappings.json"
 ```
 # Upload packet data directly into Elastic stack
 
