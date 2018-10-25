@@ -475,6 +475,7 @@ static void DecodePacket(FILE* FileOut, u8* DeviceName, u8* CaptureName, u64 Pac
 
 		// first MPLS 
 		Flow->MPLS[0]		= MPLS_LABEL(MPLS);
+		Flow->MPLStc[0]		= MPLS->TC;
 
 		// for now only process outer tag
 		// assume there is a sane limint on the encapsulation count
