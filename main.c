@@ -40,6 +40,7 @@ typedef struct FlowRecord_t
 
 	u16						VLAN[4];			// vlan tags
 	u16						MPLS[4];			// MPLS tags
+	u16						MPLStc[4];			// MPLS traffic class 
 
 	u8						IPSrc[4];			// source IP
 	u8						IPDst[4];			// source IP
@@ -49,7 +50,7 @@ typedef struct FlowRecord_t
 	u16						PortSrc;			// tcp/udp port source
 	u16						PortDst;			// tcp/udp port source
 
-	u8						pad[21];			// SHA1 calcuated on the first 64B
+	u8						pad[17];			// SHA1 calcuated on the first 64B
 
 	//-------------------------------------------------------------------------------
 	
@@ -298,11 +299,11 @@ static void FlowDump(FILE* FileOut, u8* DeviceName, u8* IndexName, u64 TS, FlowR
 	// print MPLS info
 	if (Flow->MPLS[0])
 	{
-		fprintf(FileOut, ",\"MPLS.0\":%i",  Flow->MPLS[0]);
+		fprintf(FileOut, ",\"MPLS.0.Label\":%i, \"MPLS.0.TC\":%i",  Flow->MPLS[0], Flow->MPLStc[0]);
 	}
 	if (Flow->MPLS[1])
 	{
-		fprintf(FileOut, ",\"MPLS.1\":%i",  Flow->MPLS[1]);
+		fprintf(FileOut, ",\"MPLS.1.Label\":%i, \"MPLS.1.TC\":%i",  Flow->MPLS[1], Flow->MPLStc[1]);
 	}
 
 	// IPv4 proto info
@@ -484,6 +485,7 @@ static void DecodePacket(FILE* FileOut, u8* DeviceName, u8* CaptureName, u64 Pac
 
 			// seccond 
 			Flow->MPLS[1]		= MPLS_LABEL(MPLS);
+			Flow->MPLStc[1]		= MPLS->TC;
 		}
 		if (!MPLS->BOS)
 		{
@@ -492,6 +494,7 @@ static void DecodePacket(FILE* FileOut, u8* DeviceName, u8* CaptureName, u64 Pac
 
 			// third 
 			Flow->MPLS[2]		= MPLS_LABEL(MPLS);
+			Flow->MPLStc[2]		= MPLS->TC;
 		}
 		if (!MPLS->BOS)
 		{
@@ -500,6 +503,7 @@ static void DecodePacket(FILE* FileOut, u8* DeviceName, u8* CaptureName, u64 Pac
 
 			// fourth 
 			Flow->MPLS[3]		= MPLS_LABEL(MPLS);
+			Flow->MPLStc[3]		= MPLS->TC;
 		}
 
 		// update to next header

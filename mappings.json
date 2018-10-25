@@ -55,11 +55,31 @@
 			{
               "0" : 
 			  {
-                "type" : "long"
+			  	"properties" : 
+				{
+					"Label":
+					{
+                 		"type" : "long"
+					},
+					"TC":
+					{
+                 		"type" : "long"
+					}
+				}
               },
               "1" : 
 			  {
-                "type" : "long"
+				"properties" : 
+				{
+					"Label":
+					{
+                 		"type" : "long"
+					},
+					"TC":
+					{
+                 		"type" : "long"
+					}
+				}
               }
             }
           },
