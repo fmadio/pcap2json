@@ -402,6 +402,10 @@ static void DecodePacket(FILE* FileOut, u8* DeviceName, u8* CaptureName, u64 Pac
 	FlowRecord_t*	Flow = &sFlow;	
 	memset(Flow, 0, sizeof(FlowRecord_t));
 
+	// assume single packet flow
+	Flow->TotalPkt	 	= 1;
+	Flow->TotalByte 	= PktHeader->LengthWire;
+
 	// ether header info
 	fEther_t* Ether = (fEther_t*)(PktHeader + 1);	
 	u8* Payload 	= (u8*)(Ether + 1);
