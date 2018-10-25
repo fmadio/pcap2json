@@ -82,6 +82,13 @@ static FlowRecord_t*	s_FlowList		= NULL;					// list of statically allocated flo
 
 static FlowRecord_t**	s_FlowHash		= NULL;					// flash hash index
 
+static bool				s_JSONEnb_MAC	= true;					// include the MAC address in JSON output
+static bool				s_JSONEnb_VLAN	= true;					// include the VLAN in JSON output
+static bool				s_JSONEnb_MPLS	= true;					// include the MPLS in JSON output
+static bool				s_JSONEnb_IPV4	= true;					// include the IPV4 in JSON output
+static bool				s_JSONEnb_UDP	= true;					// include the UDP in JSON output
+static bool				s_JSONEnb_TCP	= true;					// include the UDP in JSON output
+
 //---------------------------------------------------------------------------------------------
 // generate a 20bit hash index 
 static u32 HashIndex(u32* SHA1)
@@ -241,135 +248,154 @@ static void FlowDump(FILE* FileOut, u8* DeviceName, u8* IndexName, u64 TS, FlowR
 															Flow->SHA1[3],
 															Flow->SHA1[4]);
 
-	fprintf(FileOut, ",\"MACSrc\":\"%02x:%02x:%02x:%02x:%02x:%02x\",\"MACDst\":\"%02x:%02x:%02x:%02x:%02x:%02x\"",
 
-														Flow->EtherSrc[0],
-														Flow->EtherSrc[1],
-														Flow->EtherSrc[2],
-														Flow->EtherSrc[3],
-														Flow->EtherSrc[4],
-														Flow->EtherSrc[5],
-
-														Flow->EtherDst[0],
-														Flow->EtherDst[1],
-														Flow->EtherDst[2],
-														Flow->EtherDst[3],
-														Flow->EtherDst[4],
-														Flow->EtherDst[5]
-	);
-
-	// output human readable Ether protocol info
-	u8 MACProto[128];
-	switch (Flow->EtherProto)
+	if (s_JSONEnb_MAC)
 	{
-	case ETHER_PROTO_ARP:
-		strcpy(MACProto, "ARP");
-		break;
-	case ETHER_PROTO_IPV4:
-		strcpy(MACProto, "IPv4");
-		break;
-	case ETHER_PROTO_IPV6:
-		strcpy(MACProto, "IPv6");
-		break;
-	case ETHER_PROTO_VLAN:
-		strcpy(MACProto, "VLAN");
-		break;
-	case ETHER_PROTO_VNTAG:
-		strcpy(MACProto, "VNTAG");
-		break;
-	case ETHER_PROTO_MPLS:
-		strcpy(MACProto, "MPLS");
-		break;
-	default:
-		sprintf(MACProto, "%04x", Flow->EtherProto);
-		break;
+		fprintf(FileOut, ",\"MACSrc\":\"%02x:%02x:%02x:%02x:%02x:%02x\",\"MACDst\":\"%02x:%02x:%02x:%02x:%02x:%02x\"",
+
+															Flow->EtherSrc[0],
+															Flow->EtherSrc[1],
+															Flow->EtherSrc[2],
+															Flow->EtherSrc[3],
+															Flow->EtherSrc[4],
+															Flow->EtherSrc[5],
+
+															Flow->EtherDst[0],
+															Flow->EtherDst[1],
+															Flow->EtherDst[2],
+															Flow->EtherDst[3],
+															Flow->EtherDst[4],
+															Flow->EtherDst[5]
+		);
+
+		// output human readable Ether protocol info
+		u8 MACProto[128];
+		switch (Flow->EtherProto)
+		{
+		case ETHER_PROTO_ARP:
+			strcpy(MACProto, "ARP");
+			break;
+		case ETHER_PROTO_IPV4:
+			strcpy(MACProto, "IPv4");
+			break;
+		case ETHER_PROTO_IPV6:
+			strcpy(MACProto, "IPv6");
+			break;
+		case ETHER_PROTO_VLAN:
+			strcpy(MACProto, "VLAN");
+			break;
+		case ETHER_PROTO_VNTAG:
+			strcpy(MACProto, "VNTAG");
+			break;
+		case ETHER_PROTO_MPLS:
+			strcpy(MACProto, "MPLS");
+			break;
+		default:
+			sprintf(MACProto, "%04x", Flow->EtherProto);
+			break;
+		}
+		fprintf(FileOut, ",\"MACProto\":\"%s\"", MACProto); 
 	}
-	fprintf(FileOut, ",\"MACProto\":\"%s\"", MACProto); 
 
 	// print VLAN is valid
-	if (Flow->VLAN[0] != 0)
+	if (s_JSONEnb_VLAN)
 	{
-		fprintf(FileOut, ",\"VLAN.0\":%i",  Flow->VLAN[0]);
-	}
-	if (Flow->VLAN[1] != 0)
-	{
-		fprintf(FileOut, ",\"VLAN.1\":%i",  Flow->VLAN[1]);
+		if (Flow->VLAN[0] != 0)
+		{
+			fprintf(FileOut, ",\"VLAN.0\":%i",  Flow->VLAN[0]);
+		}
+		if (Flow->VLAN[1] != 0)
+		{
+			fprintf(FileOut, ",\"VLAN.1\":%i",  Flow->VLAN[1]);
+		}
 	}
 
 	// print MPLS info
-	if (Flow->MPLS[0])
+	if (s_JSONEnb_MPLS)
 	{
-		fprintf(FileOut, ",\"MPLS.0.Label\":%i, \"MPLS.0.TC\":%i",  Flow->MPLS[0], Flow->MPLStc[0]);
-	}
-	if (Flow->MPLS[1])
-	{
-		fprintf(FileOut, ",\"MPLS.1.Label\":%i, \"MPLS.1.TC\":%i",  Flow->MPLS[1], Flow->MPLStc[1]);
+		if (Flow->MPLS[0])
+		{
+			fprintf(FileOut, ",\"MPLS.0.Label\":%i, \"MPLS.0.TC\":%i",  Flow->MPLS[0], Flow->MPLStc[0]);
+		}
+		if (Flow->MPLS[1])
+		{
+			fprintf(FileOut, ",\"MPLS.1.Label\":%i, \"MPLS.1.TC\":%i",  Flow->MPLS[1], Flow->MPLStc[1]);
+		}
 	}
 
 	// IPv4 proto info
 	if (Flow->EtherProto ==  ETHER_PROTO_IPV4)
 	{
-		fprintf(FileOut, ",\"IPv4.Src\":\"%i.%i.%i.%i\",\"IPv4.Dst\":\"%i.%i.%i.%i\" ",
-											Flow->IPSrc[0],
-											Flow->IPSrc[1],
-											Flow->IPSrc[2],
-											Flow->IPSrc[3],
-
-											Flow->IPDst[0],
-											Flow->IPDst[1],
-											Flow->IPDst[2],
-											Flow->IPDst[3]
-		);
-
-		// convert to readable names for common protocols 
-		u8 IPProto[128];
-		switch (Flow->IPProto) 
+		if (s_JSONEnb_IPV4)
 		{
-		case IPv4_PROTO_UDP:	strcpy(IPProto, "UDP");		break;
-		case IPv4_PROTO_TCP:	strcpy(IPProto, "TCP");		break;
-		case IPv4_PROTO_IGMP:	strcpy(IPProto, "IGMP"); 	break;
-		case IPv4_PROTO_ICMP:	strcpy(IPProto, "ICMP"); 	break;
-		case IPv4_PROTO_GRE:	strcpy(IPProto, "GRE"); 	break;
-		case IPv4_PROTO_VRRP:	strcpy(IPProto, "VRRP"); 	break;
-		default:
-			sprintf(IPProto, "%02x", Flow->IPProto);
-			break;
+			fprintf(FileOut, ",\"IPv4.Src\":\"%i.%i.%i.%i\",\"IPv4.Dst\":\"%i.%i.%i.%i\" ",
+												Flow->IPSrc[0],
+												Flow->IPSrc[1],
+												Flow->IPSrc[2],
+												Flow->IPSrc[3],
+
+												Flow->IPDst[0],
+												Flow->IPDst[1],
+												Flow->IPDst[2],
+												Flow->IPDst[3]
+			);
+
+			// convert to readable names for common protocols 
+			u8 IPProto[128];
+			switch (Flow->IPProto) 
+			{
+			case IPv4_PROTO_UDP:	strcpy(IPProto, "UDP");		break;
+			case IPv4_PROTO_TCP:	strcpy(IPProto, "TCP");		break;
+			case IPv4_PROTO_IGMP:	strcpy(IPProto, "IGMP"); 	break;
+			case IPv4_PROTO_ICMP:	strcpy(IPProto, "ICMP"); 	break;
+			case IPv4_PROTO_GRE:	strcpy(IPProto, "GRE"); 	break;
+			case IPv4_PROTO_VRRP:	strcpy(IPProto, "VRRP"); 	break;
+			default:
+				sprintf(IPProto, "%02x", Flow->IPProto);
+				break;
+			}
+			fprintf(FileOut, ",\"IPv4.Proto\":\"%s\"", IPProto);
 		}
-		fprintf(FileOut, ",\"IPv4.Proto\":\"%s\"", IPProto);
 
 		// per protocol info
 		switch (Flow->IPProto)
 		{
 		case IPv4_PROTO_UDP:
 		{
-			fprintf(FileOut, ",\"UDP.Port.Src\":%i,\"UDP.Port.Dst\":%i",
-											Flow->PortSrc,
-											Flow->PortDst	
-			);
+			if (s_JSONEnb_UDP)
+			{
+				fprintf(FileOut, ",\"UDP.Port.Src\":%i,\"UDP.Port.Dst\":%i",
+												Flow->PortSrc,
+												Flow->PortDst	
+				);
+			}
 		}
 		break;
 
 		case IPv4_PROTO_TCP:
 		{
-			if (s_IsJSONPacket)
+			if (s_JSONEnb_TCP)
 			{
-				TCPHeader_t* TCP = &Flow->TCPHeader; 
-				u16 Flags = swap16(TCP->Flags);
-				fprintf(FileOut,",\"TCP.SeqNo\":%u,\"TCP.AckNo\":%u,\"TCP.FIN\":%i,\"TCP.SYN\":%i,\"TCP.RST\":%i,\"TCP.PSH\":%i,\"TCP.ACK\":%i,\"TCP.Window\":%i",
-						swap32(TCP->SeqNo),
-						swap32(TCP->AckNo),
-						TCP_FLAG_FIN(Flags),
-						TCP_FLAG_SYN(Flags),
-						TCP_FLAG_RST(Flags),
-						TCP_FLAG_PSH(Flags),
-						TCP_FLAG_ACK(Flags),
-						swap16(TCP->Window)
+				if (s_IsJSONPacket)
+				{
+					TCPHeader_t* TCP = &Flow->TCPHeader; 
+					u16 Flags = swap16(TCP->Flags);
+					fprintf(FileOut,",\"TCP.SeqNo\":%u,\"TCP.AckNo\":%u,\"TCP.FIN\":%i,\"TCP.SYN\":%i,\"TCP.RST\":%i,\"TCP.PSH\":%i,\"TCP.ACK\":%i,\"TCP.Window\":%i",
+							swap32(TCP->SeqNo),
+							swap32(TCP->AckNo),
+							TCP_FLAG_FIN(Flags),
+							TCP_FLAG_SYN(Flags),
+							TCP_FLAG_RST(Flags),
+							TCP_FLAG_PSH(Flags),
+							TCP_FLAG_ACK(Flags),
+							swap16(TCP->Window)
+					);
+				}
+				fprintf(FileOut, ",\"TCP.Port.Src\":%i,\"TCP.Port.Dst\":%i",
+											Flow->PortSrc,
+											Flow->PortDst	
 				);
 			}
-			fprintf(FileOut, ",\"TCP.Port.Src\":%i,\"TCP.Port.Dst\":%i",
-										Flow->PortSrc,
-										Flow->PortDst	
-			);
 		}
 		break;
 		}
@@ -624,6 +650,13 @@ static void help(void)
 	fprintf(stderr, " --json-packet          : write JSON packet data\n");
 	fprintf(stderr, " --json-flow            : write JSON flow data\n");
 	fprintf(stderr, "\n");
+	fprintf(stderr, "JSON Output Control");
+	fprintf(stderr, " --disable-mac          : disable JSON MAC output\n");
+	fprintf(stderr, " --disable-vlan         : disable JSON VLAN output\n");
+	fprintf(stderr, " --disable-mpls         : disable JSON MPLS output\n");
+	fprintf(stderr, " --disable-ipv4         : disable JSON IPv4 output\n");
+	fprintf(stderr, " --disable-udp          : disable JSON UDP output\n");
+	fprintf(stderr, " --disable-tcp          : disable JSON TCP output\n");
 }
 
 //---------------------------------------------------------------------------------------------
@@ -669,6 +702,39 @@ int main(int argc, char* argv[])
 			strncpy(CaptureName, argv[i+1], sizeof(CaptureName));	
 			fprintf(stderr, "Capture Name[%s]\n", CaptureName);
 		}
+
+		// modify JSON output format
+		if (strcmp(argv[i], "--disable-mac") == 0)
+		{
+			s_JSONEnb_MAC = false;
+			fprintf(stderr, "Disable JSON MAC Output\n");
+		}
+		if (strcmp(argv[i], "--disable-vlan") == 0)
+		{
+			s_JSONEnb_VLAN = false;
+			fprintf(stderr, "Disable JSON VLAN Output\n");
+		}
+		if (strcmp(argv[i], "--disable-mpls") == 0)
+		{
+			s_JSONEnb_MPLS = false;
+			fprintf(stderr, "Disable JSON MPLS Output\n");
+		}
+		if (strcmp(argv[i], "--disable-ipv4") == 0)
+		{
+			s_JSONEnb_IPV4 = false;
+			fprintf(stderr, "Disable JSON IPv4 Output\n");
+		}
+		if (strcmp(argv[i], "--disable-udp") == 0)
+		{
+			s_JSONEnb_UDP = false;
+			fprintf(stderr, "Disable JSON UDP Output\n");
+		}
+		if (strcmp(argv[i], "--disable-tcp") == 0)
+		{
+			s_JSONEnb_TCP = false;
+			fprintf(stderr, "Disable JSON TCP Output\n");
+		}
+
 		if (strcmp(argv[i], "--help") == 0)
 		{
 			help();
