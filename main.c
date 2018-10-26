@@ -844,7 +844,7 @@ int main(int argc, char* argv[])
 	FlowReset();
 
 	// output
-	struct Output_t* Out = Output_Create(s_Output_STDOUT, s_Output_ESPush, "192.168.2.115", 9200);
+	struct Output_t* Out = Output_Create(s_Output_STDOUT, s_Output_ESPush, s_ESHostName, s_ESHostPort); 
 	assert(Out != NULL);
 
 
