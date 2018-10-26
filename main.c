@@ -24,17 +24,11 @@
 #include <pthread.h>
 
 #include "fTypes.h"
+#include "output.h"
 
 double TSC2Nano = 0;
 
-
-struct Output_t;
-
-struct Output_t* Output_Create(bool IsSTDOUT, bool IsESOut, u8* ESHostName, u32 ESHostPort);
-void Output_LineAdd(struct Output_t* Out, u8* Buffer, u32 BufferLen);
-
 void sha1_compress(uint32_t state[static 5], const uint8_t block[static 64]);
-
 
 //---------------------------------------------------------------------------------------------
 
@@ -100,6 +94,7 @@ static bool				s_Output_ESPush	= false;				// direct ES HTTP Push
 
 static u8				s_ESHostName[256];						// elastic stack hostname
 static u32				s_ESHostPort	= 9200;					// elastic stack port number
+static bool				s_ESCompress	= false;				// elastic push enable compression 
 
 //---------------------------------------------------------------------------------------------
 // generate a 20bit hash index 
@@ -688,6 +683,7 @@ static void help(void)
 	fprintf(stderr, "Elastic Stack options");
 	fprintf(stderr, " --es-hostname          : Sets the ES Hostname\n");
 	fprintf(stderr, " --es-hostport          : Sets the ES Port number\n");
+	fprintf(stderr, " --es-compress          : enables gzip compressed POST\n");
 }
 
 //---------------------------------------------------------------------------------------------
@@ -789,6 +785,11 @@ int main(int argc, char* argv[])
 			s_ESHostPort = atoi(argv[i+1]);
 			fprintf(stderr, "ES HostPort %i\n", s_ESHostPort);
 		}
+		if (strcmp(argv[i], "--es-compress") == 0)
+		{
+			s_ESCompress = true;
+			fprintf(stderr, "ES Compression Enabled\n");
+		}
 
 		if (strcmp(argv[i], "--help") == 0)
 		{
@@ -796,6 +797,8 @@ int main(int argc, char* argv[])
 			return 0;
 		}
 	}
+
+	u64 TS0 = clock_ns();
 
 	CycleCalibration();
 
@@ -832,6 +835,9 @@ int main(int argc, char* argv[])
 	u64				PCAPOffsetLast	= 0;
 	u64 			LastTS			= 0;
 
+	u64				TotalByte		= 0;
+	u64				TotalPkt		= 0;
+
 	// allocate and clear flow index
 	s_FlowHash = (FlowRecord_t **)malloc( sizeof(FlowRecord_t *) * (2 << 20) );
 	assert(s_FlowHash != NULL);
@@ -844,9 +850,8 @@ int main(int argc, char* argv[])
 	FlowReset();
 
 	// output
-	struct Output_t* Out = Output_Create(s_Output_STDOUT, s_Output_ESPush, s_ESHostName, s_ESHostPort); 
+	struct Output_t* Out = Output_Create(s_Output_STDOUT, s_Output_ESPush, s_ESHostName, s_ESHostPort, s_ESCompress); 
 	assert(Out != NULL);
-
 
 	while (!feof(FileIn))
 	{
@@ -891,6 +896,9 @@ int main(int argc, char* argv[])
 		DecodePacket(Out, DeviceName, CaptureName, PacketTS, PktHeader);
 
 		LastTS = PacketTS;
+
+		TotalByte	+= PktHeader->LengthCapture;
+		TotalPkt	+= 1;
 	}
 
 	// output last flow data
@@ -903,6 +911,18 @@ int main(int argc, char* argv[])
 		}
 		printf("Total Flows: %i\n", s_FlowCnt);
 	}
+
+	// final stats
+
+	u64 TS1 = clock_ns();
+	float dT = (TS1 - TS0) / 1e9;
+
+	float bps = (TotalByte * 8.0) / dT;
+	float pps = (TotalPkt * 8.0) / dT;
+
+	float obps = (Output_TotalByteSent(Out) * 8.0) / dT;
+
+	printf("Total Time: %.2f sec RawInput[%.3f Gbps %.f Pps] Output[%.3f Gbps]\n", dT, bps / 1e9, pps, obps / 1e9); 
 }
 
 /* vim: set ts=4 sts=4 */
