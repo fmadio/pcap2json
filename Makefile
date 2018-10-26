@@ -1,6 +1,7 @@
 OBJS =
 OBJS += main.o
 OBJS += sha1.o
+OBJS += output.o
 
 DEF = 
 DEF += -O3 

@@ -28,7 +28,13 @@
 double TSC2Nano = 0;
 
 
+struct Output_t;
+
+struct Output_t* Output_Create(bool IsSTDOUT, bool IsESOut, u8* ESHostName, u32 ESHostPort);
+void Output_LineAdd(struct Output_t* Out, u8* Buffer, u32 BufferLen);
+
 void sha1_compress(uint32_t state[static 5], const uint8_t block[static 64]);
+
 
 //---------------------------------------------------------------------------------------------
 
@@ -88,6 +94,12 @@ static bool				s_JSONEnb_MPLS	= true;					// include the MPLS in JSON output
 static bool				s_JSONEnb_IPV4	= true;					// include the IPV4 in JSON output
 static bool				s_JSONEnb_UDP	= true;					// include the UDP in JSON output
 static bool				s_JSONEnb_TCP	= true;					// include the UDP in JSON output
+
+static bool				s_Output_STDOUT	= true;					// by default output to stdout 
+static bool				s_Output_ESPush	= false;				// direct ES HTTP Push 
+
+static u8				s_ESHostName[256];						// elastic stack hostname
+static u32				s_ESHostPort	= 9200;					// elastic stack port number
 
 //---------------------------------------------------------------------------------------------
 // generate a 20bit hash index 
@@ -233,25 +245,27 @@ static void FlowInsert(FlowRecord_t* Flow, u32* SHA1, u32 Length, u64 TS)
 // this is designed for ES bulk data upload using the 
 // mappings.json file as the index 
 
-static void FlowDump(FILE* FileOut, u8* DeviceName, u8* IndexName, u64 TS, FlowRecord_t* Flow) 
+static u32 FlowDump(u8* Output, u8* DeviceName, u8* IndexName, u64 TS, FlowRecord_t* Flow) 
 {
+	u8* OutputStart = Output;
+
 	// ES header for bulk upload
-	fprintf(FileOut, "{\"index\":{\"_index\":\"%s\",\"_type\":\"flow_record\",\"_score\":null}}\n", IndexName);
+	Output += sprintf(Output, "{\"index\":{\"_index\":\"%s\",\"_type\":\"flow_record\",\"_score\":null}}\n", IndexName);
 
 	// actual payload
-	fprintf(FileOut, "{\"timestamp\":%f,\"TS\":\"%s\",\"FlowCnt\":%lli,\"Device\":\"%s\"", TS/1e6, FormatTS(TS), s_FlowCnt, DeviceName);
+	Output += sprintf(Output, "{\"timestamp\":%f,\"TS\":\"%s\",\"FlowCnt\":%lli,\"Device\":\"%s\"", TS/1e6, FormatTS(TS), s_FlowCnt, DeviceName);
 
 	// print flow info
-	fprintf(FileOut, ",\"hash\":\"%08x%08x%08x%08x%08x\"",	Flow->SHA1[0],
-															Flow->SHA1[1],
-															Flow->SHA1[2],
-															Flow->SHA1[3],
-															Flow->SHA1[4]);
+	Output += sprintf(Output, ",\"hash\":\"%08x%08x%08x%08x%08x\"",	Flow->SHA1[0],
+																	Flow->SHA1[1],
+																	Flow->SHA1[2],
+																	Flow->SHA1[3],
+																	Flow->SHA1[4]);
 
 
 	if (s_JSONEnb_MAC)
 	{
-		fprintf(FileOut, ",\"MACSrc\":\"%02x:%02x:%02x:%02x:%02x:%02x\",\"MACDst\":\"%02x:%02x:%02x:%02x:%02x:%02x\"",
+		Output += sprintf(Output, ",\"MACSrc\":\"%02x:%02x:%02x:%02x:%02x:%02x\",\"MACDst\":\"%02x:%02x:%02x:%02x:%02x:%02x\"",
 
 															Flow->EtherSrc[0],
 															Flow->EtherSrc[1],
@@ -294,7 +308,7 @@ static void FlowDump(FILE* FileOut, u8* DeviceName, u8* IndexName, u64 TS, FlowR
 			sprintf(MACProto, "%04x", Flow->EtherProto);
 			break;
 		}
-		fprintf(FileOut, ",\"MACProto\":\"%s\"", MACProto); 
+		Output += sprintf(Output, ",\"MACProto\":\"%s\"", MACProto); 
 	}
 
 	// print VLAN is valid
@@ -302,11 +316,11 @@ static void FlowDump(FILE* FileOut, u8* DeviceName, u8* IndexName, u64 TS, FlowR
 	{
 		if (Flow->VLAN[0] != 0)
 		{
-			fprintf(FileOut, ",\"VLAN.0\":%i",  Flow->VLAN[0]);
+			Output += sprintf(Output, ",\"VLAN.0\":%i",  Flow->VLAN[0]);
 		}
 		if (Flow->VLAN[1] != 0)
 		{
-			fprintf(FileOut, ",\"VLAN.1\":%i",  Flow->VLAN[1]);
+			Output += sprintf(Output, ",\"VLAN.1\":%i",  Flow->VLAN[1]);
 		}
 	}
 
@@ -315,11 +329,11 @@ static void FlowDump(FILE* FileOut, u8* DeviceName, u8* IndexName, u64 TS, FlowR
 	{
 		if (Flow->MPLS[0])
 		{
-			fprintf(FileOut, ",\"MPLS.0.Label\":%i, \"MPLS.0.TC\":%i",  Flow->MPLS[0], Flow->MPLStc[0]);
+			Output += sprintf(Output, ",\"MPLS.0.Label\":%i, \"MPLS.0.TC\":%i",  Flow->MPLS[0], Flow->MPLStc[0]);
 		}
 		if (Flow->MPLS[1])
 		{
-			fprintf(FileOut, ",\"MPLS.1.Label\":%i, \"MPLS.1.TC\":%i",  Flow->MPLS[1], Flow->MPLStc[1]);
+			Output += sprintf(Output, ",\"MPLS.1.Label\":%i, \"MPLS.1.TC\":%i",  Flow->MPLS[1], Flow->MPLStc[1]);
 		}
 	}
 
@@ -328,7 +342,7 @@ static void FlowDump(FILE* FileOut, u8* DeviceName, u8* IndexName, u64 TS, FlowR
 	{
 		if (s_JSONEnb_IPV4)
 		{
-			fprintf(FileOut, ",\"IPv4.Src\":\"%i.%i.%i.%i\",\"IPv4.Dst\":\"%i.%i.%i.%i\" ",
+			Output += sprintf(Output, ",\"IPv4.Src\":\"%i.%i.%i.%i\",\"IPv4.Dst\":\"%i.%i.%i.%i\" ",
 												Flow->IPSrc[0],
 												Flow->IPSrc[1],
 												Flow->IPSrc[2],
@@ -354,7 +368,7 @@ static void FlowDump(FILE* FileOut, u8* DeviceName, u8* IndexName, u64 TS, FlowR
 				sprintf(IPProto, "%02x", Flow->IPProto);
 				break;
 			}
-			fprintf(FileOut, ",\"IPv4.Proto\":\"%s\"", IPProto);
+			Output += sprintf(Output, ",\"IPv4.Proto\":\"%s\"", IPProto);
 		}
 
 		// per protocol info
@@ -364,9 +378,9 @@ static void FlowDump(FILE* FileOut, u8* DeviceName, u8* IndexName, u64 TS, FlowR
 		{
 			if (s_JSONEnb_UDP)
 			{
-				fprintf(FileOut, ",\"UDP.Port.Src\":%i,\"UDP.Port.Dst\":%i",
-												Flow->PortSrc,
-												Flow->PortDst	
+				Output += sprintf(Output, ",\"UDP.Port.Src\":%i,\"UDP.Port.Dst\":%i",
+													Flow->PortSrc,
+													Flow->PortDst	
 				);
 			}
 		}
@@ -380,7 +394,7 @@ static void FlowDump(FILE* FileOut, u8* DeviceName, u8* IndexName, u64 TS, FlowR
 				{
 					TCPHeader_t* TCP = &Flow->TCPHeader; 
 					u16 Flags = swap16(TCP->Flags);
-					fprintf(FileOut,",\"TCP.SeqNo\":%u,\"TCP.AckNo\":%u,\"TCP.FIN\":%i,\"TCP.SYN\":%i,\"TCP.RST\":%i,\"TCP.PSH\":%i,\"TCP.ACK\":%i,\"TCP.Window\":%i",
+					Output += sprintf(Output,",\"TCP.SeqNo\":%u,\"TCP.AckNo\":%u,\"TCP.FIN\":%i,\"TCP.SYN\":%i,\"TCP.RST\":%i,\"TCP.PSH\":%i,\"TCP.ACK\":%i,\"TCP.Window\":%i",
 							swap32(TCP->SeqNo),
 							swap32(TCP->AckNo),
 							TCP_FLAG_FIN(Flags),
@@ -391,7 +405,7 @@ static void FlowDump(FILE* FileOut, u8* DeviceName, u8* IndexName, u64 TS, FlowR
 							swap16(TCP->Window)
 					);
 				}
-				fprintf(FileOut, ",\"TCP.Port.Src\":%i,\"TCP.Port.Dst\":%i",
+				Output += sprintf(Output, ",\"TCP.Port.Src\":%i,\"TCP.Port.Dst\":%i",
 											Flow->PortSrc,
 											Flow->PortDst	
 				);
@@ -401,12 +415,14 @@ static void FlowDump(FILE* FileOut, u8* DeviceName, u8* IndexName, u64 TS, FlowR
 		}
 	}
 
-	fprintf(FileOut, ",\"TotalPkt\":%lli,\"TotalByte\":%lli",
+	Output += sprintf(Output, ",\"TotalPkt\":%lli,\"TotalByte\":%lli",
 									Flow->TotalPkt,
 									Flow->TotalByte	
 	);
 
-	fprintf(FileOut, "}\n");
+	Output += sprintf(Output, "}\n");
+
+	return Output - OutputStart;
 }
 
 //---------------------------------------------------------------------------------------------
@@ -423,7 +439,7 @@ static void FlowReset(void)
 //
 // parse a packet and generate a flow record 
 //
-static void DecodePacket(FILE* FileOut, u8* DeviceName, u8* CaptureName, u64 PacketTS, PCAPPacket_t* PktHeader)
+static void DecodePacket(struct Output_t* Out, u8* DeviceName, u8* CaptureName, u64 PacketTS, PCAPPacket_t* PktHeader)
 {
 	FlowRecord_t	sFlow;	
 	FlowRecord_t*	Flow = &sFlow;	
@@ -604,7 +620,11 @@ static void DecodePacket(FILE* FileOut, u8* DeviceName, u8* CaptureName, u64 Pac
 	// packet mode then print record as a packet 
 	if (s_IsJSONPacket)
 	{
-		FlowDump(FileOut, DeviceName, CaptureName, PacketTS, Flow);
+		u8 JSONFlow[16*1024];
+		int JSONFlowLen = FlowDump(JSONFlow, DeviceName, CaptureName, PacketTS, Flow);
+
+		// write to output
+		Output_LineAdd(Out, JSONFlow, JSONFlowLen);
 	}
 
 	// update the flow records
@@ -623,7 +643,7 @@ static void DecodePacket(FILE* FileOut, u8* DeviceName, u8* CaptureName, u64 Pac
 			{
 				FlowRecord_t* Flow = &s_FlowList[i];	
 
-				FlowDump(FileOut, DeviceName, CaptureName, PacketTS, Flow);
+				//FlowDump(FileOut, DeviceName, CaptureName, PacketTS, Flow);
 			}
 
 			// reset index and counts
@@ -650,6 +670,12 @@ static void help(void)
 	fprintf(stderr, " --json-packet          : write JSON packet data\n");
 	fprintf(stderr, " --json-flow            : write JSON flow data\n");
 	fprintf(stderr, "\n");
+
+	fprintf(stderr, "Output Mode");
+	fprintf(stderr, " --output-stdout        : writes output to STDOUT\n");
+	fprintf(stderr, " --output-espush        : writes output directly to ES HTTP POST \n");
+
+	fprintf(stderr, "\n");
 	fprintf(stderr, "JSON Output Control");
 	fprintf(stderr, " --disable-mac          : disable JSON MAC output\n");
 	fprintf(stderr, " --disable-vlan         : disable JSON VLAN output\n");
@@ -657,6 +683,11 @@ static void help(void)
 	fprintf(stderr, " --disable-ipv4         : disable JSON IPv4 output\n");
 	fprintf(stderr, " --disable-udp          : disable JSON UDP output\n");
 	fprintf(stderr, " --disable-tcp          : disable JSON TCP output\n");
+	fprintf(stderr, "\n");
+
+	fprintf(stderr, "Elastic Stack options");
+	fprintf(stderr, " --es-hostname          : Sets the ES Hostname\n");
+	fprintf(stderr, " --es-hostport          : Sets the ES Port number\n");
 }
 
 //---------------------------------------------------------------------------------------------
@@ -703,6 +734,20 @@ int main(int argc, char* argv[])
 			fprintf(stderr, "Capture Name[%s]\n", CaptureName);
 		}
 
+		// default output to stdout
+		if (strcmp(argv[i], "--output-stdout") == 0)
+		{
+			s_Output_STDOUT = true;
+			s_Output_ESPush = false;
+			fprintf(stderr, "Output to STDOUT\n");
+		}
+		if (strcmp(argv[i], "--output-espush") == 0)
+		{
+			s_Output_STDOUT = false;
+			s_Output_ESPush = true;
+			fprintf(stderr, "Output to ES HTTP Push\n");
+		}
+
 		// modify JSON output format
 		if (strcmp(argv[i], "--disable-mac") == 0)
 		{
@@ -733,6 +778,16 @@ int main(int argc, char* argv[])
 		{
 			s_JSONEnb_TCP = false;
 			fprintf(stderr, "Disable JSON TCP Output\n");
+		}
+		if (strcmp(argv[i], "--es-hostname") == 0)
+		{
+			strncpy(s_ESHostName, argv[i+1], sizeof(s_ESHostName));
+			fprintf(stderr, "ES HostName [%s]\n", s_ESHostName);
+		}
+		if (strcmp(argv[i], "--es-hostport") == 0)
+		{
+			s_ESHostPort = atoi(argv[i+1]);
+			fprintf(stderr, "ES HostPort %i\n", s_ESHostPort);
 		}
 
 		if (strcmp(argv[i], "--help") == 0)
@@ -788,6 +843,11 @@ int main(int argc, char* argv[])
 	// reset flow info
 	FlowReset();
 
+	// output
+	struct Output_t* Out = Output_Create(s_Output_STDOUT, s_Output_ESPush, "192.168.2.115", 9200);
+	assert(Out != NULL);
+
+
 	while (!feof(FileIn))
 	{
 		u64 TSC = rdtsc();
@@ -828,7 +888,7 @@ int main(int argc, char* argv[])
 		u64 PacketTS = (u64)PktHeader->Sec * 1000000000ULL + (u64)PktHeader->NSec * TScale;
 
 		// process each packet 
-		DecodePacket(FileOut, DeviceName, CaptureName, PacketTS, PktHeader);
+		DecodePacket(Out, DeviceName, CaptureName, PacketTS, PktHeader);
 
 		LastTS = PacketTS;
 	}
@@ -839,7 +899,7 @@ int main(int argc, char* argv[])
 		for (int i=0; i < s_FlowCnt; i++)
 		{
 			FlowRecord_t* Flow = &s_FlowList[i];	
-			FlowDump(FileOut, DeviceName, CaptureName, LastTS, Flow);
+			//FlowDump(FileOut, DeviceName, CaptureName, LastTS, Flow);
 		}
 		printf("Total Flows: %i\n", s_FlowCnt);
 	}
