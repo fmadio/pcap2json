@@ -922,7 +922,10 @@ int main(int argc, char* argv[])
 
 	float obps = (Output_TotalByteSent(Out) * 8.0) / dT;
 
-	printf("Total Time: %.2f sec RawInput[%.3f Gbps %.f Pps] Output[%.3f Gbps]\n", dT, bps / 1e9, pps, obps / 1e9); 
+	u64 TotalLine = Output_TotalLine(Out);	
+	float lps = TotalLine / dT;
+
+	printf("Total Time: %.2f sec RawInput[%.3f Gbps %.f Pps] Output[%.3f Gbps] TotalLine:%lli %.f Line/Sec\n", dT, bps / 1e9, pps, obps / 1e9, TotalLine, lps); 
 }
 
 /* vim: set ts=4 sts=4 */

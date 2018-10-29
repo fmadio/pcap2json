@@ -19,6 +19,10 @@
 // 2018/10/27 : interop17_small dataset (10GB) - 127 sec :           : 4 worker (best speed compress)
 // 2018/10/27 : interop17_small dataset (10GB) - 123 sec : 0.642Gbps : 8 worker (default compress)
 //
+// 2018/10/25 : interop17 dataset (100GB) : 78min
+// 2018/10/27 : interop17 dataset (100GB) : 22min : 8 worker (default compress)
+// 2018/10/27 : interop17 dataset (100GB) : 25min : 8 worker (no compress)
+//
 //---------------------------------------------------------------------------------------------
 
 #include <stdio.h>
@@ -66,6 +70,7 @@ typedef struct Output_t
 	u32					BufferMax;
 	Buffer_t			BufferList[128];						// buffer list 
 	u64					TotalByte[128];							// total amount of bytes sent by each buffer^ 
+	u64					TotalLine;								// total number of lines output
 
 	FILE*				FileTXT;								// output text file	
 
@@ -386,6 +391,14 @@ u64 Output_TotalByteSent(Output_t* Out)
 }
 
 //-------------------------------------------------------------------------------------------
+
+u64 Output_TotalLine(Output_t* Out)
+{
+	return Out->TotalLine;
+}
+
+//-------------------------------------------------------------------------------------------
+
 void Output_LineAdd(Output_t* Out, u8* Buffer, u32 BufferLen)
 {
 	// write to a text file
@@ -418,6 +431,7 @@ void Output_LineAdd(Output_t* Out, u8* Buffer, u32 BufferLen)
 			Out->BufferPut = (Out->BufferPut + 1) & Out->BufferMask;
 		}
 	}
+	Out->TotalLine++;
 }
 
 //-------------------------------------------------------------------------------------------

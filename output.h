@@ -7,5 +7,6 @@ struct Output_t* 	Output_Create		(bool IsSTDOUT, bool IsESOut, u8* ESHostName, u
 void 				Output_LineAdd		(struct Output_t* Out, u8* Buffer, u32 BufferLen);
 void 				Output_Close		(struct Output_t* Out);
 u64 				Output_TotalByteSent(struct Output_t* Out);
+u64 				Output_TotalLine	(struct Output_t* Out);
 
 #endif
