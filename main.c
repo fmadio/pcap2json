@@ -105,6 +105,10 @@ static u32				s_ESHostCnt = 0;						// number of active ES Hosts
 static ESHost_t			s_ESHost[128];							// list fo ES Hosts to output to
 static bool				s_ESCompress	= false;				// elastic push enable compression 
 
+
+static u8 				s_CaptureName[256];						// name of the capture / index to push to
+static u8				s_DeviceName[128];						// name of the device this is sourced from
+
 //---------------------------------------------------------------------------------------------
 // generate a 20bit hash index 
 static u32 HashIndex(u32* SHA1)
@@ -672,19 +676,22 @@ static void help(void)
 	fprintf(stderr, "\n");
 	fprintf(stderr, "Command Line Arguments:\n");
 	fprintf(stderr, " --capture-name <name>      : capture name to use for ES Index data\n");
+	fprintf(stderr, " --verbose                  : verbose output\n");
+	fprintf(stderr, " --config <confrig file>    : read from config file\n");
 	fprintf(stderr, " --json-packet              : write JSON packet data\n");
 	fprintf(stderr, " --json-flow                : write JSON flow data\n");
 	fprintf(stderr, "\n");
 
-	fprintf(stderr, "Output Mode");
+	fprintf(stderr, "Output Mode\n");
 	fprintf(stderr, " --output-stdout            : writes output to STDOUT\n");
 	fprintf(stderr, " --output-espush            : writes output directly to ES HTTP POST \n");
 
-	fprintf(stderr, "Flow specific options");
+	fprintf(stderr, "\n");
+	fprintf(stderr, "Flow specific options\n");
 	fprintf(stderr, " --flow-samplerate <nanos>  : scientific notation flow sample rate. default 100e6 (100msec)\n");
 
 	fprintf(stderr, "\n");
-	fprintf(stderr, "JSON Output Control");
+	fprintf(stderr, "JSON Output Control (by default everything is enabled)\n");
 	fprintf(stderr, " --disable-mac              : disable JSON MAC output\n");
 	fprintf(stderr, " --disable-vlan             : disable JSON VLAN output\n");
 	fprintf(stderr, " --disable-mpls             : disable JSON MPLS output\n");
@@ -693,156 +700,259 @@ static void help(void)
 	fprintf(stderr, " --disable-tcp              : disable JSON TCP output\n");
 	fprintf(stderr, "\n");
 
-	fprintf(stderr, "Elastic Stack options");
+	fprintf(stderr, "Elastic Stack options\n");
 	fprintf(stderr, " --es-host <hostname:port> : Sets the ES Hostname\n");
 	fprintf(stderr, " --es-compress             : enables gzip compressed POST\n");
 }
 
 //---------------------------------------------------------------------------------------------
-
-int main(int argc, char* argv[])
+static bool ParseCommandLine(u8* argv[])
 {
-	u8* FileInName 		= NULL;
-	u8* FileOutName 	= NULL;
+	u32 cnt = 0;
+	if (strcmp(argv[0], "-v") == 0)
+	{
+		g_Verbose = true;
+		cnt	+= 1;
+	}
+	// output json packet data 
+	if (strcmp(argv[0], "--json-packet") == 0)
+	{
+		fprintf(stderr, "  Write JSON Packet meta data\n");
+		s_IsJSONPacket = true;	
+		cnt	+= 1;
+	}
+	// output json flow data 
+	if (strcmp(argv[0], "--json-flow") == 0)
+	{
+		fprintf(stderr, "  Write JSON Flow meta data\n");
+		s_IsJSONFlow = true;	
+		cnt	+= 1;
+	}
 
+	// capture name 
+	if (strcmp(argv[0], "--capture-name") == 0)
+	{
+		strncpy(s_CaptureName, argv[1], sizeof(s_CaptureName));	
+		fprintf(stderr, "  Capture Name[%s]\n", s_CaptureName);
+		cnt	+= 2;
+	}
+
+	// default output to stdout
+	if (strcmp(argv[0], "--output-stdout") == 0)
+	{
+		s_Output_STDOUT = true;
+		s_Output_ESPush = false;
+		fprintf(stderr, "  Output to STDOUT\n");
+		cnt	+= 1;
+	}
+	if (strcmp(argv[0], "--output-espush") == 0)
+	{
+		s_Output_STDOUT = false;
+		s_Output_ESPush = true;
+		fprintf(stderr, "  Output to ES HTTP Push\n");
+		cnt	+= 1;
+	}
+
+	// JSON output format
+	if (strcmp(argv[0], "--disable-mac") == 0)
+	{
+		s_JSONEnb_MAC = false;
+		fprintf(stderr, "  Disable JSON MAC Output\n");
+		cnt	+= 1;
+	}
+	if (strcmp(argv[0], "--disable-vlan") == 0)
+	{
+		s_JSONEnb_VLAN = false;
+		fprintf(stderr, "  Disable JSON VLAN Output\n");
+		cnt	+= 1;
+	}
+	if (strcmp(argv[0], "--disable-mpls") == 0)
+	{
+		s_JSONEnb_MPLS = false;
+		fprintf(stderr, "  Disable JSON MPLS Output\n");
+		cnt	+= 1;
+	}
+	if (strcmp(argv[0], "--disable-ipv4") == 0)
+	{
+		s_JSONEnb_IPV4 = false;
+		fprintf(stderr, "  Disable JSON IPv4 Output\n");
+		cnt	+= 1;
+	}
+	if (strcmp(argv[0], "--disable-udp") == 0)
+	{
+		s_JSONEnb_UDP = false;
+		fprintf(stderr, "  Disable JSON UDP Output\n");
+		cnt	+= 1;
+	}
+	if (strcmp(argv[0], "--disable-tcp") == 0)
+	{
+		s_JSONEnb_TCP = false;
+		fprintf(stderr, "  Disable JSON TCP Output\n");
+		cnt	+= 1;
+	}
+
+	// ES specific 
+	if (strcmp(argv[0], "--es-host") == 0)
+	{
+		// split into host/port from <hostname:port>
+		u32 StrPos = 0;
+		u8 StrList[2][256];
+		u32 Len = 0;
+
+		u8* HostPort = argv[1];
+		for (int j=0; j < strlen(HostPort); j++)
+		{
+			u32 c = HostPort[j];	
+			if ((c == ':') || (c == 0))
+			{
+				StrList[StrPos][Len] = 0;
+				StrPos++;
+				Len = 0;
+			}
+			else
+			{
+				StrList[StrPos][Len++] = c;
+			}
+		}
+		StrList[StrPos][Len] = 0;
+		StrPos++;
+
+		if (StrPos != 2)
+		{
+			fprintf(stderr, "  Format incorrect\n--es-host <hostname:port> found %i\n", StrPos);
+			return false;
+		}
+
+		ESHost_t* Host = &s_ESHost[s_ESHostCnt++];
+
+		strncpy(Host->HostName, StrList[0], sizeof(Host->HostName));
+		Host->HostPort = atoi(StrList[1]);
+		fprintf(stderr, "  ES[%i] HostName [%s]  HostPort:%i\n", s_ESHostCnt, Host->HostName, Host->HostPort);
+		cnt	+= 2;
+	}
+	if (strcmp(argv[0], "--es-compress") == 0)
+	{
+		s_ESCompress = true;
+		fprintf(stderr, "  ES Compression Enabled\n");
+		cnt	+= 1;
+	}
+
+	// flow specific
+	if (strcmp(argv[0], "--flow-samplerate") == 0)
+	{
+		s_FlowSampleRate = atof(argv[1]);
+		fprintf(stderr, "  Flow Sample rate %.3f msec\n", s_FlowSampleRate / 1e6);
+		cnt	+= 2;
+	}
+
+	if (strcmp(argv[0], "--help") == 0)
+	{
+		help();
+		return false;
+	}
+
+	// unknown command
+	if (cnt == 0)
+	{
+		fprintf(stderr, "  Unknown command line option [%s]\n", argv[0]);
+		return 0;
+	}
+
+	return cnt;
+}
+
+//---------------------------------------------------------------------------------------------
+// read command line opts from file
+static bool ParseConfigFile(u8* ConfigFile)
+{
+	fprintf(stderr, "Config File [%s]\n", ConfigFile);	
+
+	FILE* F = fopen(ConfigFile, "r");
+	if (!F)
+	{
+		fprintf(stderr, "unable to open config file [%s]\n", ConfigFile);
+		return 0;
+	}
+
+	u32 LinePos = 0;
+	u32 LineListPos = 0;
+	u8* LineList[256];
+	u8  LineBuffer[256];
+	while (!feof(F))
+	{
+		u32 c = fgetc(F);
+		switch (c)
+		{
+			case '\n':
+			case ' ':
+				{
+					// remove any trailing whitespace
+					// easy to copy the cmdline args + paste it into a config file
+					for (int k=LinePos-1;  k > 0; k--)
+					{
+						if (LineBuffer[k] == ' ') LineBuffer[k] = 0;
+						else break;
+					}
+					LineBuffer[LinePos++] = 0;		// asciiz
+
+					if (LinePos > 1)
+					{
+						LineList[LineListPos] = strdup(LineBuffer);
+						LineListPos += 1;
+					}
+
+					LinePos		=  0;
+				}
+				break;
+			default:
+				LineBuffer[LinePos++] = c;
+				break;
+		}
+	}
+	fclose(F);
+
+	// parse each command
+	for (int j=0; j < LineListPos; j++)
+	{
+		fprintf(stderr, "[%s]\n", LineList[j]);	
+
+		u32 inc = ParseCommandLine(&LineList[j]);
+		if (inc == 0) return false;
+
+		j += (inc - 1);
+	}
+
+	return true;
+}
+
+//---------------------------------------------------------------------------------------------
+
+int main(int argc, u8* argv[])
+{
 	// get the hosts name
-	u8 DeviceName[128];
-	gethostname(DeviceName, sizeof(DeviceName));	
+	gethostname(s_DeviceName, sizeof(s_DeviceName));	
 
 	u8 ClockStr[128];
 	clock_str(ClockStr, clock_date() );
 
-	u8 CaptureName[256];
-	sprintf(CaptureName, "%s_%s", DeviceName, ClockStr); 
+	sprintf(s_CaptureName, "%s_%s", s_DeviceName, ClockStr); 
 
-	for (int i=0; i < argc; i++)
+	for (int i=1; i < argc; i++)
 	{
-		if (strcmp(argv[i], "-v") == 0)
+		// config file was specified 
+		if (strcmp(argv[i], "--config") == 0)
 		{
-			g_Verbose = true;
+			if (!ParseConfigFile(argv[i+1])) return 0;
+			i += 1;
 		}
+		else
+		{
+			fprintf(stderr, "[%s]\n", argv[i]); 
 
-		// output json packet data 
-		if (strcmp(argv[i], "--json-packet") == 0)
-		{
-			fprintf(stderr, "Write JSON Packet meta data\n");
-			s_IsJSONPacket = true;	
-		}
-		// output json flow data 
-		if (strcmp(argv[i], "--json-flow") == 0)
-		{
-			fprintf(stderr, "Write JSON Flow meta data\n");
-			s_IsJSONFlow = true;	
-		}
+			u32 inc = ParseCommandLine(&argv[i]);
+			if (inc == 0) return 0;
 
-		// capture name 
-		if (strcmp(argv[i], "--capture-name") == 0)
-		{
-			strncpy(CaptureName, argv[i+1], sizeof(CaptureName));	
-			fprintf(stderr, "Capture Name[%s]\n", CaptureName);
-		}
-
-		// default output to stdout
-		if (strcmp(argv[i], "--output-stdout") == 0)
-		{
-			s_Output_STDOUT = true;
-			s_Output_ESPush = false;
-			fprintf(stderr, "Output to STDOUT\n");
-		}
-		if (strcmp(argv[i], "--output-espush") == 0)
-		{
-			s_Output_STDOUT = false;
-			s_Output_ESPush = true;
-			fprintf(stderr, "Output to ES HTTP Push\n");
-		}
-
-		// JSON output format
-		if (strcmp(argv[i], "--disable-mac") == 0)
-		{
-			s_JSONEnb_MAC = false;
-			fprintf(stderr, "Disable JSON MAC Output\n");
-		}
-		if (strcmp(argv[i], "--disable-vlan") == 0)
-		{
-			s_JSONEnb_VLAN = false;
-			fprintf(stderr, "Disable JSON VLAN Output\n");
-		}
-		if (strcmp(argv[i], "--disable-mpls") == 0)
-		{
-			s_JSONEnb_MPLS = false;
-			fprintf(stderr, "Disable JSON MPLS Output\n");
-		}
-		if (strcmp(argv[i], "--disable-ipv4") == 0)
-		{
-			s_JSONEnb_IPV4 = false;
-			fprintf(stderr, "Disable JSON IPv4 Output\n");
-		}
-		if (strcmp(argv[i], "--disable-udp") == 0)
-		{
-			s_JSONEnb_UDP = false;
-			fprintf(stderr, "Disable JSON UDP Output\n");
-		}
-		if (strcmp(argv[i], "--disable-tcp") == 0)
-		{
-			s_JSONEnb_TCP = false;
-			fprintf(stderr, "Disable JSON TCP Output\n");
-		}
-
-		// ES specific 
-		if (strcmp(argv[i], "--es-host") == 0)
-		{
-			// split into host/port from <hostname:port>
-			u32 StrPos = 0;
-			u8 StrList[2][256];
-			u32 Len = 0;
-
-			u8* HostPort = argv[i+1];
-			for (int j=0; j < strlen(HostPort); j++)
-			{
-				u32 c = HostPort[j];	
-				if ((c == ':') || (c == 0))
-				{
-					StrList[StrPos][Len] = 0;
-					StrPos++;
-					Len = 0;
-				}
-				else
-				{
-					StrList[StrPos][Len++] = c;
-				}
-			}
-			StrList[StrPos][Len] = 0;
-			StrPos++;
-
-			if (StrPos != 2)
-			{
-				fprintf(stderr, "Format incorrect\n--es-host <hostname:port> found %i\n", StrPos);
-				return 0;
-			}
-
-			ESHost_t* Host = &s_ESHost[s_ESHostCnt++];
-
-			strncpy(Host->HostName, StrList[0], sizeof(Host->HostName));
-			Host->HostPort = atoi(StrList[1]);
-			fprintf(stderr, "[%i] ES HostName [%s]  HostPort:%i\n", s_ESHostCnt, Host->HostName, Host->HostPort);
-		}
-		if (strcmp(argv[i], "--es-compress") == 0)
-		{
-			s_ESCompress = true;
-			fprintf(stderr, "ES Compression Enabled\n");
-		}
-
-		// flow specific
-		if (strcmp(argv[i], "--flow-samplerate") == 0)
-		{
-			s_FlowSampleRate = atof(argv[i+1]);
-			fprintf(stderr, "Flow Sample rate %.3f msec\n", s_FlowSampleRate / 1e6);
-		}
-
-		if (strcmp(argv[i], "--help") == 0)
-		{
-			help();
-			return 0;
+			i += (inc - 1);
 		}
 	}
 
@@ -944,7 +1054,7 @@ int main(int argc, char* argv[])
 		u64 PacketTS = (u64)PktHeader->Sec * 1000000000ULL + (u64)PktHeader->NSec * TScale;
 
 		// process each packet 
-		DecodePacket(Out, DeviceName, CaptureName, PacketTS, PktHeader);
+		DecodePacket(Out, s_DeviceName, s_CaptureName, PacketTS, PktHeader);
 
 		LastTS = PacketTS;
 
@@ -958,7 +1068,7 @@ int main(int argc, char* argv[])
 		for (int i=0; i < s_FlowCnt; i++)
 		{
 			FlowRecord_t* Flow = &s_FlowList[i];	
-			FlowDump(Out, DeviceName, CaptureName, LastTS, Flow);
+			FlowDump(Out, s_DeviceName, s_CaptureName, LastTS, Flow);
 		}
 		printf("Total Flows: %i\n", s_FlowCnt);
 	}

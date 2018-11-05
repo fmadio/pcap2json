@@ -16,11 +16,31 @@ example converting a pcap to json:
 cat /tmp/test.pcap | pcap2json > test.json
 
 Command Line Arguments:
- --capture-name <name>  : capture name to use for ES Index data
- --json-packet          : write JSON packet data
- --json-flow            : write JSON flow data
+ --capture-name <name>      : capture name to use for ES Index data
+ --verbose                  : verbose output
+ --config <confrig file>    : read from config file
+ --json-packet              : write JSON packet data
+ --json-flow                : write JSON flow data
 
-fmadio@fmadio20v2-149:/mnt/store0/git/pcap2json$
+Output Mode 
+ --output-stdout            : writes output to STDOUT
+ --output-espush            : writes output directly to ES HTTP POST
+
+Flow specific options 
+ --flow-samplerate <nanos>  : scientific notation flow sample rate. default 100e6 (100msec)
+
+JSON Output Control 
+ --disable-mac              : disable JSON MAC output
+ --disable-vlan             : disable JSON VLAN output
+ --disable-mpls             : disable JSON MPLS output
+ --disable-ipv4             : disable JSON IPv4 output
+ --disable-udp              : disable JSON UDP output
+ --disable-tcp              : disable JSON TCP output
+
+Elastic Stack options 
+ --es-host <hostname:port> : Sets the ES Hostname
+ --es-compress             : enables gzip compressed POST
+fmadio@fmadio20v2-149:/mnt/store0/git/pcap2json_20181103_rc1$
 ```
 
 # Generate ElasticSearch mapping
