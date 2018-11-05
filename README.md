@@ -88,7 +88,11 @@ Please see the config.\* files for other examples. This these are specified usin
 
 100GB Interop PCAP (5 min wall time)
 
---json-packet       (config.packet)       : 22min  : every packet metadata       : compress : 1 ES instance : ~ 50,000 ES inserts / seccond
---json-flow 100msec (config.flow.100msec) : 10min  : 100msec sampled flow output : compress : 1 ES instance : ~  6,000 ES inserts / seccond
---json-flow 1sec    (config.flow.1sec)    : 8.5min : 1sec    sampled flow output : compress : 1 ES instance : ~  4,238 ES inserts / seccond
+Full packe Meta data, compressed 1 ES instance
+(config.packet)       : 22min  : ~ 50,000 ES inserts / seccond
 
+100 msec sampled flow data, compressed JSON, 1 ES Instance
+(config.flow.100msec) : 10min : ~  6,000 ES inserts / seccond
+
+1sec sampled flow data, compressed JSON, 1 ES Instance
+(config.flow.1sec)    : 8.5min : ~  4,238 ES inserts / seccond
