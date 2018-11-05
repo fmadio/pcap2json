@@ -1,0 +1,5 @@
+--json-packet
+--es-compress
+--es-host 192.168.2.115:9200 
+--output-espush
+--capture-name interop17

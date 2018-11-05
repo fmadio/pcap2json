@@ -1,0 +1,6 @@
+--json-flow
+--es-compress
+--es-host 192.168.2.115:9200 
+--output-espush
+--capture-name interop17
+--flow-samplerate 1e9
