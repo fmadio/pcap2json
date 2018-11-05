@@ -56,7 +56,7 @@ $ cat /mnt/store1/tmp/interop17_hotstage_20170609_133953.717.953.280.pcap | ./pc
 
 This uses a high performance multithreaded direct C socket to to push the JSON data directly into ES. Multiple ES hosts can be specified to load balance the ingress queue. 
 
-# Output JSON text data packet data 
+# Output JSON text data to STDOUT 
 
 ```
 $ cat /mnt/store1/tmp/interop17_hotstage_20170609_133953.717.953.280.pcap | ./pcap2json  --json-packet --capture-name interop17 --output-stdout
@@ -83,4 +83,12 @@ Please see the config.\* files for other examples. This these are specified usin
 {"index":{"_index":"interop17","_type":"flow_record","_score":null}}
 {"timestamp":1497015814284.549316,"TS":"13:43:34.284.549.405","FlowCnt":0,"Device":"fmadio20v2-149","hash":"b6183e3af206ac1c43eefb261f4ec03811ff1a45","MACSrc":"7c:e2:ca:bd:97:d9","MACDst":"00:0e:52:80:00:16","MACProto":"IPv4","IPv4.Src":"45.0.191.123","IPv4.Dst":"205.177.226.213" ,"IPv4.Proto":"UDP","UDP.Port.Src":10500,"UDP.Port.Dst":20986,"TotalPkt":0,"TotalByte":0}
 ```
+
+# Performance numbers 
+
+100GB Interop PCAP (5 min wall time)
+
+--json-packet       (config.packet)       : 22min  : every packet metadata       : compress : 1 ES instance : ~ 50,000 ES inserts / seccond
+--json-flow 100msec (config.flow.100msec) : 10min  : 100msec sampled flow output : compress : 1 ES instance : ~  6,000 ES inserts / seccond
+--json-flow 1sec    (config.flow.1sec)    : 8.5min : 1sec    sampled flow output : compress : 1 ES instance : ~  4,238 ES inserts / seccond
 
