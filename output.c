@@ -48,6 +48,8 @@
 
 //---------------------------------------------------------------------------------------------
 
+#define ESHOST_MAX		128										// max number of round robbin ES host targets
+
 typedef struct
 {
 	u8*					Buffer;									// output buffer
@@ -75,8 +77,10 @@ typedef struct Output_t
 	FILE*				FileTXT;								// output text file	
 
 	bool				ESPush;									// enable direct ES push
-	u8					ESHostName[256];						// ip host name of ES
-	u32					ESHostPort;								// port of ES
+	u32					ESHostCnt;								// number of registered ES hosts
+	u32					ESHostPos;								// current ES push target
+	u8					ESHostName[ESHOST_MAX][256];			// ip host name of ES
+	u32					ESHostPort[ESHOST_MAX];					// port of ES
 
 	bool				IsCompress;								// enable compression
 
@@ -88,7 +92,7 @@ static void* Output_Worker(void * user);
 
 //-------------------------------------------------------------------------------------------
 
-Output_t* Output_Create(bool IsSTDOUT, bool IsESOut, u8* ESHostName, u32 ESHostPort, bool IsCompress)
+Output_t* Output_Create(bool IsSTDOUT, bool IsESOut, bool IsCompress)
 {
 	Output_t* O = malloc(sizeof(Output_t));
 	memset(O, 0, sizeof(Output_t));	
@@ -123,12 +127,11 @@ Output_t* Output_Create(bool IsSTDOUT, bool IsESOut, u8* ESHostName, u32 ESHostP
 	}
 
 	// direct ES push
+	O->ESHostCnt = 0;
+	O->ESHostPos = 0;
 	if (IsESOut)
 	{
 		O->ESPush		= true;
-		strncpy(O->ESHostName, ESHostName, sizeof(O->ESHostName));
-		O->ESHostPort	= ESHostPort;
-
 		O->IsCompress	= IsCompress;
 	}
 
@@ -160,13 +163,26 @@ Output_t* Output_Create(bool IsSTDOUT, bool IsESOut, u8* ESHostName, u32 ESHostP
 }
 
 //-------------------------------------------------------------------------------------------
-// directly push the json data to ES
+// adds an output ES target
+void Output_ESHostAdd(Output_t* Out, u8* HostName, u32 HostPort)
+{
+	strncpy(Out->ESHostName[Out->ESHostCnt], HostName, sizeof(Out->ESHostName[0]));
+	Out->ESHostPort[Out->ESHostCnt]	= HostPort;
 
+	Out->ESHostCnt++;
+}
+
+//-------------------------------------------------------------------------------------------
+// directly push the json data to ES
 void BulkUpload(Output_t* Out, u32 BufferIndex)
 {
-	u8* IPAddress 	= Out->ESHostName; 
-	u32 Port 		= Out->ESHostPort;	
-	
+	u8* IPAddress 	= Out->ESHostName[Out->ESHostPos]; 
+	u32 Port 		= Out->ESHostPort[Out->ESHostPos];	
+
+	// round robbin ES target 
+	Out->ESHostPos	= (Out->ESHostPos + 1) % Out->ESHostCnt;
+
+	// output buffer
 	Buffer_t* B		= &Out->BufferList[ BufferIndex ];	
 
 	// raw json block to be uploaded

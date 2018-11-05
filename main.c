@@ -69,6 +69,13 @@ typedef struct FlowRecord_t
 
 } __attribute__((packed)) FlowRecord_t;
 
+typedef struct
+{
+	u8						HostName[256];		// ES Host name
+	u32						HostPort;			// ES Port name
+
+} ESHost_t;
+
 //---------------------------------------------------------------------------------------------
 // tunables
 bool					g_Verbose		= false;				// verbose print mode
@@ -79,6 +86,8 @@ static bool				s_IsJSONFlow	= false;				// output JSON flow format
 static u64				s_FlowMax		= 4*1024*1024;			// maximum number of flows 
 static u64				s_FlowCnt		= 0;					// total number of flows
 static FlowRecord_t*	s_FlowList		= NULL;					// list of statically allocated flows
+
+static u64				s_FlowSampleRate	= 100e6;			// default to flow sample rate of 100msec
 
 static FlowRecord_t**	s_FlowHash		= NULL;					// flash hash index
 
@@ -92,8 +101,8 @@ static bool				s_JSONEnb_TCP	= true;					// include the UDP in JSON output
 static bool				s_Output_STDOUT	= true;					// by default output to stdout 
 static bool				s_Output_ESPush	= false;				// direct ES HTTP Push 
 
-static u8				s_ESHostName[256];						// elastic stack hostname
-static u32				s_ESHostPort	= 9200;					// elastic stack port number
+static u32				s_ESHostCnt = 0;						// number of active ES Hosts
+static ESHost_t			s_ESHost[128];							// list fo ES Hosts to output to
 static bool				s_ESCompress	= false;				// elastic push enable compression 
 
 //---------------------------------------------------------------------------------------------
@@ -240,8 +249,10 @@ static void FlowInsert(FlowRecord_t* Flow, u32* SHA1, u32 Length, u64 TS)
 // this is designed for ES bulk data upload using the 
 // mappings.json file as the index 
 
-static u32 FlowDump(u8* Output, u8* DeviceName, u8* IndexName, u64 TS, FlowRecord_t* Flow) 
+static u32 FlowDump(struct Output_t* Out, u8* DeviceName, u8* IndexName, u64 TS, FlowRecord_t* Flow) 
 {
+	u8 OutputStr[1024];
+	u8* Output 		= OutputStr;
 	u8* OutputStart = Output;
 
 	// ES header for bulk upload
@@ -417,7 +428,11 @@ static u32 FlowDump(u8* Output, u8* DeviceName, u8* IndexName, u64 TS, FlowRecor
 
 	Output += sprintf(Output, "}\n");
 
-	return Output - OutputStart;
+
+	u32 OutputLen = Output - OutputStart;
+
+	// write to output
+	Output_LineAdd(Out, OutputStart, OutputLen);
 }
 
 //---------------------------------------------------------------------------------------------
@@ -615,11 +630,7 @@ static void DecodePacket(struct Output_t* Out, u8* DeviceName, u8* CaptureName, 
 	// packet mode then print record as a packet 
 	if (s_IsJSONPacket)
 	{
-		u8 JSONFlow[16*1024];
-		int JSONFlowLen = FlowDump(JSONFlow, DeviceName, CaptureName, PacketTS, Flow);
-
-		// write to output
-		Output_LineAdd(Out, JSONFlow, JSONFlowLen);
+		FlowDump(Out, DeviceName, CaptureName, PacketTS, Flow);
 	}
 
 	// update the flow records
@@ -631,14 +642,13 @@ static void DecodePacket(struct Output_t* Out, u8* DeviceName, u8* CaptureName, 
 		// purge the flow records every 100msec
 		static u64 LastPacketTS = 0;
 		s64 dTS = PacketTS - LastPacketTS;
-		if (dTS > 1e9)
+		if (dTS > s_FlowSampleRate)
 		{
 			LastPacketTS = PacketTS;
 			for (int i=0; i < s_FlowCnt; i++)
 			{
 				FlowRecord_t* Flow = &s_FlowList[i];	
-
-				//FlowDump(FileOut, DeviceName, CaptureName, PacketTS, Flow);
+				FlowDump(Out, DeviceName, CaptureName, PacketTS, Flow);
 			}
 
 			// reset index and counts
@@ -661,29 +671,31 @@ static void help(void)
 	fprintf(stderr, "cat /tmp/test.pcap | pcap2json > test.json\n");
 	fprintf(stderr, "\n");
 	fprintf(stderr, "Command Line Arguments:\n");
-	fprintf(stderr, " --capture-name <name>  : capture name to use for ES Index data\n");
-	fprintf(stderr, " --json-packet          : write JSON packet data\n");
-	fprintf(stderr, " --json-flow            : write JSON flow data\n");
+	fprintf(stderr, " --capture-name <name>      : capture name to use for ES Index data\n");
+	fprintf(stderr, " --json-packet              : write JSON packet data\n");
+	fprintf(stderr, " --json-flow                : write JSON flow data\n");
 	fprintf(stderr, "\n");
 
 	fprintf(stderr, "Output Mode");
-	fprintf(stderr, " --output-stdout        : writes output to STDOUT\n");
-	fprintf(stderr, " --output-espush        : writes output directly to ES HTTP POST \n");
+	fprintf(stderr, " --output-stdout            : writes output to STDOUT\n");
+	fprintf(stderr, " --output-espush            : writes output directly to ES HTTP POST \n");
+
+	fprintf(stderr, "Flow specific options");
+	fprintf(stderr, " --flow-samplerate <nanos>  : scientific notation flow sample rate. default 100e6 (100msec)\n");
 
 	fprintf(stderr, "\n");
 	fprintf(stderr, "JSON Output Control");
-	fprintf(stderr, " --disable-mac          : disable JSON MAC output\n");
-	fprintf(stderr, " --disable-vlan         : disable JSON VLAN output\n");
-	fprintf(stderr, " --disable-mpls         : disable JSON MPLS output\n");
-	fprintf(stderr, " --disable-ipv4         : disable JSON IPv4 output\n");
-	fprintf(stderr, " --disable-udp          : disable JSON UDP output\n");
-	fprintf(stderr, " --disable-tcp          : disable JSON TCP output\n");
+	fprintf(stderr, " --disable-mac              : disable JSON MAC output\n");
+	fprintf(stderr, " --disable-vlan             : disable JSON VLAN output\n");
+	fprintf(stderr, " --disable-mpls             : disable JSON MPLS output\n");
+	fprintf(stderr, " --disable-ipv4             : disable JSON IPv4 output\n");
+	fprintf(stderr, " --disable-udp              : disable JSON UDP output\n");
+	fprintf(stderr, " --disable-tcp              : disable JSON TCP output\n");
 	fprintf(stderr, "\n");
 
 	fprintf(stderr, "Elastic Stack options");
-	fprintf(stderr, " --es-hostname          : Sets the ES Hostname\n");
-	fprintf(stderr, " --es-hostport          : Sets the ES Port number\n");
-	fprintf(stderr, " --es-compress          : enables gzip compressed POST\n");
+	fprintf(stderr, " --es-host <hostname:port> : Sets the ES Hostname\n");
+	fprintf(stderr, " --es-compress             : enables gzip compressed POST\n");
 }
 
 //---------------------------------------------------------------------------------------------
@@ -744,7 +756,7 @@ int main(int argc, char* argv[])
 			fprintf(stderr, "Output to ES HTTP Push\n");
 		}
 
-		// modify JSON output format
+		// JSON output format
 		if (strcmp(argv[i], "--disable-mac") == 0)
 		{
 			s_JSONEnb_MAC = false;
@@ -775,20 +787,56 @@ int main(int argc, char* argv[])
 			s_JSONEnb_TCP = false;
 			fprintf(stderr, "Disable JSON TCP Output\n");
 		}
-		if (strcmp(argv[i], "--es-hostname") == 0)
+
+		// ES specific 
+		if (strcmp(argv[i], "--es-host") == 0)
 		{
-			strncpy(s_ESHostName, argv[i+1], sizeof(s_ESHostName));
-			fprintf(stderr, "ES HostName [%s]\n", s_ESHostName);
-		}
-		if (strcmp(argv[i], "--es-hostport") == 0)
-		{
-			s_ESHostPort = atoi(argv[i+1]);
-			fprintf(stderr, "ES HostPort %i\n", s_ESHostPort);
+			// split into host/port from <hostname:port>
+			u32 StrPos = 0;
+			u8 StrList[2][256];
+			u32 Len = 0;
+
+			u8* HostPort = argv[i+1];
+			for (int j=0; j < strlen(HostPort); j++)
+			{
+				u32 c = HostPort[j];	
+				if ((c == ':') || (c == 0))
+				{
+					StrList[StrPos][Len] = 0;
+					StrPos++;
+					Len = 0;
+				}
+				else
+				{
+					StrList[StrPos][Len++] = c;
+				}
+			}
+			StrList[StrPos][Len] = 0;
+			StrPos++;
+
+			if (StrPos != 2)
+			{
+				fprintf(stderr, "Format incorrect\n--es-host <hostname:port> found %i\n", StrPos);
+				return 0;
+			}
+
+			ESHost_t* Host = &s_ESHost[s_ESHostCnt++];
+
+			strncpy(Host->HostName, StrList[0], sizeof(Host->HostName));
+			Host->HostPort = atoi(StrList[1]);
+			fprintf(stderr, "[%i] ES HostName [%s]  HostPort:%i\n", s_ESHostCnt, Host->HostName, Host->HostPort);
 		}
 		if (strcmp(argv[i], "--es-compress") == 0)
 		{
 			s_ESCompress = true;
 			fprintf(stderr, "ES Compression Enabled\n");
+		}
+
+		// flow specific
+		if (strcmp(argv[i], "--flow-samplerate") == 0)
+		{
+			s_FlowSampleRate = atof(argv[i+1]);
+			fprintf(stderr, "Flow Sample rate %.3f msec\n", s_FlowSampleRate / 1e6);
 		}
 
 		if (strcmp(argv[i], "--help") == 0)
@@ -849,9 +897,12 @@ int main(int argc, char* argv[])
 	// reset flow info
 	FlowReset();
 
-	// output
-	struct Output_t* Out = Output_Create(s_Output_STDOUT, s_Output_ESPush, s_ESHostName, s_ESHostPort, s_ESCompress); 
-	assert(Out != NULL);
+	// output + add all the ES targets
+	struct Output_t* Out = Output_Create(s_Output_STDOUT, s_Output_ESPush, s_ESCompress); 
+	for (int i=0; i < s_ESHostCnt; i++)
+	{
+		Output_ESHostAdd(Out, s_ESHost[i].HostName, s_ESHost[i].HostPort);
+	}
 
 	while (!feof(FileIn))
 	{
@@ -907,7 +958,7 @@ int main(int argc, char* argv[])
 		for (int i=0; i < s_FlowCnt; i++)
 		{
 			FlowRecord_t* Flow = &s_FlowList[i];	
-			//FlowDump(FileOut, DeviceName, CaptureName, LastTS, Flow);
+			FlowDump(Out, DeviceName, CaptureName, LastTS, Flow);
 		}
 		printf("Total Flows: %i\n", s_FlowCnt);
 	}
