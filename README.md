@@ -51,10 +51,22 @@ fmadio@fmadio20v2-149:/mnt/store0/git/pcap2json_20181103_rc1$
 # Upload packet data directly into Elastic stack
 
 ```
-$ cat /mnt/store1/tmp/interop17_hotstage_20170609_133953.717.953.280.pcap | ./pcap2json  --json-packet --capture-name interop17 | ./bulk_upload.lua
+$ cat /mnt/store1/tmp/interop17_hotstage_20170609_133953.717.953.280.pcap | ./pcap2json  --json-packet --capture-name interop17 --output-espush --es-compress --es-host 192.168.2.115 
 ```
 
-The bulk_upload.lua script saves the output of pcap2json every 1000 lines, then issues a ElasticSearch Bulk curl POST request for those 1000 lines. And repeats until there is no data left.
+This uses a high performance multithreaded direct C socket to to push the JSON data directly into ES. Multiple ES hosts can be specified to load balance the ingress queue. 
+
+# Output JSON text data packet data 
+
+```
+$ cat /mnt/store1/tmp/interop17_hotstage_20170609_133953.717.953.280.pcap | ./pcap2json  --json-packet --capture-name interop17 --output-stdout
+```
+
+Outputs the JSON data on stdout, which is usually piped to a file. This is helpful if debugging is required
+
+# Output options 
+
+Please see the config.\* files for other examples. This these are specified using the --config <file name> option 
 
 
 # Example output
