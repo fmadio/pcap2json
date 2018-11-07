@@ -1,9 +1,9 @@
 # pcap2json
-High Speed PCAP to JSON conversion utility
+High Speed PCAP to JSON conversion utility,  for importing PCAP network data into Elastic Search
+
 
 ![Alt text](http://fmad.io/analytics/logo_pcap2json.png "fmadio flow analyzer logo")
 
-Used for importing PCAP meta data into Elastic Search
 
 ```
 fmadio@fmadio20v2-149:/mnt/store0/git/pcap2json$ ./pcap2json  --help
