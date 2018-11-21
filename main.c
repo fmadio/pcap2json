@@ -688,7 +688,7 @@ static void help(void)
 	fprintf(stderr, " --output-stdout                : writes output to STDOUT\n");
 	fprintf(stderr, " --output-espush                : writes output directly to ES HTTP POST \n");
 	fprintf(stderr, " --output-lineflush <line cnt>  : number of lines before flushing output (default 100e3)\n");
-	fprintf(stderr, " --output-timeflush  <time ns>  : maximum amount of time since last flush (default 1e9(\n");
+	fprintf(stderr, " --output-timeflush  <time ns>  : maximum amount of time since last flush (default 1e9)\n");
 	fprintf(stderr, " --output-cpu <gen1|gen2>       : cpu mapping list to run on\n"); 
 
 	fprintf(stderr, "\n");
