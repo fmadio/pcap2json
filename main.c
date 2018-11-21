@@ -891,6 +891,12 @@ static bool ParseCommandLine(u8* argv[])
 		fprintf(stderr, "  UID [%s]\n", uid); 
 		cnt	+= 2;
 	}
+	// bit of a hack, bpf is for stream_cat but we ignore it here instead of exit
+	if (strcmp(argv[0], "--bpf") == 0)
+	{
+		fprintf(stderr, "  *IGNORE* BPF filter [%s] for stream_cat\n", argv[1]); 
+		cnt	+= 2;
+	}
 
 	if (strcmp(argv[0], "--help") == 0)
 	{
@@ -951,6 +957,21 @@ static bool ParseConfigFile(u8* ConfigFile)
 					LinePos		=  0;
 				}
 				break;
+
+			// argument encased in "" 
+			case '"':
+				{
+					// consume line buffer until matching "
+					while (!feof(F))
+					{
+						c = fgetc(F);
+						if (c == '"') break;
+
+						LineBuffer[LinePos++] = c;
+					}
+				}
+				break;
+
 			default:
 				LineBuffer[LinePos++] = c;
 				break;
