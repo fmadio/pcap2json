@@ -1,5 +1,5 @@
 # pcap2json
-High Speed PCAP to JSON conversion utility,  for importing PCAP network data into Elastic Search
+High Speed PCAP2JSON conversion utility  for importing PCAP network data into Elastic Search / ELK
 
 
 ![Alt text](http://fmad.io/analytics/logo_pcap2json.png "fmadio flow analyzer logo")
@@ -23,9 +23,12 @@ Command Line Arguments:
  --json-packet              : write JSON packet data
  --json-flow                : write JSON flow data
 
-Output Mode 
- --output-stdout            : writes output to STDOUT
- --output-espush            : writes output directly to ES HTTP POST
+Output Mode
+ --output-stdout                : writes output to STDOUT
+ --output-espush                : writes output directly to ES HTTP POST
+ --output-lineflush <line cnt>  : number of lines before flushing output (default 100e3)
+ --output-timeflush  <time ns>  : maximum amount of time since last flush (default 1e9(
+ --output-cpu <gen1|gen2>       : cpu mapping list to run on
 
 Flow specific options 
  --flow-samplerate <nanos>  : scientific notation flow sample rate. default 100e6 (100msec)
