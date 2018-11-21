@@ -78,33 +78,33 @@ typedef struct
 
 //---------------------------------------------------------------------------------------------
 // tunables
-bool					g_Verbose		= false;				// verbose print mode
+bool					g_Verbose			= false;			// verbose print mode
 
-static bool				s_IsJSONPacket	= false;				// output JSON packet format
-static bool				s_IsJSONFlow	= false;				// output JSON flow format
+static bool				s_IsJSONPacket		= false;			// output JSON packet format
+static bool				s_IsJSONFlow		= false;			// output JSON flow format
 
-static u64				s_FlowMax		= 4*1024*1024;			// maximum number of flows 
-static u64				s_FlowCnt		= 0;					// total number of flows
-static FlowRecord_t*	s_FlowList		= NULL;					// list of statically allocated flows
+static u64				s_FlowMax			= 4*1024*1024;		// maximum number of flows 
+static u64				s_FlowCnt			= 0;				// total number of flows
+static FlowRecord_t*	s_FlowList			= NULL;				// list of statically allocated flows
 
 static u64				s_FlowSampleRate	= 100e6;			// default to flow sample rate of 100msec
 
-static FlowRecord_t**	s_FlowHash		= NULL;					// flash hash index
+static FlowRecord_t**	s_FlowHash			= NULL;				// flash hash index
 
-static bool				s_JSONEnb_MAC	= true;					// include the MAC address in JSON output
-static bool				s_JSONEnb_VLAN	= true;					// include the VLAN in JSON output
-static bool				s_JSONEnb_MPLS	= true;					// include the MPLS in JSON output
-static bool				s_JSONEnb_IPV4	= true;					// include the IPV4 in JSON output
-static bool				s_JSONEnb_UDP	= true;					// include the UDP in JSON output
-static bool				s_JSONEnb_TCP	= true;					// include the UDP in JSON output
+static bool				s_JSONEnb_MAC		= true;				// include the MAC address in JSON output
+static bool				s_JSONEnb_VLAN		= true;				// include the VLAN in JSON output
+static bool				s_JSONEnb_MPLS		= true;				// include the MPLS in JSON output
+static bool				s_JSONEnb_IPV4		= true;				// include the IPV4 in JSON output
+static bool				s_JSONEnb_UDP		= true;				// include the UDP in JSON output
+static bool				s_JSONEnb_TCP		= true;				// include the UDP in JSON output
 
-static bool				s_Output_STDOUT	= true;					// by default output to stdout 
-static bool				s_Output_ESPush	= false;				// direct ES HTTP Push 
+static bool				s_Output_STDOUT		= true;				// by default output to stdout 
+static bool				s_Output_ESPush		= false;			// direct ES HTTP Push 
+static u32				s_Output_LineFlush 	= 100e3;			// by default flush every 100e3 lines
 
 static u32				s_ESHostCnt = 0;						// number of active ES Hosts
 static ESHost_t			s_ESHost[128];							// list fo ES Hosts to output to
-static bool				s_ESCompress	= false;				// elastic push enable compression 
-
+static bool				s_ESCompress		= false;			// elastic push enable compression 
 
 static u8 				s_CaptureName[256];						// name of the capture / index to push to
 static u8				s_DeviceName[128];						// name of the device this is sourced from
@@ -425,9 +425,10 @@ static u32 FlowDump(struct Output_t* Out, u8* DeviceName, u8* IndexName, u64 TS,
 		}
 	}
 
-	Output += sprintf(Output, ",\"TotalPkt\":%lli,\"TotalByte\":%lli",
+	Output += sprintf(Output, ",\"TotalPkt\":%lli,\"TotalByte\":%lli,\"TotalBits\":%lli",
 									Flow->TotalPkt,
-									Flow->TotalByte	
+									Flow->TotalByte,
+									Flow->TotalByte*8ULL,
 	);
 
 	Output += sprintf(Output, "}\n");
@@ -752,6 +753,12 @@ static bool ParseCommandLine(u8* argv[])
 		fprintf(stderr, "  Output to ES HTTP Push\n");
 		cnt	+= 1;
 	}
+	if (strcmp(argv[0], "--output-lineflush") == 0)
+	{
+		s_Output_LineFlush = atoi(argv[1]);
+		fprintf(stderr, "  Output Line Flush: %i\n", s_Output_LineFlush);
+		cnt	+= 2;
+	}
 
 	// JSON output format
 	if (strcmp(argv[0], "--disable-mac") == 0)
@@ -842,6 +849,15 @@ static bool ParseCommandLine(u8* argv[])
 	{
 		s_FlowSampleRate = atof(argv[1]);
 		fprintf(stderr, "  Flow Sample rate %.3f msec\n", s_FlowSampleRate / 1e6);
+		cnt	+= 2;
+	}
+
+	// create a unique id so calling applications
+	// can identify it with ps 
+	if (strcmp(argv[0], "--uid") == 0)
+	{
+		u8* uid = argv[1];
+		fprintf(stderr, "  UID [%s]\n", uid); 
 		cnt	+= 2;
 	}
 
@@ -1008,7 +1024,7 @@ int main(int argc, u8* argv[])
 	FlowReset();
 
 	// output + add all the ES targets
-	struct Output_t* Out = Output_Create(s_Output_STDOUT, s_Output_ESPush, s_ESCompress); 
+	struct Output_t* Out = Output_Create(s_Output_STDOUT, s_Output_ESPush, s_ESCompress, s_Output_LineFlush); 
 	for (int i=0; i < s_ESHostCnt; i++)
 	{
 		Output_ESHostAdd(Out, s_ESHost[i].HostName, s_ESHost[i].HostPort);

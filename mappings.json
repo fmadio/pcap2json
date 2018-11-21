@@ -213,6 +213,10 @@
 		  {
             "type" : "long"
           },
+          "TotalBits" : 
+		  {
+            "type" : "long"
+          },
           "TotalPkt" : 
 		  {
             "type" : "long"

@@ -92,7 +92,7 @@ static void* Output_Worker(void * user);
 
 //-------------------------------------------------------------------------------------------
 
-Output_t* Output_Create(bool IsSTDOUT, bool IsESOut, bool IsCompress)
+Output_t* Output_Create(bool IsSTDOUT, bool IsESOut, bool IsCompress, u32 OutputLineFlush)
 {
 	Output_t* O = malloc(sizeof(Output_t));
 	memset(O, 0, sizeof(Output_t));	
@@ -109,7 +109,7 @@ Output_t* Output_Create(bool IsSTDOUT, bool IsESOut, bool IsCompress)
 		B->BufferMax 			= kMB(16); 
 
 		B->BufferLine			= 0;
-		B->BufferLineMax		= 100e3;
+		B->BufferLineMax		= OutputLineFlush;
 
 		B->Buffer				= malloc( B->BufferMax );
 		assert(B->Buffer != NULL);
