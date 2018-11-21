@@ -1,8 +1,9 @@
 # pcap2json
-High Speed PCAP to JSON conversion utility
+High Speed PCAP to JSON conversion utility,  for importing PCAP network data into Elastic Search
 
 
-Used for importing PCAP meta data into Elastic Search
+![Alt text](http://fmad.io/analytics/logo_pcap2json.png "fmadio flow analyzer logo")
+
 
 ```
 fmadio@fmadio20v2-149:/mnt/store0/git/pcap2json$ ./pcap2json  --help
@@ -88,11 +89,11 @@ Please see the config.\* files for other examples. This these are specified usin
 
 100GB Interop PCAP (5 min wall time)
 
-(config.packet)       : 22min  : ~ 50,000 ES inserts / seccondi
-						Full packe Meta data, compressed 1 ES instance
+(config.packet)       : 22min  : ~ 50,000 ES inserts / seccond<br>
+Full packe Meta data, compressed JSON 1 ES instance
 
-(config.flow.100msec) : 10min : ~  6,000 ES inserts / seccond 
-						100 msec sampled flow data, compressed JSON, 1 ES Instance
+(config.flow.100msec) : 10min : ~  6,000 ES inserts / seccond<br>
+100 msec sampled flow data, compressed JSON, 1 ES Instance
 
-(config.flow.1sec)    : 8.5min : ~  4,238 ES inserts / seccond 
-						1sec sampled flow data, compressed JSON, 1 ES Instance
+(config.flow.1sec)    : 8.5min : ~  4,238 ES inserts / seccond<br>
+1sec sampled flow data, compressed JSON, 1 ES Instance
