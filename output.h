@@ -3,7 +3,7 @@
 
 struct Output_t;
 
-struct Output_t* 	Output_Create		(bool IsSTDOUT, bool IsESOut, bool IsCompress, u32 OutputLineFlush);
+struct Output_t* 	Output_Create		(bool IsSTDOUT, bool IsESOut, bool IsCompress, u32 OutputLineFlush, u64 Output_TimeFlush, u32 Output_CPUMap);
 void 				Output_LineAdd		(struct Output_t* Out, u8* Buffer, u32 BufferLen);
 void 				Output_Close		(struct Output_t* Out);
 u64 				Output_TotalByteSent(struct Output_t* Out);

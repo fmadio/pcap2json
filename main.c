@@ -101,6 +101,8 @@ static bool				s_JSONEnb_TCP		= true;				// include the UDP in JSON output
 static bool				s_Output_STDOUT		= true;				// by default output to stdout 
 static bool				s_Output_ESPush		= false;			// direct ES HTTP Push 
 static u32				s_Output_LineFlush 	= 100e3;			// by default flush every 100e3 lines
+static u64				s_Output_TimeFlush 	= 1e9;				// by default flush every 1sec of activity 
+static u32				s_Output_CPUMap		= 2;				// output CPU map allocation
 
 static u32				s_ESHostCnt = 0;						// number of active ES Hosts
 static ESHost_t			s_ESHost[128];							// list fo ES Hosts to output to
@@ -428,7 +430,7 @@ static u32 FlowDump(struct Output_t* Out, u8* DeviceName, u8* IndexName, u64 TS,
 	Output += sprintf(Output, ",\"TotalPkt\":%lli,\"TotalByte\":%lli,\"TotalBits\":%lli",
 									Flow->TotalPkt,
 									Flow->TotalByte,
-									Flow->TotalByte*8ULL,
+									Flow->TotalByte*8ULL
 	);
 
 	Output += sprintf(Output, "}\n");
@@ -445,7 +447,6 @@ static u32 FlowDump(struct Output_t* Out, u8* DeviceName, u8* IndexName, u64 TS,
 static void FlowReset(void)
 {
 	memset(s_FlowHash, 0, sizeof(FlowRecord_t*) * (2 << 20) );
-	memset(s_FlowList, 0, sizeof(FlowRecord_t) * s_FlowMax );
 
 	s_FlowCnt = 0;
 }
@@ -676,34 +677,37 @@ static void help(void)
 	fprintf(stderr, "cat /tmp/test.pcap | pcap2json > test.json\n");
 	fprintf(stderr, "\n");
 	fprintf(stderr, "Command Line Arguments:\n");
-	fprintf(stderr, " --capture-name <name>      : capture name to use for ES Index data\n");
-	fprintf(stderr, " --verbose                  : verbose output\n");
-	fprintf(stderr, " --config <confrig file>    : read from config file\n");
-	fprintf(stderr, " --json-packet              : write JSON packet data\n");
-	fprintf(stderr, " --json-flow                : write JSON flow data\n");
+	fprintf(stderr, " --capture-name <name>          : capture name to use for ES Index data\n");
+	fprintf(stderr, " --verbose                      : verbose output\n");
+	fprintf(stderr, " --config <confrig file>        : read from config file\n");
+	fprintf(stderr, " --json-packet                  : write JSON packet data\n");
+	fprintf(stderr, " --json-flow                    : write JSON flow data\n");
 	fprintf(stderr, "\n");
 
 	fprintf(stderr, "Output Mode\n");
-	fprintf(stderr, " --output-stdout            : writes output to STDOUT\n");
-	fprintf(stderr, " --output-espush            : writes output directly to ES HTTP POST \n");
+	fprintf(stderr, " --output-stdout                : writes output to STDOUT\n");
+	fprintf(stderr, " --output-espush                : writes output directly to ES HTTP POST \n");
+	fprintf(stderr, " --output-lineflush <line cnt>  : number of lines before flushing output (default 100e3)\n");
+	fprintf(stderr, " --output-timeflush  <time ns>  : maximum amount of time since last flush (default 1e9(\n");
+	fprintf(stderr, " --output-cpu <gen1|gen2>       : cpu mapping list to run on\n"); 
 
 	fprintf(stderr, "\n");
 	fprintf(stderr, "Flow specific options\n");
-	fprintf(stderr, " --flow-samplerate <nanos>  : scientific notation flow sample rate. default 100e6 (100msec)\n");
+	fprintf(stderr, " --flow-samplerate <nanos>      : scientific notation flow sample rate. default 100e6 (100msec)\n");
 
 	fprintf(stderr, "\n");
 	fprintf(stderr, "JSON Output Control (by default everything is enabled)\n");
-	fprintf(stderr, " --disable-mac              : disable JSON MAC output\n");
-	fprintf(stderr, " --disable-vlan             : disable JSON VLAN output\n");
-	fprintf(stderr, " --disable-mpls             : disable JSON MPLS output\n");
-	fprintf(stderr, " --disable-ipv4             : disable JSON IPv4 output\n");
-	fprintf(stderr, " --disable-udp              : disable JSON UDP output\n");
-	fprintf(stderr, " --disable-tcp              : disable JSON TCP output\n");
+	fprintf(stderr, " --disable-mac                  : disable JSON MAC output\n");
+	fprintf(stderr, " --disable-vlan                 : disable JSON VLAN output\n");
+	fprintf(stderr, " --disable-mpls                 : disable JSON MPLS output\n");
+	fprintf(stderr, " --disable-ipv4                 : disable JSON IPv4 output\n");
+	fprintf(stderr, " --disable-udp                  : disable JSON UDP output\n");
+	fprintf(stderr, " --disable-tcp                  : disable JSON TCP output\n");
 	fprintf(stderr, "\n");
 
 	fprintf(stderr, "Elastic Stack options\n");
-	fprintf(stderr, " --es-host <hostname:port> : Sets the ES Hostname\n");
-	fprintf(stderr, " --es-compress             : enables gzip compressed POST\n");
+	fprintf(stderr, " --es-host <hostname:port>      : Sets the ES Hostname\n");
+	fprintf(stderr, " --es-compress                  : enables gzip compressed POST\n");
 }
 
 //---------------------------------------------------------------------------------------------
@@ -755,8 +759,35 @@ static bool ParseCommandLine(u8* argv[])
 	}
 	if (strcmp(argv[0], "--output-lineflush") == 0)
 	{
-		s_Output_LineFlush = atoi(argv[1]);
+		s_Output_LineFlush = atof(argv[1]);
 		fprintf(stderr, "  Output Line Flush: %i\n", s_Output_LineFlush);
+		cnt	+= 2;
+	}
+	if (strcmp(argv[0], "--output-timeflush") == 0)
+	{
+		s_Output_TimeFlush = atof(argv[1]);
+		fprintf(stderr, "  Output Time Flush: %lli ns\n", s_Output_TimeFlush);
+		cnt	+= 2;
+	}
+	if (strcmp(argv[0], "--output-cpu") == 0)
+	{
+		u8* CPUStr = argv[1];
+		if (strcmp(CPUStr, "gen1"))
+		{
+			s_Output_CPUMap = 1;
+			fprintf(stderr, "  Output CPU Map Gen1\n");
+		}
+		else if (strcmp(CPUStr, "gen2"))
+		{
+			s_Output_CPUMap = 2;
+			fprintf(stderr, "  Output CPU Map Gen2\n");
+		}
+		else
+		{
+			fprintf(stderr, "  Output CPU Map unkown");
+		}
+
+		fprintf(stderr, "  Output CPU Map: Gen%i\n", s_Output_CPUMap);
 		cnt	+= 2;
 	}
 
@@ -1024,7 +1055,12 @@ int main(int argc, u8* argv[])
 	FlowReset();
 
 	// output + add all the ES targets
-	struct Output_t* Out = Output_Create(s_Output_STDOUT, s_Output_ESPush, s_ESCompress, s_Output_LineFlush); 
+	struct Output_t* Out = Output_Create(	s_Output_STDOUT, 
+											s_Output_ESPush, 
+											s_ESCompress, 
+											s_Output_LineFlush,
+											s_Output_TimeFlush,
+											s_Output_CPUMap); 
 	for (int i=0; i < s_ESHostCnt; i++)
 	{
 		Output_ESHostAdd(Out, s_ESHost[i].HostName, s_ESHost[i].HostPort);
@@ -1044,6 +1080,7 @@ int main(int argc, u8* argv[])
 
 			LastTSC 		= TSC;
 			PCAPOffsetLast 	= PCAPOffset;	
+			//usleep(0);
 		}
 
 		// header 

@@ -59,6 +59,7 @@ typedef struct
 	u32					BufferLineMax;							// maximum line count 
 
 
+
 	u8*					BufferCompress;							// compressed output buffer 
 	u32					BufferCompressMax;
 
@@ -73,6 +74,9 @@ typedef struct Output_t
 	Buffer_t			BufferList[128];						// buffer list 
 	u64					TotalByte[128];							// total amount of bytes sent by each buffer^ 
 	u64					TotalLine;								// total number of lines output
+
+	u64					FlushTimeout;							// flush atleast this nsec
+	u64					FlushLastTS;							// time of last flush
 
 	FILE*				FileTXT;								// output text file	
 
@@ -92,7 +96,7 @@ static void* Output_Worker(void * user);
 
 //-------------------------------------------------------------------------------------------
 
-Output_t* Output_Create(bool IsSTDOUT, bool IsESOut, bool IsCompress, u32 OutputLineFlush)
+Output_t* Output_Create(bool IsSTDOUT, bool IsESOut, bool IsCompress, u32 OutputLineFlush, u64 Output_TimeFlush, u32 Output_CPUMap)
 {
 	Output_t* O = malloc(sizeof(Output_t));
 	memset(O, 0, sizeof(Output_t));	
@@ -120,6 +124,10 @@ Output_t* Output_Create(bool IsSTDOUT, bool IsESOut, bool IsCompress, u32 Output
 		assert(B->BufferCompress != NULL);
 	}
 
+	// timeout for flushing
+	O->FlushLastTS			= 0;
+	O->FlushTimeout			= Output_TimeFlush;
+
 	// enable stdout writing 
 	if (IsSTDOUT)
 	{
@@ -145,11 +153,34 @@ Output_t* Output_Create(bool IsSTDOUT, bool IsESOut, bool IsCompress, u32 Output
 	pthread_create(&O->PushThread[6], NULL, Output_Worker, (void*)O);
 	pthread_create(&O->PushThread[7], NULL, Output_Worker, (void*)O);
 
+	u32 CPUMap[8] = { 0, 0, 0, 0, 0, 0, 0, 0};
+
 	// Gen1 mapping
-	//u32 CPUMap[8] = { 5, 5, 5, 5, 5+6, 5+6, 5+6, 5+6};
+	switch (Output_CPUMap)
+	{
+	case 1:
+		CPUMap[0] = 5;
+		CPUMap[1] = 5;
+		CPUMap[2] = 5;
+		CPUMap[3] = 5;
+		CPUMap[4] = 5 + 6;
+		CPUMap[5] = 5 + 6;
+		CPUMap[6] = 5 + 6;
+		CPUMap[7] = 5 + 6;
+		break;
 
 	// Gen2 mapping
-	u32 CPUMap[8] = {24, 24, 24, 24, 25, 25, 25, 25};
+	case 2:
+		CPUMap[0] = 24;
+		CPUMap[1] = 24;
+		CPUMap[2] = 24;
+		CPUMap[3] = 24;
+		CPUMap[4] = 25;
+		CPUMap[5] = 25;
+		CPUMap[6] = 25;
+		CPUMap[7] = 25;
+		break;
+	}
 
 	for (int i=0; i < 8; i++)
 	{
@@ -374,6 +405,7 @@ void BulkUpload(Output_t* Out, u32 BufferIndex)
 	ErrorStr[ErrorStrPos++] = 0;
 
 	printf("[%s] [%s] %i Lines %iB\n", TookStr, ErrorStr, B->BufferLine, B->BufferPos);
+	fflush(stdout);
 
 	//RecvBuffer[250] = 0;
 	//printf("%s\n", RecvBuffer);
@@ -432,7 +464,21 @@ void Output_LineAdd(Output_t* Out, u8* Buffer, u32 BufferLen)
 		B->BufferPos += BufferLen;
 
 		B->BufferLine += 1;
-		if ((B->BufferLine > B->BufferLineMax) || (B->BufferPos + kKB(16) > B->BufferMax))
+
+		// time to flush to ES?
+		bool IsFlush = false;
+
+		// flush every X lines
+		IsFlush |= (B->BufferLine > B->BufferLineMax);
+
+		// flush when near the end of the write buffer
+		IsFlush |= (B->BufferPos + kKB(16) > B->BufferMax);
+
+		// flush every X nanosec
+		u64 TS = clock_ns();
+		IsFlush |= ((TS - Out->FlushLastTS) > Out->FlushTimeout);
+
+		if (IsFlush)
 		{
 			// block until push has completed
 			// NOTE: there may be 8 buffers/workers in progress so add bit 
@@ -445,6 +491,9 @@ void Output_LineAdd(Output_t* Out, u8* Buffer, u32 BufferLen)
 			// add so the workers can push it
 			//BulkUpload(Out, Out->BufferPut);
 			Out->BufferPut = (Out->BufferPut + 1) & Out->BufferMask;
+
+			// set last flush time
+			Out->FlushLastTS = TS;
 		}
 	}
 	Out->TotalLine++;
