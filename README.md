@@ -4,6 +4,13 @@ High Speed PCAP2JSON conversion utility  for importing PCAP network data into El
 
 ![Alt text](http://fmad.io/analytics/logo_pcap2json.png "fmadio flow analyzer logo")
 
+![Alt text](http://fmad.io/images/blog/20181126_netflow_snapshot2.png" "fmadio snapshot flow")
+
+![Alt text](http://fmad.io/images/blog/images/blog/20181126_fmadio_netflow_snapshot2.png" "fmadio pcaket capture PCAP flow generator")
+
+Full description is here
+[https://fmad.io/blog-network-flow-monitoring.html](https://fmad.io/blog-network-flow-monitoring.html)
+
 
 ```
 fmadio@fmadio20v2-149:/mnt/store0/git/pcap2json$ ./pcap2json  --help
@@ -102,12 +109,4 @@ Full packe Meta data, compressed JSON 1 ES instance
 1sec sampled flow data, compressed JSON, 1 ES Instance
 
 
-# High level Documentation 
-
-![Alt text](http://fmad.io/"/images/blog/20181126_netflow_snapshot2.png" "fmadio snapshot flow")
-
-![Alt text](http://fmad.io/"/images/blog/images/blog/20181126_fmadio_netflow_snapshot2.png" "fmadio pcaket capture PCAP flow generator")
-
-Full description is here
-[https://fmad.io/blog-network-flow-monitoring.html](https://fmad.io/blog-network-flow-monitoring.html)
 
