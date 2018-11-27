@@ -6,7 +6,7 @@ High Speed PCAP2JSON conversion utility  for importing PCAP network data into El
 
 ![Alt text](https://fmad.io/images/blog/20181126_netflow_snapshot2.png "fmadio snapshot flow")
 
-![Alt text](https://fmad.io/images/blog/images/blog/20181126_fmadio_netflow_snapshot2.png "fmadio pcaket capture PCAP flow generator")
+![Alt text](https://fmad.io/images/blog/20181126_fmadio_netflow_snapshot2.png "fmadio pcaket capture PCAP flow generator")
 
 Full description is here
 [https://fmad.io/blog-network-flow-monitoring.html](https://fmad.io/blog-network-flow-monitoring.html)
