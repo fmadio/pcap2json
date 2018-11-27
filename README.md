@@ -100,3 +100,14 @@ Full packe Meta data, compressed JSON 1 ES instance
 
 (config.flow.1sec)    : 8.5min : ~  4,238 ES inserts / seccond<br>
 1sec sampled flow data, compressed JSON, 1 ES Instance
+
+
+# High level Documentation 
+
+![Alt text](http://fmad.io/"/images/blog/20181126_netflow_snapshot2.png" "fmadio snapshot flow")
+
+![Alt text](http://fmad.io/"/images/blog/images/blog/20181126_fmadio_netflow_snapshot2.png" "fmadio pcaket capture PCAP flow generator")
+
+Full description is here
+[https://fmad.io/blog-network-flow-monitoring.html](https://fmad.io/blog-network-flow-monitoring.html)
+
