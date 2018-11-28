@@ -155,6 +155,14 @@
 				{
 					"type" : "long"
 				},
+				"WindowMin" :
+				{
+					"type" : "long"
+				},
+				"WindowMax" :
+				{
+					"type" : "long"
+				},
 				"FIN" :
 				{
 					"type" : "integer"

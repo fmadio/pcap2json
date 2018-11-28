@@ -33,6 +33,8 @@ typedef int					s32;
 typedef unsigned long long	u64;
 typedef long long			s64;
 
+#define offsetof(s,m) (size_t)(unsigned long)&(((s *)0)->m)
+
 #define k1E9 1000000000ULL
 
 #define kKB(a) ( ((u64)a)*1024ULL)
@@ -462,14 +464,14 @@ typedef struct
 #define IPv4_PROTO_GRE			0x2f	
 #define IPv4_PROTO_VRRP			0x70	
 
-#define TCP_FLAG_FIN(a) ((a >>(8+0))&1)
-#define TCP_FLAG_SYN(a) ((a >>(8+1))&1)
-#define TCP_FLAG_RST(a) ((a >>(8+2))&1)
-#define TCP_FLAG_PSH(a) ((a >>(8+3))&1)
-#define TCP_FLAG_ACK(a) ((a >>(8+4))&1)
-#define TCP_FLAG_URG(a) ((a >>(8+5))&1)
-#define TCP_FLAG_ECE(a) ((a >>(8+6))&1)
-#define TCP_FLAG_CWR(a) ((a >>(8+7))&1)
+#define TCP_FLAG_FIN(a) ((a >>(0+0))&1)
+#define TCP_FLAG_SYN(a) ((a >>(0+1))&1)
+#define TCP_FLAG_RST(a) ((a >>(0+2))&1)
+#define TCP_FLAG_PSH(a) ((a >>(0+3))&1)
+#define TCP_FLAG_ACK(a) ((a >>(0+4))&1)
+#define TCP_FLAG_URG(a) ((a >>(0+5))&1)
+#define TCP_FLAG_ECE(a) ((a >>(0+6))&1)
+#define TCP_FLAG_CWR(a) ((a >>(0+7))&1)
 
 typedef struct
 {

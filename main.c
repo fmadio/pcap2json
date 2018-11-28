@@ -52,6 +52,14 @@ typedef struct FlowRecord_t
 
 	u8						pad[17];			// SHA1 calcuated on the first 64B
 
+	u16						TCPACKCnt;			// TCP ACK count within the time period	
+	u16						TCPFINCnt;			// TCP FIN count within the time period	
+	u16						TCPSYNCnt;			// TCP SYN count within the time period	
+	u16						TCPPSHCnt;			// TCP PSH count within the time period	
+	u16						TCPRSTCnt;			// TCP RST count within the time period	
+	u16						TCPWindowMin;		// TCP Window Minimum 
+	u16						TCPWindowMax;		// TCP Window Maximum 
+
 	//-------------------------------------------------------------------------------
 	
 	u32						SHA1[5];			// SHA of the flow
@@ -153,7 +161,7 @@ static u32 HashIndex(u32* SHA1)
 
 //---------------------------------------------------------------------------------------------
 
-static FlowRecord_t* FlowAlloc(void)
+static FlowRecord_t* FlowAlloc(FlowRecord_t* F)
 {
 	assert(s_FlowCnt < s_FlowMax);
 
@@ -161,6 +169,9 @@ static FlowRecord_t* FlowAlloc(void)
 	memset(Flow, 0, sizeof(FlowRecord_t) );
 
 	s_FlowCnt++;
+
+	// copy flow values, leaving the counters reset at zero 
+	memcpy(Flow, F, offsetof(FlowRecord_t, pad));
 
 	return Flow;
 }
@@ -178,9 +189,7 @@ static void FlowInsert(FlowRecord_t* Flow, u32* SHA1, u32 Length, u64 TS)
 	// first record ?
 	if (s_FlowHash[ Index ] == NULL)
 	{
-		F = FlowAlloc();
-
-		memcpy(F, Flow, sizeof(FlowRecord_t));
+		F = FlowAlloc(Flow);
 
 		F->SHA1[0] = SHA1[0];
 		F->SHA1[1] = SHA1[1];
@@ -223,9 +232,7 @@ static void FlowInsert(FlowRecord_t* Flow, u32* SHA1, u32 Length, u64 TS)
 		// new flow
 		if (!F)
 		{
-			F = FlowAlloc();
-
-			memcpy(F, Flow, sizeof(FlowRecord_t));
+			F = FlowAlloc(Flow);
 
 			F->SHA1[0] = SHA1[0];
 			F->SHA1[1] = SHA1[1];
@@ -248,6 +255,25 @@ static void FlowInsert(FlowRecord_t* Flow, u32* SHA1, u32 Length, u64 TS)
 	F->TotalByte	+= Length;
 	F->FirstTS		= (F->FirstTS == 0) ? TS : F->FirstTS;
 	F->LastTS		=  TS;
+
+	// update TCP Flag counts
+	TCPHeader_t* TCP = &Flow->TCPHeader; 
+	u16 TCPFlags = swap16(TCP->Flags);
+	F->TCPFINCnt	+= (TCP_FLAG_FIN(TCPFlags) != 0);
+	F->TCPSYNCnt	+= (TCP_FLAG_SYN(TCPFlags) != 0);
+	F->TCPRSTCnt	+= (TCP_FLAG_RST(TCPFlags) != 0);
+	F->TCPPSHCnt	+= (TCP_FLAG_PSH(TCPFlags) != 0);
+	F->TCPACKCnt	+= (TCP_FLAG_ACK(TCPFlags) != 0);
+
+	// first packet
+	u32 TCPWindow = swap16(TCP->Window); 
+	if (F->TotalPkt == 1)
+	{
+		F->TCPWindowMin = TCPWindow; 
+		F->TCPWindowMax = TCPWindow; 
+	}
+	F->TCPWindowMin = (F->TCPWindowMin > TCPWindow) ? TCPWindow : F->TCPWindowMin;
+	F->TCPWindowMax = (F->TCPWindowMax < TCPWindow) ? TCPWindow : F->TCPWindowMax;
 }
 
 //---------------------------------------------------------------------------------------------
@@ -415,6 +441,18 @@ static u32 FlowDump(struct Output_t* Out, u8* DeviceName, u8* IndexName, u64 TS,
 							TCP_FLAG_PSH(Flags),
 							TCP_FLAG_ACK(Flags),
 							swap16(TCP->Window)
+					);
+				}
+				else
+				{
+					Output += sprintf(Output,",\"TCP.FIN\":%i,\"TCP.SYN\":%i,\"TCP.RST\":%i,\"TCP.PSH\":%i,\"TCP.ACK\":%i,\"TCP.WindowMin\":%i,\"TCP.WindowMax\":%i",
+							Flow->TCPFINCnt,
+							Flow->TCPSYNCnt,
+							Flow->TCPRSTCnt,
+							Flow->TCPPSHCnt,
+							Flow->TCPACKCnt,
+							Flow->TCPWindowMin,
+							Flow->TCPWindowMax
 					);
 				}
 				Output += sprintf(Output, ",\"TCP.Port.Src\":%i,\"TCP.Port.Dst\":%i",
@@ -1004,7 +1042,6 @@ int main(int argc, u8* argv[])
 	clock_str(ClockStr, clock_date() );
 
 	sprintf(s_CaptureName, "%s_%s", s_DeviceName, ClockStr); 
-
 	for (int i=1; i < argc; i++)
 	{
 		// config file was specified 
