@@ -96,7 +96,7 @@ static void* Output_Worker(void * user);
 
 //-------------------------------------------------------------------------------------------
 
-Output_t* Output_Create(bool IsSTDOUT, bool IsESOut, bool IsCompress, u32 OutputLineFlush, u64 Output_TimeFlush, u32 Output_CPUMap)
+Output_t* Output_Create(bool IsNULL, bool IsSTDOUT, bool IsESOut, bool IsCompress, u32 OutputLineFlush, u64 Output_TimeFlush, u32 Output_CPUMap)
 {
 	Output_t* O = malloc(sizeof(Output_t));
 	memset(O, 0, sizeof(Output_t));	
@@ -132,6 +132,10 @@ Output_t* Output_Create(bool IsSTDOUT, bool IsESOut, bool IsCompress, u32 Output
 	if (IsSTDOUT)
 	{
 		O->FileTXT		= stdout;
+	}
+	if (IsNULL)
+	{
+		O->FileTXT		= fopen("/dev/null", "w");
 	}
 
 	// direct ES push

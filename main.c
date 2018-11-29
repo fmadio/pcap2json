@@ -87,6 +87,7 @@ typedef struct
 //---------------------------------------------------------------------------------------------
 // tunables
 bool					g_Verbose			= false;			// verbose print mode
+static u32				s_CPUAffinity		= 0;				// which CPU to run the main flow logic on
 
 static bool				s_IsJSONPacket		= false;			// output JSON packet format
 static bool				s_IsJSONFlow		= false;			// output JSON flow format
@@ -106,6 +107,7 @@ static bool				s_JSONEnb_IPV4		= true;				// include the IPV4 in JSON output
 static bool				s_JSONEnb_UDP		= true;				// include the UDP in JSON output
 static bool				s_JSONEnb_TCP		= true;				// include the UDP in JSON output
 
+static bool				s_Output_NULL		= false;			// benchmarking mode output to /dev/null 
 static bool				s_Output_STDOUT		= true;				// by default output to stdout 
 static bool				s_Output_ESPush		= false;			// direct ES HTTP Push 
 static u32				s_Output_LineFlush 	= 100e3;			// by default flush every 100e3 lines
@@ -757,6 +759,13 @@ static bool ParseCommandLine(u8* argv[])
 		g_Verbose = true;
 		cnt	+= 1;
 	}
+	// CPU for main process to run on 
+	if (strcmp(argv[0], "--cpu") == 0)
+	{
+		s_CPUAffinity = atoi(argv[1]);
+		fprintf(stderr, "  Run on CPU %i\n", s_CPUAffinity);
+		cnt	+= 2;
+	}
 	// output json packet data 
 	if (strcmp(argv[0], "--json-packet") == 0)
 	{
@@ -771,7 +780,6 @@ static bool ParseCommandLine(u8* argv[])
 		s_IsJSONFlow = true;	
 		cnt	+= 1;
 	}
-
 	// capture name 
 	if (strcmp(argv[0], "--capture-name") == 0)
 	{
@@ -779,10 +787,18 @@ static bool ParseCommandLine(u8* argv[])
 		fprintf(stderr, "  Capture Name[%s]\n", s_CaptureName);
 		cnt	+= 2;
 	}
-
+	// benchmarking write to /dev/null 
+	if (strcmp(argv[0], "--output-null") == 0)
+	{
+		s_Output_NULL 	= true;
+		s_Output_ESPush = false;
+		fprintf(stderr, "  Output to NULL\n");
+		cnt	+= 1;
+	}
 	// default output to stdout
 	if (strcmp(argv[0], "--output-stdout") == 0)
 	{
+		s_Output_NULL 	= false;
 		s_Output_STDOUT = true;
 		s_Output_ESPush = false;
 		fprintf(stderr, "  Output to STDOUT\n");
@@ -790,6 +806,7 @@ static bool ParseCommandLine(u8* argv[])
 	}
 	if (strcmp(argv[0], "--output-espush") == 0)
 	{
+		s_Output_NULL 	= false;
 		s_Output_STDOUT = false;
 		s_Output_ESPush = true;
 		fprintf(stderr, "  Output to ES HTTP Push\n");
@@ -1063,6 +1080,16 @@ int main(int argc, u8* argv[])
 
 	u64 TS0 = clock_ns();
 
+	// set cpu affinity
+	if (s_CPUAffinity != 0)
+	{
+		fprintf(stderr, "Set CPU Affinity %i\n", s_CPUAffinity);
+		cpu_set_t Thread0CPU;
+		CPU_ZERO(&Thread0CPU);
+		CPU_SET (s_CPUAffinity, &Thread0CPU);
+		pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &Thread0CPU);
+	}
+
 	CycleCalibration();
 
 	FILE* FileIn 	= stdin;
@@ -1113,7 +1140,8 @@ int main(int argc, u8* argv[])
 	FlowReset();
 
 	// output + add all the ES targets
-	struct Output_t* Out = Output_Create(	s_Output_STDOUT, 
+	struct Output_t* Out = Output_Create(	s_Output_NULL,
+											s_Output_STDOUT, 
 											s_Output_ESPush, 
 											s_ESCompress, 
 											s_Output_LineFlush,
@@ -1135,6 +1163,7 @@ int main(int argc, u8* argv[])
 			float bps = ((PCAPOffset - PCAPOffsetLast) * 8.0) / (tsc2ns(TSC - LastTSC)/1e9); 
 
 			fprintf(stderr, "%.3f GB   %.6f Gbps\n", (float)PCAPOffset / kGB(1), bps / 1e9);
+			fflush(stderr);
 
 			LastTSC 		= TSC;
 			PCAPOffsetLast 	= PCAPOffset;	
