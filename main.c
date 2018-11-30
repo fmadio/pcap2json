@@ -1174,6 +1174,9 @@ int main(int argc, u8* argv[])
 		Output_ESHostAdd(Out, s_ESHost[i].HostName, s_ESHost[i].HostPort);
 	}
 
+	u64 PacketTSFirst = 0;
+	u64 PacketTSLast  = 0;
+
 	while (!feof(FileIn))
 	{
 
@@ -1187,12 +1190,15 @@ int main(int argc, u8* argv[])
 
 			u64 OutputByte = Output_TotalByteSent(Out);
 
-			fprintf(stderr, "Input:%.3f GB %.6f Gbps : Output %.2f GB FlowsPerSnap: %.f\n", (float)PCAPOffset / kGB(1), bps / 1e9, OutputByte / 1e9, s_FlowCntSnapshotEMA);
+			// is it keeping up ? > 1.0 means it will lag
+			float PCAPWallTime 	= (PacketTSLast - PacketTSFirst) / 1e9;
+			float DecodeTime 	= (clock_ns() - TS0) / 1e9; 
+
+			fprintf(stderr, "Input:%.3f GB %.6f Gbps : Output %.2f GB FlowsPerSnap: %10.f : WallTimeRatio: %.3f\n", (float)PCAPOffset / kGB(1), bps / 1e9, OutputByte / 1e9, s_FlowCntSnapshotEMA, DecodeTime * inverse(PCAPWallTime));
 			fflush(stderr);
 
 			LastTSC 		= TSC;
 			PCAPOffsetLast 	= PCAPOffset;	
-			//usleep(0);
 		}
 
 		// dump performance stats every 1min
@@ -1226,6 +1232,9 @@ int main(int argc, u8* argv[])
 		}
 		PCAPOffset += PktHeader->LengthCapture; 
 		u64 PacketTS = (u64)PktHeader->Sec * 1000000000ULL + (u64)PktHeader->NSec * TScale;
+
+		if (PacketTSFirst == 0) PacketTSFirst = PacketTS;
+		PacketTSLast = PacketTS;
 
 		fProfile_Stop(6);
 
@@ -1267,6 +1276,9 @@ int main(int argc, u8* argv[])
 
 	u64 TotalLine = Output_TotalLine(Out);	
 	float lps = TotalLine / dT;
+
+	float PCAPWallTime = (PacketTSLast - PacketTSFirst) / 1e9;
+	printf("PCAPWall time: %.2f sec ProcessTime %.2f sec (%.3f)\n", PCAPWallTime, dT, dT / PCAPWallTime);
 
 	printf("Total Time: %.2f sec RawInput[%.3f Gbps %.f Pps] Output[%.3f Gbps] TotalLine:%lli %.f Line/Sec\n", dT, bps / 1e9, pps, obps / 1e9, TotalLine, lps); 
 }
