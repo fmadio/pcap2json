@@ -221,8 +221,9 @@ void BulkUpload(Output_t* Out, u32 BufferIndex)
 	Buffer_t* B		= &Out->BufferList[ BufferIndex ];	
 
 	// raw json block to be uploaded
-	u8* Bulk		= B->Buffer;
-	u32 BulkLength	= B->BufferPos;
+	u8* Bulk			= B->Buffer;
+	u32 BulkLength		= B->BufferPos;
+	u32 RawLength	 	= B->BufferPos;;
 
 	// compress the raw data
 	if (Out->IsCompress)
@@ -270,14 +271,7 @@ void BulkUpload(Output_t* Out, u32 BufferIndex)
 		GZFooter[6] = (BulkLength >> 16) & 0xFF;
 		GZFooter[7] = (BulkLength >> 24) & 0xFF;
 
-		/*
-		FILE* F = fopen("ass.gz", "w");
-		fwrite(B->BufferCompress, 10 + CompressLength + 8, 1, F);
-		fclose(F);
-		*/
-
-		printf("Compressed: %lli B Raw %i B Ratio: x%.3f\n", CompressLength, BulkLength, BulkLength / (float)CompressLength );
-
+		//printf("Compressed: %lli B Raw %i B Ratio: x%.3f\n", CompressLength, BulkLength, BulkLength / (float)CompressLength );
 		Bulk		= B->BufferCompress;
 		BulkLength	= 10 + CompressLength + 8; 
 	}
@@ -408,7 +402,7 @@ void BulkUpload(Output_t* Out, u32 BufferIndex)
 	}
 	ErrorStr[ErrorStrPos++] = 0;
 
-	printf("[%s] [%s] %i Lines %iB\n", TookStr, ErrorStr, B->BufferLine, B->BufferPos);
+	printf("%s:%i Raw:%8i Pak:%8i(x%5.2f) Lines:%10i [%s] [%s]\n", IPAddress, Port, RawLength, BulkLength, RawLength * inverse(BulkLength), B->BufferLine, TookStr, ErrorStr);
 	fflush(stdout);
 
 	//RecvBuffer[250] = 0;
@@ -456,6 +450,7 @@ void Output_LineAdd(Output_t* Out, u8* Buffer, u32 BufferLen)
 	// write to a text file
 	if (Out->FileTXT)
 	{
+		Out->TotalByte[0] += strlen(Buffer);
 		fprintf(Out->FileTXT, Buffer);
 	}
 

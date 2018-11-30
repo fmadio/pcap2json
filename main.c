@@ -24,6 +24,7 @@
 #include <pthread.h>
 
 #include "fTypes.h"
+#include "fProfile.h"
 #include "output.h"
 
 double TSC2Nano = 0;
@@ -93,7 +94,6 @@ static bool				s_IsJSONPacket		= false;			// output JSON packet format
 static bool				s_IsJSONFlow		= false;			// output JSON flow format
 
 static u64				s_FlowMax			= 4*1024*1024;		// maximum number of flows 
-static u64				s_FlowCnt			= 0;				// total number of flows
 static FlowRecord_t*	s_FlowList			= NULL;				// list of statically allocated flows
 
 static u64				s_FlowSampleRate	= 100e6;			// default to flow sample rate of 100msec
@@ -120,6 +120,10 @@ static bool				s_ESCompress		= false;			// elastic push enable compression
 
 static u8 				s_CaptureName[256];						// name of the capture / index to push to
 static u8				s_DeviceName[128];						// name of the device this is sourced from
+
+static u64				s_FlowCntTotal		= 0;				// total number of flows generated
+static u64				s_FlowCntSnapshot	= 0;				// number of flows in this snapshot 
+static double			s_FlowCntSnapshotEMA= 0;				// number of flows in this snapshot EMA 
 
 //---------------------------------------------------------------------------------------------
 // generate a 20bit hash index 
@@ -165,12 +169,10 @@ static u32 HashIndex(u32* SHA1)
 
 static FlowRecord_t* FlowAlloc(FlowRecord_t* F)
 {
-	assert(s_FlowCnt < s_FlowMax);
+	assert(s_FlowCntSnapshot < s_FlowMax);
 
-	FlowRecord_t* Flow = &s_FlowList[ s_FlowCnt ]; 
+	FlowRecord_t* Flow = &s_FlowList[ s_FlowCntSnapshot++ ]; 
 	memset(Flow, 0, sizeof(FlowRecord_t) );
-
-	s_FlowCnt++;
 
 	// copy flow values, leaving the counters reset at zero 
 	memcpy(Flow, F, offsetof(FlowRecord_t, pad));
@@ -252,6 +254,11 @@ static void FlowInsert(FlowRecord_t* Flow, u32* SHA1, u32 Length, u64 TS)
 		}
 	}
 
+	if (IsFlowNew)
+	{
+		s_FlowCntTotal++;
+	}
+
 	// update flow stats
 	F->TotalPkt		+= 1;
 	F->TotalByte	+= Length;
@@ -282,18 +289,19 @@ static void FlowInsert(FlowRecord_t* Flow, u32* SHA1, u32 Length, u64 TS)
 // write a flow record out as a JSON file
 // this is designed for ES bulk data upload using the 
 // mappings.json file as the index 
-
 static u32 FlowDump(struct Output_t* Out, u8* DeviceName, u8* IndexName, u64 TS, FlowRecord_t* Flow) 
 {
 	u8 OutputStr[1024];
 	u8* Output 		= OutputStr;
 	u8* OutputStart = Output;
 
+	fProfile_Start(1, "FlowDump");
+
 	// ES header for bulk upload
 	Output += sprintf(Output, "{\"index\":{\"_index\":\"%s\",\"_type\":\"flow_record\",\"_score\":null}}\n", IndexName);
 
 	// actual payload
-	Output += sprintf(Output, "{\"timestamp\":%f,\"TS\":\"%s\",\"FlowCnt\":%lli,\"Device\":\"%s\"", TS/1e6, FormatTS(TS), s_FlowCnt, DeviceName);
+	Output += sprintf(Output, "{\"timestamp\":%f,\"TS\":\"%s\",\"FlowCnt\":%lli,\"Device\":\"%s\"", TS/1e6, FormatTS(TS), s_FlowCntSnapshot, DeviceName);
 
 	// print flow info
 	Output += sprintf(Output, ",\"hash\":\"%08x%08x%08x%08x%08x\"",	Flow->SHA1[0],
@@ -301,7 +309,6 @@ static u32 FlowDump(struct Output_t* Out, u8* DeviceName, u8* IndexName, u64 TS,
 																	Flow->SHA1[2],
 																	Flow->SHA1[3],
 																	Flow->SHA1[4]);
-
 
 	if (s_JSONEnb_MAC)
 	{
@@ -475,11 +482,12 @@ static u32 FlowDump(struct Output_t* Out, u8* DeviceName, u8* IndexName, u64 TS,
 
 	Output += sprintf(Output, "}\n");
 
-
 	u32 OutputLen = Output - OutputStart;
 
 	// write to output
 	Output_LineAdd(Out, OutputStart, OutputLen);
+
+	fProfile_Stop(1);
 }
 
 //---------------------------------------------------------------------------------------------
@@ -488,7 +496,10 @@ static void FlowReset(void)
 {
 	memset(s_FlowHash, 0, sizeof(FlowRecord_t*) * (2 << 20) );
 
-	s_FlowCnt = 0;
+	// keep EMA of how many flows per snapshot 
+	s_FlowCntSnapshotEMA = 0.9 * s_FlowCntSnapshotEMA  + 0.1 * s_FlowCntSnapshot;
+
+	s_FlowCntSnapshot = 0;
 }
 
 //---------------------------------------------------------------------------------------------
@@ -497,6 +508,9 @@ static void FlowReset(void)
 //
 static void DecodePacket(struct Output_t* Out, u8* DeviceName, u8* CaptureName, u64 PacketTS, PCAPPacket_t* PktHeader)
 {
+
+	fProfile_Start(2, "DecodePacket");
+
 	FlowRecord_t	sFlow;	
 	FlowRecord_t*	Flow = &sFlow;	
 	memset(Flow, 0, sizeof(FlowRecord_t));
@@ -658,12 +672,15 @@ static void DecodePacket(struct Output_t* Out, u8* DeviceName, u8* CaptureName, 
 		break;
 		}
 	}
+	fProfile_Stop(2);
 
 	// generate SHA1
 	// nice way to grab all packets for a single flow, search for the sha1 hash	
 	// NOTE: FlowRecord_t setup so the first 64B contains only the flow info
 	//       with packet and housekeeping info stored after. sha1_compress
 	//       runs on the first 64B only 
+	fProfile_Start(3, "SHA");
+
 	u32 SHA1State[5] = { 0, 0, 0, 0, 0 };
 	sha1_compress(SHA1State, (u8*)Flow);
 
@@ -672,6 +689,8 @@ static void DecodePacket(struct Output_t* Out, u8* DeviceName, u8* CaptureName, 
 	Flow->SHA1[2] = SHA1State[2];
 	Flow->SHA1[3] = SHA1State[3];
 	Flow->SHA1[4] = SHA1State[4];
+	
+	fProfile_Stop(3);
 
 	// packet mode then print record as a packet 
 	if (s_IsJSONPacket)
@@ -682,6 +701,8 @@ static void DecodePacket(struct Output_t* Out, u8* DeviceName, u8* CaptureName, 
 	// update the flow records
 	if (s_IsJSONFlow)
 	{
+		fProfile_Start(4, "Flow");
+
 		// insert to flow table
 		FlowInsert(Flow, SHA1State, PktHeader->LengthWire, PacketTS);
 
@@ -690,8 +711,11 @@ static void DecodePacket(struct Output_t* Out, u8* DeviceName, u8* CaptureName, 
 		s64 dTS = PacketTS - LastPacketTS;
 		if (dTS > s_FlowSampleRate)
 		{
+
+			fProfile_Start(5, "FlowDump");
+
 			LastPacketTS = PacketTS;
-			for (int i=0; i < s_FlowCnt; i++)
+			for (int i=0; i < s_FlowCntSnapshot; i++)
 			{
 				FlowRecord_t* Flow = &s_FlowList[i];	
 				FlowDump(Out, DeviceName, CaptureName, PacketTS, Flow);
@@ -699,7 +723,10 @@ static void DecodePacket(struct Output_t* Out, u8* DeviceName, u8* CaptureName, 
 
 			// reset index and counts
 			FlowReset();
+
+			fProfile_Stop(5);
 		}
+		fProfile_Stop(4);
 	}
 }
 
@@ -1114,6 +1141,7 @@ int main(int argc, u8* argv[])
 	PCAPPacket_t*	PktHeader	= (PCAPPacket_t*)Pkt;
 
 	u64				PrintNextTSC	= 0;
+	u64				ProfileNextTSC	= 0;
 	u64				StartTSC		= rdtsc();
 	u64				LastTSC			= rdtsc();
 	u64				PCAPOffsetLast	= 0;
@@ -1148,6 +1176,7 @@ int main(int argc, u8* argv[])
 
 	while (!feof(FileIn))
 	{
+
 		u64 TSC = rdtsc();
 
 		// progress stats
@@ -1156,7 +1185,9 @@ int main(int argc, u8* argv[])
 			PrintNextTSC = TSC + ns2tsc(1e9);
 			float bps = ((PCAPOffset - PCAPOffsetLast) * 8.0) / (tsc2ns(TSC - LastTSC)/1e9); 
 
-			fprintf(stderr, "%.3f GB   %.6f Gbps\n", (float)PCAPOffset / kGB(1), bps / 1e9);
+			u64 OutputByte = Output_TotalByteSent(Out);
+
+			fprintf(stderr, "Input:%.3f GB %.6f Gbps : Output %.2f GB FlowsPerSnap: %.f\n", (float)PCAPOffset / kGB(1), bps / 1e9, OutputByte / 1e9, s_FlowCntSnapshotEMA);
 			fflush(stderr);
 
 			LastTSC 		= TSC;
@@ -1164,7 +1195,17 @@ int main(int argc, u8* argv[])
 			//usleep(0);
 		}
 
-		// header 
+		// dump performance stats every 1min
+		if (TSC > ProfileNextTSC)
+		{
+			ProfileNextTSC = TSC + ns2tsc(60e9);
+			fProfile_Dump(0);
+		}
+
+		fProfile_Start(0, "Top");
+		fProfile_Start(6, "PacketFetch");
+
+		// header
 		int rlen = fread(PktHeader, 1, sizeof(PCAPPacket_t), FileIn);
 		if (rlen != sizeof(PCAPPacket_t)) break;
 		PCAPOffset += sizeof(PCAPPacket_t);
@@ -1184,8 +1225,9 @@ int main(int argc, u8* argv[])
 			break;
 		}
 		PCAPOffset += PktHeader->LengthCapture; 
-
 		u64 PacketTS = (u64)PktHeader->Sec * 1000000000ULL + (u64)PktHeader->NSec * TScale;
+
+		fProfile_Stop(6);
 
 		// process each packet 
 		DecodePacket(Out, s_DeviceName, s_CaptureName, PacketTS, PktHeader);
@@ -1194,18 +1236,24 @@ int main(int argc, u8* argv[])
 
 		TotalByte	+= PktHeader->LengthCapture;
 		TotalPkt	+= 1;
+
+		fProfile_Stop(0);
 	}
+	fProfile_Stop(6);
+	fProfile_Stop(0);
 
 	// output last flow data
 	if (s_IsJSONFlow)
 	{
-		for (int i=0; i < s_FlowCnt; i++)
+		for (int i=0; i < s_FlowCntSnapshot; i++)
 		{
 			FlowRecord_t* Flow = &s_FlowList[i];	
 			FlowDump(Out, s_DeviceName, s_CaptureName, LastTS, Flow);
 		}
-		printf("Total Flows: %i\n", s_FlowCnt);
+		printf("Total Flows: %i\n", s_FlowCntSnapshot);
 	}
+
+	fProfile_Dump(0);
 
 	// final stats
 
