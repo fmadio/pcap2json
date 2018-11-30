@@ -225,6 +225,10 @@ void BulkUpload(Output_t* Out, u32 BufferIndex)
 	u32 BulkLength		= B->BufferPos;
 	u32 RawLength	 	= B->BufferPos;;
 
+	// if theres nothing to send then skip
+	// NOTE* happens on timeout flushe just after a real flush 
+	if (RawLength == 0) return;
+
 	// compress the raw data
 	if (Out->IsCompress)
 	{
@@ -367,46 +371,59 @@ void BulkUpload(Output_t* Out, u32 BufferIndex)
 	//printf("rlen: %i\n", rlen);
 
 	// parse response for error field
-	u32 TookStrPos = 0;
-	u8  TookStr[128];
+	u32 JSONStrCnt = 0;
+	u32 JSONStrPos = 0;
+	u8  JSONStr[32][256];
 
-	u32 ErrorStrPos = 0;
-	u8  ErrorStr[128];
-
-	// find start of JSON
 	u32 RecvPos = 0;
-	for (int i=0; i < rlen; i++)
+
+	// skip HTTP Header, and find start of JSON data
+	for (; RecvPos < rlen; RecvPos++)
 	{
 		if (RecvBuffer[RecvPos] == '{') break;
-		RecvPos++;
 	}
+	RecvPos++;			// ignore first { encapsulation
 
-	// copy "took" string
-	for (int i=0; i < 128; i++)
+	// parse partial JSON 
+	// skip leading {
+	for (; RecvPos < rlen; RecvPos++)
 	{
-		if (RecvBuffer[RecvPos] == ',') break;
-		TookStr[TookStrPos++] = RecvBuffer[RecvPos];
-		RecvPos++;
+		u32 c = RecvBuffer[RecvPos];
+		if (c == '\"') continue;				// fields are well defined
+		if (c == ',')
+		{
+			JSONStr[JSONStrCnt][JSONStrPos] = 0; 
+			JSONStrCnt++;
+			JSONStrPos = 0;
+
+			// only care about first few fields 
+			if (JSONStrCnt > 16) break;
+		}
+		else
+		{
+			if (JSONStrPos < 256)
+				JSONStr[JSONStrCnt][JSONStrPos++] = c; 
+		}
 	}
-	TookStr[TookStrPos++] = 0; 
+	JSONStr[JSONStrCnt][JSONStrPos] = 0; 
+	JSONStrCnt++;
 
-	// skip comma
-	RecvPos++;
+	u8* TookStr 	= JSONStr[0];
+	u8* ErrorStr 	= JSONStr[1];
 
-	// copy "errors" string
-	for (int i=0; i < 128; i++)
-	{
-		if (RecvBuffer[RecvPos] == ',') break;
-		ErrorStr[ErrorStrPos++] = RecvBuffer[RecvPos];
-		RecvPos++;
-	}
-	ErrorStr[ErrorStrPos++] = 0;
-
-	printf("%s:%i Raw:%8i Pak:%8i(x%5.2f) Lines:%10i [%s] [%s]\n", IPAddress, Port, RawLength, BulkLength, RawLength * inverse(BulkLength), B->BufferLine, TookStr, ErrorStr);
+	//assert(false);
+	printf("%s:%i Raw:%8i Pak:%8i(x%5.2f) Lines:%10i [%-16s] [%s]\n", IPAddress, Port, RawLength, BulkLength, RawLength * inverse(BulkLength), B->BufferLine, TookStr, ErrorStr);
 	fflush(stdout);
 
-	//RecvBuffer[250] = 0;
-	//printf("%s\n", RecvBuffer);
+	// check for errors
+	if (strcmp(ErrorStr, "errors:false") != 0)
+	{
+		printf("ERROR\n");
+		for (int i=0; i < 8; i++)
+		{
+			printf("  %i [%s]\n", i, JSONStr[i]);
+		}
+	}
 
 	// shutdown the socket	
 	close(Sock);
