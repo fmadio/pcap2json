@@ -1178,7 +1178,8 @@ int main(int argc, u8* argv[])
 	u64 PacketTSLast  = 0;
 
 	u64 PacketTSLastSample = 0;
-	u64 SampleLastTS = 0;
+	u64 DecodeTimeLast = 0;
+	u64 DecodeTimeTSC = 0;
 
 	while (!feof(FileIn))
 	{
@@ -1195,11 +1196,11 @@ int main(int argc, u8* argv[])
 
 			// is it keeping up ? > 1.0 means it will lag
 			float PCAPWallTime 	= (PacketTSLast - PacketTSFirst) / 1e9;
-			float DecodeTime 	= (TS - TS0) / 1e9; 
+			float DecodeTime 	= tsc2ns(DecodeTimeTSC) / 1e9; 
 
 			// decode rate since last print
 			float SamplePCAPWallTime 	= (PacketTSLast - PacketTSLastSample) / 1e9;
-			float SampleDecodeTime 		= (TS - SampleLastTS) / 1e9; 
+			float SampleDecodeTime 		= (DecodeTime - DecodeTimeLast) / 1e9; 
 
 			fprintf(stderr, "Input:%.3f GB %.6f Gbps : Output %.2f GB FlowsPerSnap: %10.f : ESErrors:%4i Occupancy: %.3f %.3f\n", 
 								(float)PCAPOffset / kGB(1), 
@@ -1212,11 +1213,11 @@ int main(int argc, u8* argv[])
 							);
 			fflush(stderr);
 
-			LastTSC 		= TSC;
-			PCAPOffsetLast 	= PCAPOffset;	
+			LastTSC 			= TSC;
+			PCAPOffsetLast 		= PCAPOffset;	
 
-			PacketTSLastSample = PacketTSLast;
-			SampleLastTS = TS;
+			PacketTSLastSample 	= PacketTSLast;
+			DecodeTimeLast 		= DecodeTime;
 		}
 
 		// dump performance stats every 1min
@@ -1255,14 +1256,16 @@ int main(int argc, u8* argv[])
 		PacketTSLast = PacketTS;
 
 		fProfile_Stop(6);
+		u64 TSC0 		= rdtsc();
 
 		// process each packet 
 		DecodePacket(Out, s_DeviceName, s_CaptureName, PacketTS, PktHeader);
 
-		LastTS = PacketTS;
+		DecodeTimeTSC 	+= rdtsc() -  TSC0;
+		LastTS 			= PacketTS;
 
-		TotalByte	+= PktHeader->LengthCapture;
-		TotalPkt	+= 1;
+		TotalByte		+= PktHeader->LengthCapture;
+		TotalPkt		+= 1;
 
 		fProfile_Stop(0);
 	}
