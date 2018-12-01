@@ -85,6 +85,7 @@ typedef struct Output_t
 	u32					ESHostPos;								// current ES push target
 	u8					ESHostName[ESHOST_MAX][256];			// ip host name of ES
 	u32					ESHostPort[ESHOST_MAX];					// port of ES
+	volatile u64		ESErrorCnt;								// total number of ES errors on push
 
 	bool				IsCompress;								// enable compression
 
@@ -411,9 +412,11 @@ void BulkUpload(Output_t* Out, u32 BufferIndex)
 	u8* TookStr 	= JSONStr[0];
 	u8* ErrorStr 	= JSONStr[1];
 
-	//assert(false);
+	/*
+	// verbose logging
 	printf("%s:%i Raw:%8i Pak:%8i(x%5.2f) Lines:%10i [%-16s] [%s]\n", IPAddress, Port, RawLength, BulkLength, RawLength * inverse(BulkLength), B->BufferLine, TookStr, ErrorStr);
 	fflush(stdout);
+	*/
 
 	// check for errors
 	if (strcmp(ErrorStr, "errors:false") != 0)
@@ -421,8 +424,12 @@ void BulkUpload(Output_t* Out, u32 BufferIndex)
 		printf("ERROR\n");
 		for (int i=0; i < 8; i++)
 		{
-			printf("  %i [%s]\n", i, JSONStr[i]);
+			printf("ERROR:  %i [%s]\n", i, JSONStr[i]);
 		}
+
+		// update error count
+		// NOTE: should really be an atomic update
+		Out->ESErrorCnt++;
 	}
 
 	// shutdown the socket	
@@ -458,6 +465,13 @@ u64 Output_TotalByteSent(Output_t* Out)
 u64 Output_TotalLine(Output_t* Out)
 {
 	return Out->TotalLine;
+}
+
+//-------------------------------------------------------------------------------------------
+
+u64 Output_ESErrorCnt(Output_t* Out)
+{
+	return Out->ESErrorCnt;
 }
 
 //-------------------------------------------------------------------------------------------

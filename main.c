@@ -1177,9 +1177,11 @@ int main(int argc, u8* argv[])
 	u64 PacketTSFirst = 0;
 	u64 PacketTSLast  = 0;
 
+	u64 PacketTSLastSample = 0;
+	u64 SampleLastTS = 0;
+
 	while (!feof(FileIn))
 	{
-
 		u64 TSC = rdtsc();
 
 		// progress stats
@@ -1189,16 +1191,32 @@ int main(int argc, u8* argv[])
 			float bps = ((PCAPOffset - PCAPOffsetLast) * 8.0) / (tsc2ns(TSC - LastTSC)/1e9); 
 
 			u64 OutputByte = Output_TotalByteSent(Out);
+			u64 TS = clock_ns(); 
 
 			// is it keeping up ? > 1.0 means it will lag
 			float PCAPWallTime 	= (PacketTSLast - PacketTSFirst) / 1e9;
-			float DecodeTime 	= (clock_ns() - TS0) / 1e9; 
+			float DecodeTime 	= (TS - TS0) / 1e9; 
 
-			fprintf(stderr, "Input:%.3f GB %.6f Gbps : Output %.2f GB FlowsPerSnap: %10.f : WallTimeRatio: %.3f\n", (float)PCAPOffset / kGB(1), bps / 1e9, OutputByte / 1e9, s_FlowCntSnapshotEMA, DecodeTime * inverse(PCAPWallTime));
+			// decode rate since last print
+			float SamplePCAPWallTime 	= (PacketTSLast - PacketTSLastSample) / 1e9;
+			float SampleDecodeTime 		= (TS - SampleLastTS) / 1e9; 
+
+			fprintf(stderr, "Input:%.3f GB %.6f Gbps : Output %.2f GB FlowsPerSnap: %10.f : ESErrors:%4i Occupancy: %.3f %.3f\n", 
+								(float)PCAPOffset / kGB(1), 
+								bps / 1e9, 
+								OutputByte / 1e9, 
+								s_FlowCntSnapshotEMA, 
+								Output_ESErrorCnt(Out),
+								DecodeTime * inverse(PCAPWallTime),
+								SampleDecodeTime * inverse(SamplePCAPWallTime)	
+							);
 			fflush(stderr);
 
 			LastTSC 		= TSC;
 			PCAPOffsetLast 	= PCAPOffset;	
+
+			PacketTSLastSample = PacketTSLast;
+			SampleLastTS = TS;
 		}
 
 		// dump performance stats every 1min

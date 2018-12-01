@@ -8,6 +8,7 @@ void 				Output_LineAdd		(struct Output_t* Out, u8* Buffer, u32 BufferLen);
 void 				Output_Close		(struct Output_t* Out);
 u64 				Output_TotalByteSent(struct Output_t* Out);
 u64 				Output_TotalLine	(struct Output_t* Out);
+u64 				Output_ESErrorCnt	(struct Output_t* Out);
 void 				Output_ESHostAdd	(struct Output_t* Out, u8* HostName, u32 HostPort);
 
 #endif
