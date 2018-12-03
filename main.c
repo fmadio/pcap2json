@@ -854,12 +854,12 @@ static bool ParseCommandLine(u8* argv[])
 	if (strcmp(argv[0], "--output-cpu") == 0)
 	{
 		u8* CPUStr = argv[1];
-		if (strcmp(CPUStr, "gen1"))
+		if (strcmp(CPUStr, "gen1") == 0)
 		{
 			s_Output_CPUMap = 1;
 			fprintf(stderr, "  Output CPU Map Gen1\n");
 		}
-		else if (strcmp(CPUStr, "gen2"))
+		else if (strcmp(CPUStr, "gen2") == 0)
 		{
 			s_Output_CPUMap = 2;
 			fprintf(stderr, "  Output CPU Map Gen2\n");
@@ -1202,11 +1202,12 @@ int main(int argc, u8* argv[])
 			float SamplePCAPWallTime 	= (PacketTSLast - PacketTSLastSample) / 1e9;
 			float SampleDecodeTime 		= (DecodeTime - DecodeTimeLast) / 1e9; 
 
-			fprintf(stderr, "Input:%.3f GB %.6f Gbps : Output %.2f GB FlowsPerSnap: %10.f : ESErrors:%4i Occupancy: %.3f %.3f\n", 
+			fprintf(stderr, "Input:%.3f GB %.6f Gbps : Output %.2f GB FlowsPerSnap: %10.f : ESPush:%10lli ESErrors:%4lli Occupancy: %.6f %.6f\n", 
 								(float)PCAPOffset / kGB(1), 
 								bps / 1e9, 
 								OutputByte / 1e9, 
 								s_FlowCntSnapshotEMA, 
+								Output_ESPushCnt(Out),
 								Output_ESErrorCnt(Out),
 								DecodeTime * inverse(PCAPWallTime),
 								SampleDecodeTime * inverse(SamplePCAPWallTime)	
