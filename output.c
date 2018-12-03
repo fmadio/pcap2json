@@ -85,7 +85,8 @@ typedef struct Output_t
 	u32					ESHostPos;								// current ES push target
 	u8					ESHostName[ESHOST_MAX][256];			// ip host name of ES
 	u32					ESHostPort[ESHOST_MAX];					// port of ES
-	volatile u64		ESErrorCnt;								// total number of ES errors on push
+	u32					ESPushTotal[128];						// total number of ES pushes	
+	u32					ESPushError[128];						// total number of ES errors 
 
 	bool				IsCompress;								// enable compression
 
@@ -149,14 +150,15 @@ Output_t* Output_Create(bool IsNULL, bool IsSTDOUT, bool IsESOut, bool IsCompres
 	}
 
 	// create worker threads
-	pthread_create(&O->PushThread[0], NULL, Output_Worker, (void*)O);
-	pthread_create(&O->PushThread[1], NULL, Output_Worker, (void*)O);
-	pthread_create(&O->PushThread[2], NULL, Output_Worker, (void*)O);
-	pthread_create(&O->PushThread[3], NULL, Output_Worker, (void*)O);
-	pthread_create(&O->PushThread[4], NULL, Output_Worker, (void*)O);
-	pthread_create(&O->PushThread[5], NULL, Output_Worker, (void*)O);
-	pthread_create(&O->PushThread[6], NULL, Output_Worker, (void*)O);
-	pthread_create(&O->PushThread[7], NULL, Output_Worker, (void*)O);
+	u32 CPUCnt = 0;
+	pthread_create(&O->PushThread[0], NULL, Output_Worker, (void*)O); CPUCnt++;
+	pthread_create(&O->PushThread[1], NULL, Output_Worker, (void*)O); CPUCnt++;
+	pthread_create(&O->PushThread[2], NULL, Output_Worker, (void*)O); CPUCnt++;
+	pthread_create(&O->PushThread[3], NULL, Output_Worker, (void*)O); CPUCnt++;
+	pthread_create(&O->PushThread[4], NULL, Output_Worker, (void*)O); CPUCnt++;
+	pthread_create(&O->PushThread[5], NULL, Output_Worker, (void*)O); CPUCnt++;
+	pthread_create(&O->PushThread[6], NULL, Output_Worker, (void*)O); CPUCnt++;
+	pthread_create(&O->PushThread[7], NULL, Output_Worker, (void*)O); CPUCnt++;
 
 	u32 CPUMap[8] = { 0, 0, 0, 0, 0, 0, 0, 0};
 
@@ -187,7 +189,7 @@ Output_t* Output_Create(bool IsNULL, bool IsSTDOUT, bool IsESOut, bool IsCompres
 		break;
 	}
 
-	for (int i=0; i < 8; i++)
+	for (int i=0; i < CPUCnt; i++)
 	{
 		cpu_set_t Thread0CPU;
 		CPU_ZERO(&Thread0CPU);
@@ -209,6 +211,24 @@ void Output_ESHostAdd(Output_t* Out, u8* HostName, u32 HostPort)
 }
 
 //-------------------------------------------------------------------------------------------
+// send and block 
+static int SendBuffer(int Sock, u8* Buffer, u32 BufferLength)
+{
+	u32 Pos = 0;
+	while (Pos < BufferLength)
+	{
+		int slen = send(Sock, Buffer + Pos, BufferLength - Pos, MSG_NOSIGNAL);
+		if (slen < 0)
+		{
+			printf("send failed: %i %i %s\n", slen, errno, strerror(errno));
+			return -1;
+		}
+		Pos += slen;
+	}
+	return BufferLength;
+}
+
+//-------------------------------------------------------------------------------------------
 // directly push the json data to ES
 void BulkUpload(Output_t* Out, u32 BufferIndex)
 {
@@ -224,7 +244,10 @@ void BulkUpload(Output_t* Out, u32 BufferIndex)
 	// raw json block to be uploaded
 	u8* Bulk			= B->Buffer;
 	u32 BulkLength		= B->BufferPos;
-	u32 RawLength	 	= B->BufferPos;;
+	u32 RawLength	 	= B->BufferPos;
+
+// force an ES error
+//Bulk[RawLength/2] = '{';
 
 	// if theres nothing to send then skip
 	// NOTE* happens on timeout flushe just after a real flush 
@@ -344,17 +367,17 @@ void BulkUpload(Output_t* Out, u32 BufferIndex)
 	HeaderPos += strlen(Header + HeaderPos);
 
 	// send header
-	int hlen = send(Sock, Header, HeaderPos, MSG_NOSIGNAL);
+	int hlen = SendBuffer(Sock, Header, HeaderPos);
 	assert(hlen == HeaderPos);
 	Out->TotalByte[BufferIndex] += HeaderPos;
 
 	// send body
-	int blen = send(Sock, Bulk, BulkLength, MSG_NOSIGNAL);
+	int blen = SendBuffer(Sock, Bulk, BulkLength);
 	assert(blen == BulkLength);
 	Out->TotalByte[BufferIndex] += BulkLength;
 
 	// send footer 
-	int flen = send(Sock, Footer, FooterPos, MSG_NOSIGNAL);
+	int flen = SendBuffer(Sock, Footer, FooterPos);
 	assert(flen == FooterPos);
 	Out->TotalByte[BufferIndex] += FooterPos;
 
@@ -362,14 +385,54 @@ void BulkUpload(Output_t* Out, u32 BufferIndex)
 	//printf("blen: %i %i\n", blen, BulkLength);
 	//printf("flen: %i\n", flen);
 
-	u8 RecvBuffer[4*1024];
-	u32 RecvBufferMax = 4*1024;
+	// use the compress buffer for the response
+	u8* RecvBuffer 		= B->BufferCompress;
+	u32 RecvBufferMax 	= B->BufferCompressMax; 
 
-	// get ES response, only grab a part of the message
-	// as only checking for errors, dont need the full 
-	// per item output list
-	int rlen = recv(Sock, RecvBuffer, RecvBufferMax, 0);
-	//printf("rlen: %i\n", rlen);
+	// if thers nothing in the buffer, ensure printf still has asciiz
+	strcpy(RecvBuffer, "recv error");
+
+	// get ES response, use the compressed buffer as the recv 
+	int RecvBufferLen 	= 0;
+	int ExpectBufferLen = 0;
+	u32 TotalLength		= RecvBufferMax;
+	while (RecvBufferLen < TotalLength)
+	{
+		//printf("recv: %i %i\n", RecvBufferLen, TotalLength);
+		int rlen = recv(Sock, RecvBuffer + RecvBufferLen, TotalLength - RecvBufferLen, 0);
+		if (rlen <= 0) break;
+
+		// if content length has been parsed yet
+		if (TotalLength == RecvBufferMax)
+		{
+			// attempt parse the HTTP reply to get content length 
+			u8* ContentLengthStr = strstr(RecvBuffer, "content-length:");
+			if (ContentLengthStr != NULL)
+			{
+				u32 LengthStrPos = 0;
+				u8 LengthStr[8];
+				ContentLengthStr += 16; 
+				for (int i=0; i < 8; i++)
+				{
+					u32 c = *ContentLengthStr++;
+					if (c == '\n') break;
+					if (c == '\r') break;
+					LengthStr[LengthStrPos++] = c; 
+				}
+				LengthStr[LengthStrPos++] = 0; 
+
+				u32 ContentLength = atoi(LengthStr);
+				TotalLength = ContentLength  + (ContentLengthStr - RecvBuffer) + 3;
+				printf("[%i] content length (%s) %i : %i\n", BufferIndex, LengthStr, ContentLength, TotalLength);
+			}
+		}
+		RecvBufferLen += rlen;
+		//printf("rlen: %i\n", rlen);
+	}
+	printf("[%i] RecvLen: %i TotalLengh:%i \n", BufferIndex, RecvBufferLen, TotalLength);
+
+	// asciiz it
+	if (RecvBufferLen > 0) RecvBuffer[RecvBufferLen] = 0;
 
 	// parse response for error field
 	u32 JSONStrCnt = 0;
@@ -379,7 +442,7 @@ void BulkUpload(Output_t* Out, u32 BufferIndex)
 	u32 RecvPos = 0;
 
 	// skip HTTP Header, and find start of JSON data
-	for (; RecvPos < rlen; RecvPos++)
+	for (; RecvPos < RecvBufferLen; RecvPos++)
 	{
 		if (RecvBuffer[RecvPos] == '{') break;
 	}
@@ -387,7 +450,7 @@ void BulkUpload(Output_t* Out, u32 BufferIndex)
 
 	// parse partial JSON 
 	// skip leading {
-	for (; RecvPos < rlen; RecvPos++)
+	for (; RecvPos < RecvBufferLen; RecvPos++)
 	{
 		u32 c = RecvBuffer[RecvPos];
 		if (c == '\"') continue;				// fields are well defined
@@ -421,15 +484,18 @@ void BulkUpload(Output_t* Out, u32 BufferIndex)
 	// check for errors
 	if (strcmp(ErrorStr, "errors:false") != 0)
 	{
-		printf("ERROR\n");
+		printf("ERROR: %i %i\n", RecvBufferLen, strlen(RecvBuffer) );
 		for (int i=0; i < 8; i++)
 		{
 			printf("ERROR:  %i [%s]\n", i, JSONStr[i]);
 		}
 
+		// print full error response
+		printf("%s\n\n", RecvBuffer);
+
 		// update error count
 		// NOTE: should really be an atomic update
-		Out->ESErrorCnt++;
+		Out->ESPushError[BufferIndex]++;
 	}
 
 	// shutdown the socket	
@@ -439,6 +505,9 @@ void BulkUpload(Output_t* Out, u32 BufferIndex)
 	B->BufferLine 	= 0;
 	B->BufferPos 	= 0;
 	memset(B->Buffer, 0, B->BufferMax);
+
+	// update counts
+	Out->ESPushTotal[BufferIndex] += 1;
 }
 
 //-------------------------------------------------------------------------------------------
@@ -471,7 +540,24 @@ u64 Output_TotalLine(Output_t* Out)
 
 u64 Output_ESErrorCnt(Output_t* Out)
 {
-	return Out->ESErrorCnt;
+	u32 TotalError = 0; 
+	for (int i=0; i < Out->BufferMax; i++)
+	{
+		TotalError += Out->ESPushError[i];
+	}
+	return TotalError; 
+}
+
+//-------------------------------------------------------------------------------------------
+
+u64 Output_ESPushCnt(Output_t* Out)
+{
+	u32 TotalPush = 0; 
+	for (int i=0; i < Out->BufferMax; i++)
+	{
+		TotalPush += Out->ESPushTotal[i];
+	}
+	return TotalPush; 
 }
 
 //-------------------------------------------------------------------------------------------
