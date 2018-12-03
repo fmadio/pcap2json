@@ -1226,6 +1226,7 @@ int main(int argc, u8* argv[])
 		{
 			ProfileNextTSC = TSC + ns2tsc(60e9);
 			fProfile_Dump(0);
+			fflush(stdout);
 		}
 
 		fProfile_Start(0, "Top");
