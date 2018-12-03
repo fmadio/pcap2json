@@ -1202,7 +1202,7 @@ int main(int argc, u8* argv[])
 			float SamplePCAPWallTime 	= (PacketTSLast - PacketTSLastSample) / 1e9;
 			float SampleDecodeTime 		= (DecodeTime - DecodeTimeLast) / 1e9; 
 
-			fprintf(stderr, "Input:%.3f GB %.6f Gbps : Output %.2f GB FlowsPerSnap: %10.f : ESPush:%10lli ESErrors:%4lli Occupancy: %.6f %.6f\n", 
+			fprintf(stderr, "Input:%.3f GB %.6f Gbps : Output %.5f GB FlowsPerSnap: %10.f : ESPush:%10lli ESErrors:%4lli Occupancy: %.6f %.6f\n", 
 								(float)PCAPOffset / kGB(1), 
 								bps / 1e9, 
 								OutputByte / 1e9, 

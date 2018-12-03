@@ -45,6 +45,7 @@
 
 #include "fTypes.h"
 #include "miniz.h"
+#include "fProfile.h"
 
 //---------------------------------------------------------------------------------------------
 
@@ -593,16 +594,17 @@ void Output_LineAdd(Output_t* Out, u8* Buffer, u32 BufferLen)
 		// flush every X nanosec
 		u64 TS = clock_ns();
 		IsFlush |= ((TS - Out->FlushLastTS) > Out->FlushTimeout);
-
 		if (IsFlush)
 		{
 			// block until push has completed
 			// NOTE: there may be 8 buffers/workers in progress so add bit 
 			//       of extra padding in queuing behaviour
+			fProfile_Start(7, "Push Stall");
 			while (((Out->BufferPut + 8 + 4) & Out->BufferMask) == Out->BufferGet)
 			{
 				usleep(10e3);
 			}
+			fProfile_Stop(7);
 
 			// add so the workers can push it
 			//BulkUpload(Out, Out->BufferPut);
