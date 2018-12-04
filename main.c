@@ -61,6 +61,13 @@ typedef struct FlowRecord_t
 	u16						TCPWindowMin;		// TCP Window Minimum 
 	u16						TCPWindowMax;		// TCP Window Maximum 
 
+	u16						TCPACKDupCnt;		// number of TCP duplicate acks seen
+
+	u32						TCPSeqNo;			// last TCP Seq no seen
+	u32						TCPAckNo;			// last TCP Ack no seen
+	u32						TCPAckNoCnt;		// number of acks for this seq no 
+	u16						TCPLength;			// tcp payload length
+
 	//-------------------------------------------------------------------------------
 	
 	u32						SHA1[5];			// SHA of the flow
@@ -177,12 +184,15 @@ static FlowRecord_t* FlowAlloc(FlowRecord_t* F)
 	// copy flow values, leaving the counters reset at zero 
 	memcpy(Flow, F, offsetof(FlowRecord_t, pad));
 
+	// copy per packet state
+	Flow->TCPLength = F->TCPLength;
+
 	return Flow;
 }
 
 //---------------------------------------------------------------------------------------------
 
-static void FlowInsert(FlowRecord_t* Flow, u32* SHA1, u32 Length, u64 TS)
+static void FlowInsert(FlowRecord_t* FlowPkt, u32* SHA1, u32 Length, u64 TS)
 {
 	u32 Index = HashIndex(SHA1);
 
@@ -193,7 +203,7 @@ static void FlowInsert(FlowRecord_t* Flow, u32* SHA1, u32 Length, u64 TS)
 	// first record ?
 	if (s_FlowHash[ Index ] == NULL)
 	{
-		F = FlowAlloc(Flow);
+		F = FlowAlloc(FlowPkt);
 
 		F->SHA1[0] = SHA1[0];
 		F->SHA1[1] = SHA1[1];
@@ -236,7 +246,7 @@ static void FlowInsert(FlowRecord_t* Flow, u32* SHA1, u32 Length, u64 TS)
 		// new flow
 		if (!F)
 		{
-			F = FlowAlloc(Flow);
+			F = FlowAlloc(FlowPkt);
 
 			F->SHA1[0] = SHA1[0];
 			F->SHA1[1] = SHA1[1];
@@ -265,24 +275,49 @@ static void FlowInsert(FlowRecord_t* Flow, u32* SHA1, u32 Length, u64 TS)
 	F->FirstTS		= (F->FirstTS == 0) ? TS : F->FirstTS;
 	F->LastTS		=  TS;
 
-	// update TCP Flag counts
-	TCPHeader_t* TCP = &Flow->TCPHeader; 
-	u16 TCPFlags = swap16(TCP->Flags);
-	F->TCPFINCnt	+= (TCP_FLAG_FIN(TCPFlags) != 0);
-	F->TCPSYNCnt	+= (TCP_FLAG_SYN(TCPFlags) != 0);
-	F->TCPRSTCnt	+= (TCP_FLAG_RST(TCPFlags) != 0);
-	F->TCPPSHCnt	+= (TCP_FLAG_PSH(TCPFlags) != 0);
-	F->TCPACKCnt	+= (TCP_FLAG_ACK(TCPFlags) != 0);
-
-	// first packet
-	u32 TCPWindow = swap16(TCP->Window); 
-	if (F->TotalPkt == 1)
+	if (F->IPProto == IPv4_PROTO_TCP)
 	{
-		F->TCPWindowMin = TCPWindow; 
-		F->TCPWindowMax = TCPWindow; 
+		// update TCP Flag counts
+		TCPHeader_t* TCP = &FlowPkt->TCPHeader; 
+		u16 TCPFlags = swap16(TCP->Flags);
+		F->TCPFINCnt	+= (TCP_FLAG_FIN(TCPFlags) != 0);
+		F->TCPSYNCnt	+= (TCP_FLAG_SYN(TCPFlags) != 0);
+		F->TCPRSTCnt	+= (TCP_FLAG_RST(TCPFlags) != 0);
+		F->TCPPSHCnt	+= (TCP_FLAG_PSH(TCPFlags) != 0);
+		F->TCPACKCnt	+= (TCP_FLAG_ACK(TCPFlags) != 0);
+
+		// check for re-transmits
+		// works by checking for duplicate 0 payload acks
+		// of an ack no thats already been seen. e.g. tcp fast re-transmit request
+		// https://en.wikipedia.org/wiki/TCP_congestion_control#Fast_retransmit
+		// 
+		// 2018/12/04: SACK traffic messes this up
+		if (TCP_FLAG_ACK(TCPFlags))
+		{
+			u32 TCPAckNo	= swap32(TCP->AckNo);
+			if ((FlowPkt->TCPLength == 0) && (F->TCPAckNo == TCPAckNo))
+			{
+				F->TCPACKDupCnt	+= 1; 
+				//if (F->PortSrc == 49279)
+				//{
+				//	printf("[%s] seqno dup: %u %i %i : %i %i %i %i -> %i %i %i %i\n", 
+				//		FormatTS(TS),
+				//			TCPAckNo, F->TCPLength, FlowPkt->TCPLength, F->IPSrc[0], F->IPSrc[1], F->IPSrc[2], F->IPSrc[3], F->IPDst[0], F->IPDst[1], F->IPDst[2], F->IPDst[3] );
+				//}
+			}
+			F->TCPAckNo = TCPAckNo;
+		}
+
+		// first packet
+		u32 TCPWindow = swap16(TCP->Window); 
+		if (F->TotalPkt == 1)
+		{
+			F->TCPWindowMin = TCPWindow; 
+			F->TCPWindowMax = TCPWindow; 
+		}
+		F->TCPWindowMin = (F->TCPWindowMin > TCPWindow) ? TCPWindow : F->TCPWindowMin;
+		F->TCPWindowMax = (F->TCPWindowMax < TCPWindow) ? TCPWindow : F->TCPWindowMax;
 	}
-	F->TCPWindowMin = (F->TCPWindowMin > TCPWindow) ? TCPWindow : F->TCPWindowMin;
-	F->TCPWindowMax = (F->TCPWindowMax < TCPWindow) ? TCPWindow : F->TCPWindowMax;
 }
 
 //---------------------------------------------------------------------------------------------
@@ -454,14 +489,15 @@ static u32 FlowDump(struct Output_t* Out, u8* DeviceName, u8* IndexName, u64 TS,
 				}
 				else
 				{
-					Output += sprintf(Output,",\"TCP.FIN\":%i,\"TCP.SYN\":%i,\"TCP.RST\":%i,\"TCP.PSH\":%i,\"TCP.ACK\":%i,\"TCP.WindowMin\":%i,\"TCP.WindowMax\":%i",
+					Output += sprintf(Output,",\"TCP.FIN\":%i,\"TCP.SYN\":%i,\"TCP.RST\":%i,\"TCP.PSH\":%i,\"TCP.ACK\":%i,\"TCP.WindowMin\":%i,\"TCP.WindowMax\":%i,\"TCP.ACKDup\":%i",
 							Flow->TCPFINCnt,
 							Flow->TCPSYNCnt,
 							Flow->TCPRSTCnt,
 							Flow->TCPPSHCnt,
 							Flow->TCPACKCnt,
 							Flow->TCPWindowMin,
-							Flow->TCPWindowMax
+							Flow->TCPWindowMax,
+							Flow->TCPACKDupCnt
 					);
 				}
 				Output += sprintf(Output, ",\"TCP.Port.Src\":%i,\"TCP.Port.Dst\":%i",
@@ -664,6 +700,10 @@ static void DecodePacket(struct Output_t* Out, u8* DeviceName, u8* CaptureName, 
 
 			// make a copy of the tcp header 
 			Flow->TCPHeader = TCP[0];
+
+			// payload length
+			u32 TCPOffset = ((TCP->Flags&0xf0)>>4)*4;
+			Flow->TCPLength =  swap16(IP4->Len) - IPOffset - TCPOffset;
 		}
 		break;
 		case IPv4_PROTO_UDP:
@@ -1249,7 +1289,7 @@ int main(int argc, u8* argv[])
 			float OutputWorkerCPURecv;
 			Output_WorkerCPU(Out, 0,  &OutputWorkerCPU, &OutputWorkerCPUCompress, &OutputWorkerCPUSend, &OutputWorkerCPURecv);
 
-			fprintf(stderr, "[%s] Input:%.3f GB %6.2f Gbps PCAP: %6.2f Gbps | Output %.5f GB FlowsPerSnap: %10.f | ESPush:%10lli %6.2fK ESErr %4lli | OutputCPU: %.3f\n", 
+			fprintf(stderr, "[%s] Input:%.3f GB %6.2f Gbps PCAP: %6.2f Gbps | Output %.5f GB FlowsPerSnap: %6.f | ESPush:%10lli %6.2fK ESErr %4lli | OutputCPU: %.3f\n", 
 
 								FormatTS(PacketTSLast),
 

@@ -183,6 +183,11 @@
 				{
 					"type" : "integer"
 				}
+				,
+				"ACKDup" :
+				{
+					"type" : "integer"
+				}
 			 }
           },
 		  "UDP" : 
