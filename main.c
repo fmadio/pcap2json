@@ -96,7 +96,7 @@ static bool				s_IsJSONFlow		= false;			// output JSON flow format
 static u64				s_FlowMax			= 4*1024*1024;		// maximum number of flows 
 static FlowRecord_t*	s_FlowList			= NULL;				// list of statically allocated flows
 
-static u64				s_FlowSampleRate	= 100e6;			// default to flow sample rate of 100msec
+static s64				s_FlowSampleRate	= 100e6;			// default to flow sample rate of 100msec
 
 static FlowRecord_t**	s_FlowHash			= NULL;				// flash hash index
 
@@ -494,12 +494,16 @@ static u32 FlowDump(struct Output_t* Out, u8* DeviceName, u8* IndexName, u64 TS,
 // clear out the flow records 
 static void FlowReset(void)
 {
+	fProfile_Start(7, "FlowReset");
+
 	memset(s_FlowHash, 0, sizeof(FlowRecord_t*) * (2 << 20) );
 
 	// keep EMA of how many flows per snapshot 
 	s_FlowCntSnapshotEMA = 0.9 * s_FlowCntSnapshotEMA  + 0.1 * s_FlowCntSnapshot;
 
 	s_FlowCntSnapshot = 0;
+
+	fProfile_Stop(7);
 }
 
 //---------------------------------------------------------------------------------------------
@@ -701,20 +705,22 @@ static void DecodePacket(struct Output_t* Out, u8* DeviceName, u8* CaptureName, 
 	// update the flow records
 	if (s_IsJSONFlow)
 	{
-		fProfile_Start(4, "Flow");
+		fProfile_Start(4, "FlowInsert");
 
 		// insert to flow table
 		FlowInsert(Flow, SHA1State, PktHeader->LengthWire, PacketTS);
+
+		fProfile_Stop(4);
 
 		// purge the flow records every 100msec
 		static u64 LastPacketTS = 0;
 		s64 dTS = PacketTS - LastPacketTS;
 		if (dTS > s_FlowSampleRate)
 		{
+			LastPacketTS = PacketTS;
 
 			fProfile_Start(5, "FlowDump");
 
-			LastPacketTS = PacketTS;
 			for (int i=0; i < s_FlowCntSnapshot; i++)
 			{
 				FlowRecord_t* Flow = &s_FlowList[i];	
@@ -726,7 +732,6 @@ static void DecodePacket(struct Output_t* Out, u8* DeviceName, u8* CaptureName, 
 
 			fProfile_Stop(5);
 		}
-		fProfile_Stop(4);
 	}
 }
 
@@ -1059,6 +1064,11 @@ static bool ParseConfigFile(u8* ConfigFile)
 	for (int j=0; j < LineListPos; j++)
 	{
 		fprintf(stderr, "[%s]\n", LineList[j]);	
+		if (LineList[j][0] == '#')
+		{
+			fprintf(stderr, "   comment skipping\n");
+			continue;
+		}
 
 		u32 inc = ParseCommandLine(&LineList[j]);
 		if (inc == 0) return false;
@@ -1067,6 +1077,28 @@ static bool ParseConfigFile(u8* ConfigFile)
 	}
 
 	return true;
+}
+
+//---------------------------------------------------------------------------------------------
+// dump performance stats
+static void ProfileDump(struct Output_t* Out)
+{
+	fProfile_Dump(0);
+	printf("\n");
+
+	float OutputWorkerCPU;
+	float OutputWorkerCPUCompress;
+	float OutputWorkerCPUSend;
+	float OutputWorkerCPURecv;
+	Output_WorkerCPU(Out, 1,  &OutputWorkerCPU, &OutputWorkerCPUCompress, &OutputWorkerCPUSend, &OutputWorkerCPURecv);
+
+	printf("Output Worker CPU\n");
+	printf("  Top     : %.6f\n", OutputWorkerCPU);
+	printf("  Compress: %.6f\n", OutputWorkerCPUCompress);
+	printf("  Send    : %.6f\n", OutputWorkerCPUSend);
+	printf("  Recv    : %.6f\n", OutputWorkerCPURecv);
+
+	fflush(stdout);
 }
 
 //---------------------------------------------------------------------------------------------
@@ -1176,6 +1208,9 @@ int main(int argc, u8* argv[])
 
 	u64 PacketTSFirst = 0;
 	u64 PacketTSLast  = 0;
+	u64 TotalByteLast = 0;
+
+	u64 OutputLineLast = 0;
 
 	u64 PacketTSLastSample = 0;
 	u64 DecodeTimeLast = 0;
@@ -1189,10 +1224,14 @@ int main(int argc, u8* argv[])
 		if (TSC > PrintNextTSC)
 		{
 			PrintNextTSC = TSC + ns2tsc(1e9);
-			float bps = ((PCAPOffset - PCAPOffsetLast) * 8.0) / (tsc2ns(TSC - LastTSC)/1e9); 
 
 			u64 OutputByte = Output_TotalByteSent(Out);
-			u64 TS = clock_ns(); 
+			u64 OutputLine = Output_TotalLine(Out);	
+
+			//float bps = ((PCAPOffset - PCAPOffsetLast) * 8.0) / (tsc2ns(TSC - LastTSC)/1e9); 
+			float bps = ((TotalByte - TotalByteLast) * 8.0) / (tsc2ns(TSC - LastTSC)/1e9); 
+			float lps = (OutputLine - OutputLineLast) / (tsc2ns(TSC - LastTSC)/1e9); 
+
 
 			// is it keeping up ? > 1.0 means it will lag
 			float PCAPWallTime 	= (PacketTSLast - PacketTSFirst) / 1e9;
@@ -1202,20 +1241,35 @@ int main(int argc, u8* argv[])
 			float SamplePCAPWallTime 	= (PacketTSLast - PacketTSLastSample) / 1e9;
 			float SampleDecodeTime 		= (DecodeTime - DecodeTimeLast) / 1e9; 
 
-			fprintf(stderr, "Input:%.3f GB %.6f Gbps : Output %.5f GB FlowsPerSnap: %10.f : ESPush:%10lli ESErrors:%4lli Occupancy: %.6f %.6f\n", 
-								(float)PCAPOffset / kGB(1), 
+			float PCAPbps = ((TotalByte - TotalByteLast) * 8.0) / SamplePCAPWallTime; 
+
+			float OutputWorkerCPU;
+			float OutputWorkerCPUCompress;
+			float OutputWorkerCPUSend;
+			float OutputWorkerCPURecv;
+			Output_WorkerCPU(Out, 0,  &OutputWorkerCPU, &OutputWorkerCPUCompress, &OutputWorkerCPUSend, &OutputWorkerCPURecv);
+
+			fprintf(stderr, "[%s] Input:%.3f GB %6.2f Gbps PCAP: %6.2f Gbps | Output %.5f GB FlowsPerSnap: %10.f | ESPush:%10lli %6.2fK ESErr %4lli | OutputCPU: %.3f\n", 
+
+								FormatTS(PacketTSLast),
+
+								(float)TotalByte / kGB(1), 
 								bps / 1e9, 
+								PCAPbps / 1e9, 
 								OutputByte / 1e9, 
 								s_FlowCntSnapshotEMA, 
 								Output_ESPushCnt(Out),
+								lps/1e3,
 								Output_ESErrorCnt(Out),
-								DecodeTime * inverse(PCAPWallTime),
-								SampleDecodeTime * inverse(SamplePCAPWallTime)	
+								OutputWorkerCPU
 							);
 			fflush(stderr);
 
 			LastTSC 			= TSC;
 			PCAPOffsetLast 		= PCAPOffset;	
+			TotalByteLast		= TotalByte;
+		
+			OutputLineLast		= OutputLine;
 
 			PacketTSLastSample 	= PacketTSLast;
 			DecodeTimeLast 		= DecodeTime;
@@ -1225,8 +1279,7 @@ int main(int argc, u8* argv[])
 		if (TSC > ProfileNextTSC)
 		{
 			ProfileNextTSC = TSC + ns2tsc(60e9);
-			fProfile_Dump(0);
-			fflush(stdout);
+			ProfileDump(Out);
 		}
 
 		fProfile_Start(0, "Top");
@@ -1258,6 +1311,7 @@ int main(int argc, u8* argv[])
 		PacketTSLast = PacketTS;
 
 		fProfile_Stop(6);
+		fProfile_Start(8, "PacketProcess");
 		u64 TSC0 		= rdtsc();
 
 		// process each packet 
@@ -1266,9 +1320,10 @@ int main(int argc, u8* argv[])
 		DecodeTimeTSC 	+= rdtsc() -  TSC0;
 		LastTS 			= PacketTS;
 
-		TotalByte		+= PktHeader->LengthCapture;
+		TotalByte		+= PktHeader->LengthWire;
 		TotalPkt		+= 1;
 
+		fProfile_Stop(8);
 		fProfile_Stop(0);
 	}
 	fProfile_Stop(6);
@@ -1285,7 +1340,7 @@ int main(int argc, u8* argv[])
 		printf("Total Flows: %i\n", s_FlowCntSnapshot);
 	}
 
-	fProfile_Dump(0);
+	ProfileDump(Out);
 
 	// final stats
 

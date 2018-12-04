@@ -93,6 +93,14 @@ typedef struct Output_t
 
 	pthread_t   		PushThread[16];							// worker thread list
 
+	volatile u32		CPUActiveCnt;							// total number of active cpus
+
+	volatile u64		WorkerTSCTotal[16];						// total TSC 
+	volatile u64		WorkerTSCTop[16];						// cycles used for acutal data processing 
+	volatile u64		WorkerTSCCompress[16];					// cycles spent for compression 
+	volatile u64		WorkerTSCSend[16];						// cycles spent for tcp sending 
+	volatile u64		WorkerTSCRecv[16];						// cycles spent for tcp recv
+
 } Output_t;
 
 static void* Output_Worker(void * user);
@@ -179,14 +187,15 @@ Output_t* Output_Create(bool IsNULL, bool IsSTDOUT, bool IsESOut, bool IsCompres
 
 	// Gen2 mapping
 	case 2:
-		CPUMap[0] = 24;
-		CPUMap[1] = 24;
-		CPUMap[2] = 24;
-		CPUMap[3] = 24;
+		CPUMap[0] = 25;
+		CPUMap[1] = 26;
+		CPUMap[2] = 27;
+		CPUMap[3] = 28;
+
 		CPUMap[4] = 25;
-		CPUMap[5] = 25;
-		CPUMap[6] = 25;
-		CPUMap[7] = 25;
+		CPUMap[5] = 36;
+		CPUMap[6] = 37;
+		CPUMap[7] = 38;
 		break;
 	}
 
@@ -231,7 +240,7 @@ static int SendBuffer(int Sock, u8* Buffer, u32 BufferLength)
 
 //-------------------------------------------------------------------------------------------
 // directly push the json data to ES
-void BulkUpload(Output_t* Out, u32 BufferIndex)
+void BulkUpload(Output_t* Out, u32 BufferIndex, u32 CPUID)
 {
 	u8* IPAddress 	= Out->ESHostName[Out->ESHostPos]; 
 	u32 Port 		= Out->ESHostPort[Out->ESHostPos];	
@@ -257,6 +266,8 @@ void BulkUpload(Output_t* Out, u32 BufferIndex)
 	// compress the raw data
 	if (Out->IsCompress)
 	{
+		u64 TSC = rdtsc();
+
 		ulong CompressLength = B->BufferCompressMax;
 
 		u8* GZHeader = B->BufferCompress;
@@ -303,7 +314,11 @@ void BulkUpload(Output_t* Out, u32 BufferIndex)
 		//printf("Compressed: %lli B Raw %i B Ratio: x%.3f\n", CompressLength, BulkLength, BulkLength / (float)CompressLength );
 		Bulk		= B->BufferCompress;
 		BulkLength	= 10 + CompressLength + 8; 
+
+		Out->WorkerTSCCompress[CPUID] += rdtsc() - TSC;
 	}
+
+	u64 TSC1 = rdtsc();
 
 	int Sock = socket(AF_INET, SOCK_STREAM, 0);
 	assert(Sock > 0);
@@ -382,6 +397,10 @@ void BulkUpload(Output_t* Out, u32 BufferIndex)
 	assert(flen == FooterPos);
 	Out->TotalByte[BufferIndex] += FooterPos;
 
+	// total cycles for sending
+	u64 TSC2 = rdtsc();
+	Out->WorkerTSCSend[CPUID] += TSC2 - TSC1;
+
 	//printf("hlen: %i\n", hlen);
 	//printf("blen: %i %i\n", blen, BulkLength);
 	//printf("flen: %i\n", flen);
@@ -424,13 +443,13 @@ void BulkUpload(Output_t* Out, u32 BufferIndex)
 
 				u32 ContentLength = atoi(LengthStr);
 				TotalLength = ContentLength  + (ContentLengthStr - RecvBuffer) + 3;
-				printf("[%i] content length (%s) %i : %i\n", BufferIndex, LengthStr, ContentLength, TotalLength);
+				//printf("[%i] content length (%s) %i : %i\n", BufferIndex, LengthStr, ContentLength, TotalLength);
 			}
 		}
 		RecvBufferLen += rlen;
 		//printf("rlen: %i\n", rlen);
 	}
-	printf("[%i] RecvLen: %i TotalLengh:%i \n", BufferIndex, RecvBufferLen, TotalLength);
+	//printf("[%i] RecvLen: %i TotalLengh:%i \n", BufferIndex, RecvBufferLen, TotalLength);
 
 	// asciiz it
 	if (RecvBufferLen > 0) RecvBuffer[RecvBufferLen] = 0;
@@ -502,6 +521,9 @@ void BulkUpload(Output_t* Out, u32 BufferIndex)
 	// shutdown the socket	
 	close(Sock);
 
+	u64 TSC3 = rdtsc();
+	Out->WorkerTSCRecv[CPUID] += TSC3 - TSC2;
+
 	// reset buffer
 	B->BufferLine 	= 0;
 	B->BufferPos 	= 0;
@@ -559,6 +581,48 @@ u64 Output_ESPushCnt(Output_t* Out)
 		TotalPush += Out->ESPushTotal[i];
 	}
 	return TotalPush; 
+}
+
+//-------------------------------------------------------------------------------------------
+// calculates the CPU usage of output worker threads.
+// this is compress + HTTP framing + send  + recv + error processing time
+void Output_WorkerCPU(	Output_t* Out, 
+						bool IsReset, 
+						float* pTop, 
+						float* pCompress, 
+						float* pSend,
+						float* pRecv)
+{
+	u64 Total 	= 0;
+	u64 Top 	= 0;
+	u64 Comp 	= 0;
+	u64 Send 	= 0;
+	u64 Recv 	= 0;
+
+	for (int i=0; i < Out->CPUActiveCnt; i++)
+	{
+		Total 	+= Out->WorkerTSCTotal[i];
+		Top 	+= Out->WorkerTSCTop[i];
+		Comp 	+= Out->WorkerTSCCompress[i];
+		Send 	+= Out->WorkerTSCSend[i];
+		Recv 	+= Out->WorkerTSCRecv[i];
+	}	
+
+	if (IsReset)
+	{
+		for (int i=0; i < Out->CPUActiveCnt; i++)
+		{
+			Out->WorkerTSCTotal[i]		= 0;
+			Out->WorkerTSCTop[i]		= 0;
+			Out->WorkerTSCCompress[i]	= 0;
+			Out->WorkerTSCSend[i]		= 0;
+			Out->WorkerTSCRecv[i]		= 0;
+		}
+	}
+	pTop[0] 		= Top  * inverse(Total);
+	pCompress[0] 	= Comp * inverse(Total);
+	pSend[0] 		= Send * inverse(Total);
+	pRecv[0] 		= Recv * inverse(Total);
 }
 
 //-------------------------------------------------------------------------------------------
@@ -622,26 +686,37 @@ void Output_LineAdd(Output_t* Out, u8* Buffer, u32 BufferLen)
 static void* Output_Worker(void * user)
 {
 	Output_t* Out = (Output_t*)user;
+
+	// allocate a CPU number
+	u32 CPUID = __sync_fetch_and_add(&Out->CPUActiveCnt, 1);
 	while (true)
 	{
+		u64 TSC0 = rdtsc(); 
 		if (Out->BufferPut == Out->BufferGet)
 		{
+			// nothing to process so zzzz 
 			usleep(1e3);
-			continue;
 		}
-
-		// attempt to get the next one
-		u32 Get = Out->BufferGet;
-		Buffer_t* B = &Out->BufferList[ Get ];
-
-		// fetch and process the next block 
-		if (__sync_bool_compare_and_swap(&Out->BufferGet, Get, (Get + 1) & Out->BufferMask))
+		else
 		{
-			//Index = Get & N->Queue->Mask;
-			//printf("process block G:%i P:%i\n", Get, Out->BufferPut);
+			// attempt to get the next one
+			u32 Get = Out->BufferGet;
+			Buffer_t* B = &Out->BufferList[ Get ];
 
-			BulkUpload(Out, Get);	
+			// fetch and process the next block 
+			if (__sync_bool_compare_and_swap(&Out->BufferGet, Get, (Get + 1) & Out->BufferMask))
+			{
+				u64 TSC2 = rdtsc(); 
+
+				BulkUpload(Out, Get, CPUID);	
+
+				u64 TSC3 = rdtsc(); 
+				Out->WorkerTSCTop[CPUID] += TSC3 - TSC2;
+			}
 		}
+
+		u64 TSC1 = rdtsc(); 
+		Out->WorkerTSCTotal[CPUID] += TSC1 - TSC0;
 	}
 	return NULL;
 }
