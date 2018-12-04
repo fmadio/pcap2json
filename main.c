@@ -62,11 +62,14 @@ typedef struct FlowRecord_t
 	u16						TCPWindowMax;		// TCP Window Maximum 
 
 	u16						TCPACKDupCnt;		// number of TCP duplicate acks seen
+	u16						TCPSACKCnt;			// number of TCP SACK acknowledgements 
 
 	u32						TCPSeqNo;			// last TCP Seq no seen
 	u32						TCPAckNo;			// last TCP Ack no seen
 	u32						TCPAckNoCnt;		// number of acks for this seq no 
 	u16						TCPLength;			// tcp payload length
+	u8						TCPIsSACK;			// if this packet is SACK
+	u32						TCPWindowScale;		// tcp window scaling factor
 
 	//-------------------------------------------------------------------------------
 	
@@ -297,7 +300,15 @@ static void FlowInsert(FlowRecord_t* FlowPkt, u32* SHA1, u32 Length, u64 TS)
 			u32 TCPAckNo	= swap32(TCP->AckNo);
 			if ((FlowPkt->TCPLength == 0) && (F->TCPAckNo == TCPAckNo))
 			{
-				F->TCPACKDupCnt	+= 1; 
+				// if its not a SACK
+				if (!FlowPkt->TCPIsSACK)
+				{
+					F->TCPSACKCnt	+= 1; 
+				}
+				else
+				{
+					F->TCPACKDupCnt	+= 1; 
+				}
 				//if (F->PortSrc == 49279)
 				//{
 				//	printf("[%s] seqno dup: %u %i %i : %i %i %i %i -> %i %i %i %i\n", 
@@ -489,7 +500,7 @@ static u32 FlowDump(struct Output_t* Out, u8* DeviceName, u8* IndexName, u64 TS,
 				}
 				else
 				{
-					Output += sprintf(Output,",\"TCP.FIN\":%i,\"TCP.SYN\":%i,\"TCP.RST\":%i,\"TCP.PSH\":%i,\"TCP.ACK\":%i,\"TCP.WindowMin\":%i,\"TCP.WindowMax\":%i,\"TCP.ACKDup\":%i",
+					Output += sprintf(Output,",\"TCP.FIN\":%i,\"TCP.SYN\":%i,\"TCP.RST\":%i,\"TCP.PSH\":%i,\"TCP.ACK\":%i,\"TCP.WindowMin\":%i,\"TCP.WindowMax\":%i,\"TCP.ACKDup\":%i,\"TCP.SACK\":%i",
 							Flow->TCPFINCnt,
 							Flow->TCPSYNCnt,
 							Flow->TCPRSTCnt,
@@ -497,7 +508,8 @@ static u32 FlowDump(struct Output_t* Out, u8* DeviceName, u8* IndexName, u64 TS,
 							Flow->TCPACKCnt,
 							Flow->TCPWindowMin,
 							Flow->TCPWindowMax,
-							Flow->TCPACKDupCnt
+							Flow->TCPACKDupCnt,
+							Flow->TCPSACKCnt
 					);
 				}
 				Output += sprintf(Output, ",\"TCP.Port.Src\":%i,\"TCP.Port.Dst\":%i",
@@ -704,6 +716,55 @@ static void DecodePacket(struct Output_t* Out, u8* DeviceName, u8* CaptureName, 
 			// payload length
 			u32 TCPOffset = ((TCP->Flags&0xf0)>>4)*4;
 			Flow->TCPLength =  swap16(IP4->Len) - IPOffset - TCPOffset;
+
+			// check for options
+			if (TCPOffset > 20)
+			{
+				bool IsDone = false;
+				u8* Options = (u8*)(TCP + 1);	
+				while ( (Options - (u8*)TCP) < TCPOffset) 
+				{
+					if (IsDone) break;
+
+					u32 Cmd = Options[0];
+					u32 Len = Options[1];
+
+					switch (Cmd)
+					{
+					// end of list 
+					case 0x0:
+						IsDone = true;
+						break;
+
+					// NOP 
+					case 0x1: break;
+
+					// MSS
+					case 0x2: break;
+
+					// Window Scale
+					case 0x3:
+						//printf("Window Scale: %i\n", Options[2]);
+						Flow->TCPWindowScale = Options[2];
+						break;
+
+					// SACK
+					case 0x5:
+						Flow->TCPIsSACK = true;
+						break;
+
+					// TSOpt
+					case 0x8: 
+						//printf("TCP Option TS\n");
+						break;
+
+					default:
+						//printf("option: %i : %i\n", Cmd, Len); 
+						break;
+					}
+					Options += 1 + Len;
+				}
+			}
 		}
 		break;
 		case IPv4_PROTO_UDP:

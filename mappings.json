@@ -188,6 +188,11 @@
 				{
 					"type" : "integer"
 				}
+				,
+				"SACK" :
+				{
+					"type" : "integer"
+				}
 			 }
           },
 		  "UDP" : 
