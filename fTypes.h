@@ -250,6 +250,11 @@ static void ndelay(u64 ns)
 	}
 }
 
+static inline void sfence(void)
+{
+	__asm__ volatile("sfence");
+}
+
 static inline void prefetchnta(void* ptr)
 {
 	__asm__ volatile("prefetchnta (%0)" :  : "r"(ptr));
@@ -411,6 +416,19 @@ static inline void CycleCalibration(void)
 static inline u64 nsec2ts(u32 sec, u32 nsec)
 {
 	return (u64)sec * 1000000000ULL + (u64)nsec;
+}
+
+// lightweight lock 
+static void sync_lock(u32* Lock, u32 delay)
+{
+	while (!__sync_bool_compare_and_swap(Lock, 0, 1))
+	{
+		ndelay(delay);
+	}
+}
+static void sync_unlock(u32* Lock)
+{
+	Lock[0] = 0;
 }
 
 // ethernet header

@@ -399,7 +399,7 @@ static bool ParseConfigFile(u8* ConfigFile)
 		fprintf(stderr, "[%s]\n", LineList[j]);	
 		if (LineList[j][0] == '#')
 		{
-			fprintf(stderr, "   comment skipping\n");
+			//fprintf(stderr, "   comment skipping\n");
 			continue;
 		}
 
@@ -430,6 +430,16 @@ static void ProfileDump(struct Output_t* Out)
 	printf("  Compress: %.6f\n", OutputWorkerCPUCompress);
 	printf("  Send    : %.6f\n", OutputWorkerCPUSend);
 	printf("  Recv    : %.6f\n", OutputWorkerCPURecv);
+	printf("\n");
+
+	u64 FlowCntTotal = 0;
+	float FlowCPUDecode = 0;
+	Flow_Stats(true, NULL, &FlowCntTotal, &FlowCPUDecode);
+
+	printf("Flow:\n");
+	printf("  Total   : %lli\n", FlowCntTotal);
+	printf("  CPU     : %.3f\n", FlowCPUDecode);
+	printf("\n");
 
 	fflush(stdout);
 }
@@ -502,8 +512,6 @@ int main(int argc, u8* argv[])
 
 	u64 NextPrintTS				= 0;
 
-	u8* 			Pkt			= malloc(1024*1024);	
-	PCAPPacket_t*	PktHeader	= (PCAPPacket_t*)Pkt;
 
 	u64				PrintNextTSC	= 0;
 	u64				ProfileNextTSC	= 0;
@@ -529,7 +537,7 @@ int main(int argc, u8* argv[])
 	}
 
 	// init flow state
-	Flow_Open();
+	Flow_Open(Out);
 
 	u64 PacketTSFirst = 0;
 	u64 PacketTSLast  = 0;
@@ -575,9 +583,10 @@ int main(int argc, u8* argv[])
 
 
 			u32 FlowCntSnapshot;	
-			Flow_Stats(&FlowCntSnapshot);
+			float FlowCPU;
+			Flow_Stats(false, &FlowCntSnapshot, NULL, &FlowCPU);
 
-			fprintf(stderr, "[%s] Input:%.3f GB %6.2f Gbps PCAP: %6.2f Gbps | Output %.5f GB FlowsPerSnap: %6i | ESPush:%10lli %6.2fK ESErr %4lli | OutputCPU: %.3f\n", 
+			fprintf(stderr, "[%s] Input:%.3f GB %6.2f Gbps PCAP: %6.2f Gbps | Output %.5f GB Flows/Snap: %6i FlowCPU:%.3f | ESPush:%8lli %6.2fK ESErr %4lli | OutputCPU: %.3f\n", 
 
 								FormatTS(PacketTSLast),
 
@@ -586,6 +595,7 @@ int main(int argc, u8* argv[])
 								PCAPbps / 1e9, 
 								OutputByte / 1e9, 
 								FlowCntSnapshot, 
+								FlowCPU,
 								Output_ESPushCnt(Out),
 								lps/1e3,
 								Output_ESErrorCnt(Out),
@@ -613,6 +623,9 @@ int main(int argc, u8* argv[])
 		fProfile_Start(0, "Top");
 		fProfile_Start(6, "PacketFetch");
 
+		PacketBuffer_t*	Pkt			= Flow_PacketAlloc();
+		PCAPPacket_t*	PktHeader	= (PCAPPacket_t*)Pkt->Buffer;
+
 		// header
 		int rlen = fread(PktHeader, 1, sizeof(PCAPPacket_t), FileIn);
 		if (rlen != sizeof(PCAPPacket_t)) break;
@@ -633,20 +646,20 @@ int main(int argc, u8* argv[])
 			break;
 		}
 		PCAPOffset += PktHeader->LengthCapture; 
-		u64 PacketTS = (u64)PktHeader->Sec * 1000000000ULL + (u64)PktHeader->NSec * TScale;
+		Pkt->TS= (u64)PktHeader->Sec * 1000000000ULL + (u64)PktHeader->NSec * TScale;
 
-		if (PacketTSFirst == 0) PacketTSFirst = PacketTS;
-		PacketTSLast = PacketTS;
+		if (PacketTSFirst == 0) PacketTSFirst = Pkt->TS;
+		PacketTSLast = Pkt->TS;
 
 		fProfile_Stop(6);
 		fProfile_Start(8, "PacketProcess");
 		u64 TSC0 		= rdtsc();
 
-		// process each packet 
-		Flow_DecodePacket(Out, PacketTS, PktHeader);
+		// queue the packet for processing 
+		Flow_PacketQueue(Pkt);
 
 		DecodeTimeTSC 	+= rdtsc() -  TSC0;
-		LastTS 			= PacketTS;
+		LastTS 			= Pkt->TS;
 
 		TotalByte		+= PktHeader->LengthWire;
 		TotalPkt		+= 1;

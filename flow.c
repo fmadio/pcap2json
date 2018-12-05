@@ -26,6 +26,7 @@
 #include "fTypes.h"
 #include "fProfile.h"
 #include "output.h"
+#include "flow.h"
 
 void sha1_compress(uint32_t state[static 5], const uint8_t block[static 64]);
 
@@ -86,6 +87,7 @@ typedef struct FlowRecord_t
 
 } __attribute__((packed)) FlowRecord_t;
 
+
 //---------------------------------------------------------------------------------------------
 // command line parameters, see main.c for descriptions
 extern bool				g_IsJSONPacket;
@@ -106,13 +108,35 @@ extern u8				g_DeviceName[128];
 //---------------------------------------------------------------------------------------------
 // static
 
-static u64				s_FlowCntTotal		= 0;				// total number of active flows
-static u64				s_FlowCntSnapshot	= 0;				// number of flows in this snapshot
-static u32				s_FlowCntSnapshotLast = 0;				// last total flows in the last snapshot
+static u64						s_FlowCntTotal		= 0;				// total number of active flows
+static u64						s_FlowCntSnapshot	= 0;				// number of flows in this snapshot
+static u32						s_FlowCntSnapshotLast = 0;				// last total flows in the last snapshot
 
-static u64				s_FlowMax			= 4*1024*1024;		// maximum number of flows 
-static FlowRecord_t*	s_FlowList			= NULL;				// list of statically allocated flows
-static FlowRecord_t**	s_FlowHash			= NULL;				// flash hash index
+static u64						s_FlowMax			= 4*1024*1024;		// maximum number of flows 
+static FlowRecord_t*			s_FlowList			= NULL;				// list of statically allocated flows
+static FlowRecord_t**			s_FlowHash			= NULL;				// flash hash index
+static u32						s_FlowLock			= 0;				// mutex to modify 
+
+static u32						s_PacketBufferMax	= 2048;				// max number of inflight packets
+static PacketBuffer_t			s_PacketBufferList[2048];				// list of header structs for each buffer^
+static volatile PacketBuffer_t*	s_PacketBuffer		= NULL;				// linked list of free packet buffers
+static volatile u32				s_PacketBufferLock	= 0;
+
+static u32						s_DecodeCPUActive 	= 0;				// total number of active decode threads
+static pthread_t   				s_DecodeThread[16];						// worker decode thread list
+static u64						s_DecodeThreadTSCTop[128];				// total cycles
+static u64						s_DecodeThreadTSCDecode[128];			// total cycles for decoding
+
+static volatile u32				s_DecodeQueuePut 	= 0;				// put/get processing queue
+static volatile u32				s_DecodeQueueGet 	= 0;
+static u32						s_DecodeQueueMsk 	= 1023;
+static volatile PacketBuffer_t*	s_DecodeQueue[1024];					// list of packets pending processing
+
+static struct Output_t*			s_Output			= NULL;				// output module
+
+static u64						s_PacketQueueCnt	= 0;
+static u64						s_PacketDecodeCnt	= 0;
+
 
 //---------------------------------------------------------------------------------------------
 // generate a 20bit hash index 
@@ -160,6 +184,7 @@ static FlowRecord_t* FlowAlloc(FlowRecord_t* F)
 {
 	assert(s_FlowCntSnapshot < s_FlowMax);
 
+
 	FlowRecord_t* Flow = &s_FlowList[ s_FlowCntSnapshot++ ]; 
 	memset(Flow, 0, sizeof(FlowRecord_t) );
 
@@ -168,6 +193,7 @@ static FlowRecord_t* FlowAlloc(FlowRecord_t* F)
 
 	// copy per packet state
 	Flow->TCPLength = F->TCPLength;
+
 
 	return Flow;
 }
@@ -179,54 +205,15 @@ static void FlowInsert(FlowRecord_t* FlowPkt, u32* SHA1, u32 Length, u64 TS)
 	u32 Index = HashIndex(SHA1);
 
 	FlowRecord_t* F = NULL;
-
 	bool IsFlowNew = false;
 
-	// first record ?
-	if (s_FlowHash[ Index ] == NULL)
+	// mutlually exclusive for the actual flow update 
+	// NOTE: this includes FlowAlloc() function no need to
+	//       double lock it
+	//sync_lock(&s_FlowLock, 100);
 	{
-		F = FlowAlloc(FlowPkt);
-
-		F->SHA1[0] = SHA1[0];
-		F->SHA1[1] = SHA1[1];
-		F->SHA1[2] = SHA1[2];
-		F->SHA1[3] = SHA1[3];
-		F->SHA1[4] = SHA1[4];
-
-		F->Next		= NULL;
-		F->Prev		= NULL;
-
-		s_FlowHash[Index] = F;
-
-		IsFlowNew = true;
-	}
-	else
-	{
-		F = s_FlowHash[ Index ];
-
-		// iterate in search of the flow
-		FlowRecord_t* FPrev = NULL;
-		while (F)
-		{
-			bool IsHit = true;
-
-			IsHit &= (F->SHA1[0] == SHA1[0]);
-			IsHit &= (F->SHA1[1] == SHA1[1]);
-			IsHit &= (F->SHA1[2] == SHA1[2]);
-			IsHit &= (F->SHA1[3] == SHA1[3]);
-			IsHit &= (F->SHA1[4] == SHA1[4]);
-
-			if (IsHit)
-			{
-				break;
-			}
-
-			FPrev = F;
-			F = F->Next;
-		}
-
-		// new flow
-		if (!F)
+		// first record ?
+		if (s_FlowHash[ Index ] == NULL)
 		{
 			F = FlowAlloc(FlowPkt);
 
@@ -239,75 +226,120 @@ static void FlowInsert(FlowRecord_t* FlowPkt, u32* SHA1, u32 Length, u64 TS)
 			F->Next		= NULL;
 			F->Prev		= NULL;
 
-			FPrev->Next = F;
-			F->Prev		= FPrev;
+			s_FlowHash[Index] = F;
 
 			IsFlowNew = true;
 		}
-	}
-
-	if (IsFlowNew)
-	{
-		s_FlowCntTotal++;
-	}
-
-	// update flow stats
-	F->TotalPkt		+= 1;
-	F->TotalByte	+= Length;
-	F->FirstTS		= (F->FirstTS == 0) ? TS : F->FirstTS;
-	F->LastTS		=  TS;
-
-	if (F->IPProto == IPv4_PROTO_TCP)
-	{
-		// update TCP Flag counts
-		TCPHeader_t* TCP = &FlowPkt->TCPHeader; 
-		u16 TCPFlags = swap16(TCP->Flags);
-		F->TCPFINCnt	+= (TCP_FLAG_FIN(TCPFlags) != 0);
-		F->TCPSYNCnt	+= (TCP_FLAG_SYN(TCPFlags) != 0);
-		F->TCPRSTCnt	+= (TCP_FLAG_RST(TCPFlags) != 0);
-		F->TCPPSHCnt	+= (TCP_FLAG_PSH(TCPFlags) != 0);
-		F->TCPACKCnt	+= (TCP_FLAG_ACK(TCPFlags) != 0);
-
-		// check for re-transmits
-		// works by checking for duplicate 0 payload acks
-		// of an ack no thats already been seen. e.g. tcp fast re-transmit request
-		// https://en.wikipedia.org/wiki/TCP_congestion_control#Fast_retransmit
-		// 
-		// 2018/12/04: SACK traffic messes this up
-		if (TCP_FLAG_ACK(TCPFlags))
+		else
 		{
-			u32 TCPAckNo	= swap32(TCP->AckNo);
-			if ((FlowPkt->TCPLength == 0) && (F->TCPAckNo == TCPAckNo))
+			F = s_FlowHash[ Index ];
+
+			// iterate in search of the flow
+			FlowRecord_t* FPrev = NULL;
+			while (F)
 			{
-				// if its not a SACK
-				if (!FlowPkt->TCPIsSACK)
+				bool IsHit = true;
+
+				IsHit &= (F->SHA1[0] == SHA1[0]);
+				IsHit &= (F->SHA1[1] == SHA1[1]);
+				IsHit &= (F->SHA1[2] == SHA1[2]);
+				IsHit &= (F->SHA1[3] == SHA1[3]);
+				IsHit &= (F->SHA1[4] == SHA1[4]);
+
+				if (IsHit)
 				{
-					F->TCPSACKCnt	+= 1; 
+					break;
 				}
-				else
-				{
-					F->TCPACKDupCnt	+= 1; 
-				}
-				//if (F->PortSrc == 49279)
-				//{
-				//	printf("[%s] seqno dup: %u %i %i : %i %i %i %i -> %i %i %i %i\n", 
-				//		FormatTS(TS),
-				//			TCPAckNo, F->TCPLength, FlowPkt->TCPLength, F->IPSrc[0], F->IPSrc[1], F->IPSrc[2], F->IPSrc[3], F->IPDst[0], F->IPDst[1], F->IPDst[2], F->IPDst[3] );
-				//}
+
+				FPrev = F;
+				F = F->Next;
 			}
-			F->TCPAckNo = TCPAckNo;
+
+			// new flow
+			if (!F)
+			{
+				F = FlowAlloc(FlowPkt);
+
+				F->SHA1[0] = SHA1[0];
+				F->SHA1[1] = SHA1[1];
+				F->SHA1[2] = SHA1[2];
+				F->SHA1[3] = SHA1[3];
+				F->SHA1[4] = SHA1[4];
+
+				F->Next		= NULL;
+				F->Prev		= NULL;
+
+				FPrev->Next = F;
+				F->Prev		= FPrev;
+
+				IsFlowNew	= true;
+			}
 		}
 
-		// first packet
-		u32 TCPWindow = swap16(TCP->Window); 
-		if (F->TotalPkt == 1)
+		if (IsFlowNew)
 		{
-			F->TCPWindowMin = TCPWindow; 
-			F->TCPWindowMax = TCPWindow; 
+			s_FlowCntTotal++;
 		}
-		F->TCPWindowMin = (F->TCPWindowMin > TCPWindow) ? TCPWindow : F->TCPWindowMin;
-		F->TCPWindowMax = (F->TCPWindowMax < TCPWindow) ? TCPWindow : F->TCPWindowMax;
+
+		// update flow stats
+		F->TotalPkt		+= 1;
+		F->TotalByte	+= Length;
+		F->FirstTS		= (F->FirstTS == 0) ? TS : F->FirstTS;
+		F->LastTS		=  TS;
+
+		if (F->IPProto == IPv4_PROTO_TCP)
+		{
+			// update TCP Flag counts
+			TCPHeader_t* TCP = &FlowPkt->TCPHeader; 
+			u16 TCPFlags = swap16(TCP->Flags);
+			F->TCPFINCnt	+= (TCP_FLAG_FIN(TCPFlags) != 0);
+			F->TCPSYNCnt	+= (TCP_FLAG_SYN(TCPFlags) != 0);
+			F->TCPRSTCnt	+= (TCP_FLAG_RST(TCPFlags) != 0);
+			F->TCPPSHCnt	+= (TCP_FLAG_PSH(TCPFlags) != 0);
+			F->TCPACKCnt	+= (TCP_FLAG_ACK(TCPFlags) != 0);
+
+			// check for re-transmits
+			// works by checking for duplicate 0 payload acks
+			// of an ack no thats already been seen. e.g. tcp fast re-transmit request
+			// https://en.wikipedia.org/wiki/TCP_congestion_control#Fast_retransmit
+			// 
+			// 2018/12/04: SACK traffic messes this up
+			if (TCP_FLAG_ACK(TCPFlags))
+			{
+				u32 TCPAckNo	= swap32(TCP->AckNo);
+				if ((FlowPkt->TCPLength == 0) && (F->TCPAckNo == TCPAckNo))
+				{
+					// if its not a SACK
+					if (!FlowPkt->TCPIsSACK)
+					{
+						F->TCPSACKCnt	+= 1; 
+					}
+					else
+					{
+						F->TCPACKDupCnt	+= 1; 
+					}
+					//if (F->PortSrc == 49279)
+					//{
+					//	printf("[%s] seqno dup: %u %i %i : %i %i %i %i -> %i %i %i %i\n", 
+					//		FormatTS(TS),
+					//			TCPAckNo, F->TCPLength, FlowPkt->TCPLength, F->IPSrc[0], F->IPSrc[1], F->IPSrc[2], F->IPSrc[3], F->IPDst[0], F->IPDst[1], F->IPDst[2], F->IPDst[3] );
+					//}
+				}
+				F->TCPAckNo = TCPAckNo;
+			}
+
+			// first packet
+			u32 TCPWindow = swap16(TCP->Window); 
+			if (F->TotalPkt == 1)
+			{
+				F->TCPWindowMin = TCPWindow; 
+				F->TCPWindowMax = TCPWindow; 
+			}
+			F->TCPWindowMin = (F->TCPWindowMin > TCPWindow) ? TCPWindow : F->TCPWindowMin;
+			F->TCPWindowMax = (F->TCPWindowMax < TCPWindow) ? TCPWindow : F->TCPWindowMax;
+		}
 	}
+	//sync_unlock(&s_FlowLock);
 }
 
 //---------------------------------------------------------------------------------------------
@@ -316,11 +348,10 @@ static void FlowInsert(FlowRecord_t* FlowPkt, u32* SHA1, u32 Length, u64 TS)
 // mappings.json file as the index 
 static u32 FlowDump(struct Output_t* Out, u64 TS, FlowRecord_t* Flow) 
 {
+
 	u8 OutputStr[1024];
 	u8* Output 		= OutputStr;
 	u8* OutputStart = Output;
-
-	fProfile_Start(1, "FlowDump");
 
 	// ES header for bulk upload
 	Output += sprintf(Output, "{\"index\":{\"_index\":\"%s\",\"_type\":\"flow_record\",\"_score\":null}}\n", g_CaptureName);
@@ -511,36 +542,31 @@ static u32 FlowDump(struct Output_t* Out, u64 TS, FlowRecord_t* Flow)
 
 	u32 OutputLen = Output - OutputStart;
 
+
 	// write to output
 	Output_LineAdd(Out, OutputStart, OutputLen);
-
-	fProfile_Stop(1);
 }
 
 //---------------------------------------------------------------------------------------------
 // clear out the flow records 
 static void FlowReset(void)
 {
-	fProfile_Start(7, "FlowReset");
-
 	memset(s_FlowHash, 0, sizeof(FlowRecord_t*) * (2 << 20) );
 
 	// save last count for stats
 	s_FlowCntSnapshotLast = s_FlowCntSnapshot;
 
 	s_FlowCntSnapshot = 0;
-
-	fProfile_Stop(7);
 }
 
 //---------------------------------------------------------------------------------------------
 //
 // parse a packet and generate a flow record 
 //
-void Flow_DecodePacket(struct Output_t* Out, u64 PacketTS, PCAPPacket_t* PktHeader)
+void DecodePacket(struct Output_t* Out, PacketBuffer_t* Pkt)
 {
-
-	fProfile_Start(2, "DecodePacket");
+	u64 PacketTS 			= Pkt->TS;
+	PCAPPacket_t* PktHeader = (PCAPPacket_t*)Pkt->Buffer;
 
 	FlowRecord_t	sFlow;	
 	FlowRecord_t*	Flow = &sFlow;	
@@ -756,14 +782,12 @@ void Flow_DecodePacket(struct Output_t* Out, u64 PacketTS, PCAPPacket_t* PktHead
 		break;
 		}
 	}
-	fProfile_Stop(2);
 
 	// generate SHA1
 	// nice way to grab all packets for a single flow, search for the sha1 hash	
 	// NOTE: FlowRecord_t setup so the first 64B contains only the flow info
 	//       with packet and housekeeping info stored after. sha1_compress
 	//       runs on the first 64B only 
-	fProfile_Start(3, "SHA");
 
 	u32 SHA1State[5] = { 0, 0, 0, 0, 0 };
 	sha1_compress(SHA1State, (u8*)Flow);
@@ -773,8 +797,6 @@ void Flow_DecodePacket(struct Output_t* Out, u64 PacketTS, PCAPPacket_t* PktHead
 	Flow->SHA1[2] = SHA1State[2];
 	Flow->SHA1[3] = SHA1State[3];
 	Flow->SHA1[4] = SHA1State[4];
-	
-	fProfile_Stop(3);
 
 	// packet mode then print record as a packet 
 	if (g_IsJSONPacket)
@@ -785,12 +807,11 @@ void Flow_DecodePacket(struct Output_t* Out, u64 PacketTS, PCAPPacket_t* PktHead
 	// update the flow records
 	if (g_IsJSONFlow)
 	{
-		fProfile_Start(4, "FlowInsert");
+
+		sync_lock(&s_FlowLock, 100);
 
 		// insert to flow table
 		FlowInsert(Flow, SHA1State, PktHeader->LengthWire, PacketTS);
-
-		fProfile_Stop(4);
 
 		// purge the flow records every 100msec
 		static u64 LastPacketTS = 0;
@@ -798,9 +819,6 @@ void Flow_DecodePacket(struct Output_t* Out, u64 PacketTS, PCAPPacket_t* PktHead
 		if (dTS > g_FlowSampleRate)
 		{
 			LastPacketTS = PacketTS;
-
-			fProfile_Start(5, "FlowDump");
-
 			for (int i=0; i < s_FlowCntSnapshot; i++)
 			{
 				FlowRecord_t* Flow = &s_FlowList[i];	
@@ -809,16 +827,149 @@ void Flow_DecodePacket(struct Output_t* Out, u64 PacketTS, PCAPPacket_t* PktHead
 
 			// reset index and counts
 			FlowReset();
-
-			fProfile_Stop(5);
 		}
+
+		sync_unlock(&s_FlowLock);
+	}
+	s_PacketDecodeCnt++;
+}
+
+//---------------------------------------------------------------------------------------------
+// queue a packet for processing 
+void Flow_PacketQueue(PacketBuffer_t* Pkt)
+{
+	{
+		// wait for space int he queue 
+		while (((s_DecodeQueuePut + 8) & s_DecodeQueueMsk) == (s_DecodeQueueGet & s_DecodeQueueMsk))
+		{
+			//ndelay(100);
+			usleep(0);
+		}
+
+		// add to processing queue
+		u32 Index 				= s_DecodeQueuePut & s_DecodeQueueMsk;
+		s_DecodeQueue[Index] 	= Pkt;
+
+		s_DecodeQueuePut++;
+		s_PacketQueueCnt++;
+	}
+/*
+	// single cpu
+	{
+		DecodePacket(s_Output, Pkt);
+		Flow_PacketFree(Pkt);
+	}	
+*/
+}
+
+//---------------------------------------------------------------------------------------------
+
+void* Flow_Worker(void* User)
+{
+	u32 CPUID = __sync_fetch_and_add(&s_DecodeCPUActive, 1);
+
+	printf("Start decoder thread: %i\n", CPUID);
+	while (true)
+	{
+		u64 TSC0 = rdtsc();
+
+		u32 Get = s_DecodeQueueGet;
+		if (Get == s_DecodeQueuePut)
+		{
+			// nothing to do
+			//ndelay(1000);
+			usleep(0);
+		}
+		else
+		{
+			if (__sync_bool_compare_and_swap(&s_DecodeQueueGet, Get, Get + 1))
+			{
+				u32 Index = Get & s_DecodeQueueMsk;
+
+				u64 TSC2 = rdtsc();
+
+				PacketBuffer_t* Pkt = (PacketBuffer_t*)s_DecodeQueue[Index];
+				DecodePacket(s_Output, Pkt);
+
+				// release buffer
+				Flow_PacketFree(Pkt);
+
+				u64 TSC3 = rdtsc();
+				s_DecodeThreadTSCDecode[CPUID] += TSC3 - TSC2;
+			}
+		}
+
+		u64 TSC1 = rdtsc();
+		s_DecodeThreadTSCTop[CPUID] += TSC1 - TSC0;
 	}
 }
 
 //---------------------------------------------------------------------------------------------
-// allocate memory and house keeping
-void Flow_Open(void)
+// packet buffer management 
+PacketBuffer_t* Flow_PacketAlloc(void)
 {
+	// stall waiting for buffer
+	u32 Timeout = 0;
+	while (true)
+	{
+		if (s_PacketBuffer != NULL) break;
+
+		usleep(0);
+		//ndelay(100);
+		assert(Timeout++ < 1e6);
+	}
+
+	// acquire lock
+	while (!__sync_bool_compare_and_swap(&s_PacketBufferLock, 0, 1))
+	{
+		ndelay(50);
+		//usleep(0);
+	}
+
+	PacketBuffer_t* B = (PacketBuffer_t*)s_PacketBuffer;
+	assert(B != NULL);
+
+	s_PacketBuffer = B->FreeNext;
+
+	// release lock
+	sfence();
+	assert(s_PacketBufferLock == 1); 
+	s_PacketBufferLock = 0;
+
+	// double check its a valid free pkt
+	assert(B->IsUsed == false);
+	B->IsUsed = true;
+
+	return B;
+}
+
+void Flow_PacketFree(PacketBuffer_t* B)
+{
+	// acquire lock
+	while (!__sync_bool_compare_and_swap(&s_PacketBufferLock, 0, 1))
+	{
+		ndelay(100);
+		//usleep(0);
+	}
+
+	// push at head
+	B->FreeNext 	= (PacketBuffer_t*)s_PacketBuffer;
+	s_PacketBuffer 	= B;
+
+	B->IsUsed = false;
+
+	// release lock
+	sfence();
+	assert(s_PacketBufferLock == 1); 
+	s_PacketBufferLock = 0;
+}
+
+//---------------------------------------------------------------------------------------------
+// allocate memory and house keeping
+void Flow_Open(struct Output_t* Out)
+{
+	s_Output = Out;
+	assert(s_Output != NULL);
 
 	// allocate and clear flow index
 	s_FlowHash = (FlowRecord_t **)malloc( sizeof(FlowRecord_t *) * (2 << 20) );
@@ -830,6 +981,35 @@ void Flow_Open(void)
 
 	// reset flow info
 	FlowReset();
+
+	// allocate packet buffers
+	for (int i=0; i < s_PacketBufferMax; i++)
+	{
+		PacketBuffer_t* B = &s_PacketBufferList[i];
+		memset(B, 0, sizeof(PacketBuffer_t));
+
+		B->BufferMax 	= 16*1024;
+		B->Buffer 		= malloc(B->BufferMax);
+		memset(B->Buffer, 0, B->BufferMax);	
+
+		Flow_PacketFree(B);
+	}
+
+	// create worker threads
+	u32 CPUCnt = 0;
+	pthread_create(&s_DecodeThread[0], NULL, Flow_Worker, (void*)NULL); CPUCnt++;
+	pthread_create(&s_DecodeThread[1], NULL, Flow_Worker, (void*)NULL); CPUCnt++;
+	//pthread_create(&s_DecodeThread[2], NULL, Flow_Worker, (void*)NULL); CPUCnt++;
+	//pthread_create(&s_DecodeThread[3], NULL, Flow_Worker, (void*)NULL); CPUCnt++;
+
+	u32 CPUMap[8] = { 19, 20, 21, 22 };
+	for (int i=0; i < CPUCnt; i++)
+	{
+		cpu_set_t Thread0CPU;
+		CPU_ZERO(&Thread0CPU);
+		CPU_SET (CPUMap[i], &Thread0CPU);
+		pthread_setaffinity_np(s_DecodeThread[i], sizeof(cpu_set_t), &Thread0CPU);
+	}
 }
 
 //---------------------------------------------------------------------------------------------
@@ -846,13 +1026,34 @@ void Flow_Close(struct Output_t* Out, u64 LastTS)
 		}
 		printf("Total Flows: %i\n", s_FlowCntSnapshot);
 	}
+
+	printf("QueueCnt : %lli\n", s_PacketQueueCnt);	
+	printf("DecodeCnt: %lli\n", s_PacketDecodeCnt);	
 }
 
 //---------------------------------------------------------------------------------------------
 
-void Flow_Stats(u32* pFlowCntSnapShot)
+void Flow_Stats(bool IsReset, u32* pFlowCntSnapShot, u64* pFlowCntTotal, float * pCPUUse)
 {
-	pFlowCntSnapShot[0] = s_FlowCntSnapshotLast;
+	if (pFlowCntSnapShot)	pFlowCntSnapShot[0] = s_FlowCntSnapshotLast;
+	if (pFlowCntTotal)		pFlowCntTotal[0]	= s_FlowCntTotal;
+
+	u64 TotalTSC = 0;
+	u64 DecodeTSC = 0;
+	for (int i=0; i < s_DecodeCPUActive; i++)
+	{
+		TotalTSC 	+= s_DecodeThreadTSCTop[i];
+		DecodeTSC 	+= s_DecodeThreadTSCDecode[i];
+	}
+	if (IsReset)
+	{
+		for (int i=0; i < s_DecodeCPUActive; i++)
+		{
+			s_DecodeThreadTSCTop[i]		= 0;
+			s_DecodeThreadTSCDecode[i]	= 0;
+		}
+	}
+	if (pCPUUse) pCPUUse[0] = DecodeTSC * inverse(TotalTSC);
 }
 
 /* vim: set ts=4 sts=4 */

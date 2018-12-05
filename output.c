@@ -72,6 +72,7 @@ typedef struct Output_t
 	volatile u32		BufferGet;								// buffer current get
 	u32					BufferMask;
 	u32					BufferMax;
+	volatile u32		BufferLock;								// mutual exclusion lock
 	Buffer_t			BufferList[128];						// buffer list 
 	u64					TotalByte[128];							// total amount of bytes sent by each buffer^ 
 	u64					TotalLine;								// total number of lines output
@@ -639,6 +640,13 @@ void Output_LineAdd(Output_t* Out, u8* Buffer, u32 BufferLen)
 	// push directly to ES
 	if (Out->ESPush)
 	{
+		// multiple cpus call this function, ensure its
+		// mutually exclusive
+		while (!__sync_bool_compare_and_swap(&Out->BufferLock, 0, 1))
+		{
+			ndelay(50);
+		}
+
 		Buffer_t* B = &Out->BufferList[Out->BufferPut];
 
 		memcpy(B->Buffer + B->BufferPos, Buffer, BufferLen);
@@ -677,6 +685,9 @@ void Output_LineAdd(Output_t* Out, u8* Buffer, u32 BufferLen)
 			// set last flush time
 			Out->FlushLastTS = TS;
 		}
+
+		// release lock
+		Out->BufferLock = 0;
 	}
 	Out->TotalLine++;
 }
@@ -692,7 +703,8 @@ static void* Output_Worker(void * user)
 	while (true)
 	{
 		u64 TSC0 = rdtsc(); 
-		if (Out->BufferPut == Out->BufferGet)
+		u32 Get = Out->BufferGet;
+		if (Get == Out->BufferPut)
 		{
 			// nothing to process so zzzz 
 			usleep(1e3);
@@ -700,7 +712,6 @@ static void* Output_Worker(void * user)
 		else
 		{
 			// attempt to get the next one
-			u32 Get = Out->BufferGet;
 			Buffer_t* B = &Out->BufferList[ Get ];
 
 			// fetch and process the next block 
