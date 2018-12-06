@@ -423,13 +423,19 @@ static void ProfileDump(struct Output_t* Out)
 	float OutputWorkerCPUCompress;
 	float OutputWorkerCPUSend;
 	float OutputWorkerCPURecv;
-	Output_WorkerCPU(Out, 1,  &OutputWorkerCPU, &OutputWorkerCPUCompress, &OutputWorkerCPUSend, &OutputWorkerCPURecv);
+	u64   OutputTotalCycle;
+	Output_Stats(Out, 1,  	&OutputWorkerCPU, 
+							&OutputWorkerCPUCompress, 
+							&OutputWorkerCPUSend, 
+							&OutputWorkerCPURecv,
+							&OutputTotalCycle);
 
 	printf("Output Worker CPU\n");
 	printf("  Top     : %.6f\n", OutputWorkerCPU);
 	printf("  Compress: %.6f\n", OutputWorkerCPUCompress);
 	printf("  Send    : %.6f\n", OutputWorkerCPUSend);
 	printf("  Recv    : %.6f\n", OutputWorkerCPURecv);
+	printf("  Total   : %.6f sec\n", tsc2ns(OutputTotalCycle)/1e9 );
 	printf("\n");
 
 	u64 FlowCntTotal = 0;
@@ -576,11 +582,7 @@ int main(int argc, u8* argv[])
 			float PCAPbps = ((TotalByte - TotalByteLast) * 8.0) / SamplePCAPWallTime; 
 
 			float OutputWorkerCPU;
-			float OutputWorkerCPUCompress;
-			float OutputWorkerCPUSend;
-			float OutputWorkerCPURecv;
-			Output_WorkerCPU(Out, 0,  &OutputWorkerCPU, &OutputWorkerCPUCompress, &OutputWorkerCPUSend, &OutputWorkerCPURecv);
-
+			Output_Stats(Out, 0,  &OutputWorkerCPU, NULL, NULL, NULL, NULL);
 
 			u32 FlowCntSnapshot;	
 			float FlowCPU;

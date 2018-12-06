@@ -11,6 +11,6 @@ u64 				Output_TotalLine	(struct Output_t* Out);
 u64 				Output_ESErrorCnt	(struct Output_t* Out);
 u64 				Output_ESPushCnt	(struct Output_t* Out);
 void 				Output_ESHostAdd	(struct Output_t* Out, u8* HostName, u32 HostPort);
-float 				Output_WorkerCPU	(struct Output_t* Out, bool IsReset, float* pTop, float* pCompress, float* pSend, float* pRecv);
+float 				Output_Stats		(struct Output_t* Out, bool IsReset, float* pTop, float* pCompress, float* pSend, float* pRecv, u64* pTotalCycle);
 
 #endif

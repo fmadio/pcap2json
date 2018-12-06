@@ -171,7 +171,6 @@ Output_t* Output_Create(bool IsNULL, bool IsSTDOUT, bool IsESOut, bool IsCompres
 	// create worker threads
 	u32 CPUCnt = 0;
 	pthread_create(&O->PushThread[0], NULL, Output_Worker, (void*)O); CPUCnt++;
-	/*
 	pthread_create(&O->PushThread[1], NULL, Output_Worker, (void*)O); CPUCnt++;
 	pthread_create(&O->PushThread[2], NULL, Output_Worker, (void*)O); CPUCnt++;
 	pthread_create(&O->PushThread[3], NULL, Output_Worker, (void*)O); CPUCnt++;
@@ -179,7 +178,6 @@ Output_t* Output_Create(bool IsNULL, bool IsSTDOUT, bool IsESOut, bool IsCompres
 	pthread_create(&O->PushThread[5], NULL, Output_Worker, (void*)O); CPUCnt++;
 	pthread_create(&O->PushThread[6], NULL, Output_Worker, (void*)O); CPUCnt++;
 	pthread_create(&O->PushThread[7], NULL, Output_Worker, (void*)O); CPUCnt++;
-	*/
 
 	u32 CPUMap[8] = { 0, 0, 0, 0, 0, 0, 0, 0};
 
@@ -670,12 +668,13 @@ u64 Output_ESPushCnt(Output_t* Out)
 //-------------------------------------------------------------------------------------------
 // calculates the CPU usage of output worker threads.
 // this is compress + HTTP framing + send  + recv + error processing time
-void Output_WorkerCPU(	Output_t* Out, 
-						bool IsReset, 
-						float* pTop, 
-						float* pCompress, 
-						float* pSend,
-						float* pRecv)
+void Output_Stats(	Output_t* Out, 
+					bool IsReset, 
+					float* pTop, 
+					float* pCompress, 
+					float* pSend,
+					float* pRecv,
+					u64*   pTotalCycle)
 {
 	u64 Total 	= 0;
 	u64 Top 	= 0;
@@ -703,10 +702,11 @@ void Output_WorkerCPU(	Output_t* Out,
 			Out->WorkerTSCRecv[i]		= 0;
 		}
 	}
-	pTop[0] 		= Top  * inverse(Total);
-	pCompress[0] 	= Comp * inverse(Total);
-	pSend[0] 		= Send * inverse(Total);
-	pRecv[0] 		= Recv * inverse(Total);
+	if (pTop) 			pTop[0] 		= Top  * inverse(Total);
+	if (pCompress) 		pCompress[0] 	= Comp * inverse(Total);
+	if (pSend) 			pSend[0] 		= Send * inverse(Total);
+	if (pRecv) 			pRecv[0] 		= Recv * inverse(Total);
+	if (pTotalCycle)	pTotalCycle[0]	= Total;
 }
 
 //-------------------------------------------------------------------------------------------
