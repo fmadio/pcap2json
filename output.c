@@ -76,7 +76,7 @@ typedef struct Output_t
 	volatile u32		BufferGet;								// buffer current get
 	u32					BufferMask;
 	u32					BufferMax;
-	volatile u32		BufferLock;								// mutual exclusion lock
+	u32					BufferLock;								// mutual exclusion lock
 	Buffer_t			BufferList[128];						// buffer list 
 	u64					TotalByte[128];							// total amount of bytes sent by each buffer^ 
 	u64					TotalLine;								// total number of lines output
@@ -725,52 +725,48 @@ void Output_LineAdd(Output_t* Out, u8* Buffer, u32 BufferLen)
 	{
 		// multiple cpus call this function, ensure its
 		// mutually exclusive
-		while (!__sync_bool_compare_and_swap(&Out->BufferLock, 0, 1))
+		sync_lock(&Out->BufferLock, 50); 
 		{
-			ndelay(50);
-		}
+			Buffer_t* B = &Out->BufferList[Out->BufferPut];
 
-		Buffer_t* B = &Out->BufferList[Out->BufferPut];
+			memcpy(B->Buffer + B->BufferPos, Buffer, BufferLen);
+			B->BufferPos += BufferLen;
 
-		memcpy(B->Buffer + B->BufferPos, Buffer, BufferLen);
-		B->BufferPos += BufferLen;
+			B->BufferLine += 1;
 
-		B->BufferLine += 1;
+			// time to flush to ES?
+			bool IsFlush = false;
 
-		// time to flush to ES?
-		bool IsFlush = false;
+			// flush every X lines
+			IsFlush |= (B->BufferLine > B->BufferLineMax);
 
-		// flush every X lines
-		IsFlush |= (B->BufferLine > B->BufferLineMax);
+			// flush when near the end of the write buffer
+			IsFlush |= (B->BufferPos + kKB(16) > B->BufferMax);
 
-		// flush when near the end of the write buffer
-		IsFlush |= (B->BufferPos + kKB(16) > B->BufferMax);
-
-		// flush every X nanosec
-		u64 TS = clock_ns();
-		IsFlush |= ((TS - Out->FlushLastTS) > Out->FlushTimeout);
-		if (IsFlush)
-		{
-			// block until push has completed
-			// NOTE: there may be 8 buffers/workers in progress so add bit 
-			//       of extra padding in queuing behaviour
-			fProfile_Start(7, "Push Stall");
-			while (((Out->BufferPut + 8 + 4) & Out->BufferMask) == Out->BufferGet)
+			// flush every X nanosec
+			u64 TS = clock_ns();
+			IsFlush |= ((TS - Out->FlushLastTS) > Out->FlushTimeout);
+			if (IsFlush)
 			{
-				usleep(10e3);
+				// block until push has completed
+				// NOTE: there may be 8 buffers/workers in progress so add bit 
+				//       of extra padding in queuing behaviour
+				fProfile_Start(7, "Push Stall");
+				while (((Out->BufferPut + 8 + 4) & Out->BufferMask) == Out->BufferGet)
+				{
+					usleep(10e3);
+				}
+				fProfile_Stop(7);
+
+				// add so the workers can push it
+				//BulkUpload(Out, Out->BufferPut);
+				Out->BufferPut = (Out->BufferPut + 1) & Out->BufferMask;
+
+				// set last flush time
+				Out->FlushLastTS = TS;
 			}
-			fProfile_Stop(7);
-
-			// add so the workers can push it
-			//BulkUpload(Out, Out->BufferPut);
-			Out->BufferPut = (Out->BufferPut + 1) & Out->BufferMask;
-
-			// set last flush time
-			Out->FlushLastTS = TS;
 		}
-
-		// release lock
-		Out->BufferLock = 0;
+		sync_unlock(&Out->BufferLock);
 	}
 	Out->TotalLine++;
 }

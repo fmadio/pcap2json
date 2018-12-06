@@ -419,14 +419,14 @@ static inline u64 nsec2ts(u32 sec, u32 nsec)
 }
 
 // lightweight lock 
-static void sync_lock(u32* Lock, u32 delay)
+static inline void sync_lock(u32* Lock, u32 delay)
 {
 	while (!__sync_bool_compare_and_swap(Lock, 0, 1))
 	{
 		ndelay(delay);
 	}
 }
-static void sync_unlock(u32* Lock)
+static inline void sync_unlock(u32* Lock)
 {
 	Lock[0] = 0;
 }

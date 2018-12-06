@@ -87,7 +87,6 @@ typedef struct FlowRecord_t
 
 } __attribute__((packed)) FlowRecord_t;
 
-
 //---------------------------------------------------------------------------------------------
 // command line parameters, see main.c for descriptions
 extern bool				g_IsJSONPacket;
@@ -120,7 +119,7 @@ static u32						s_FlowLock			= 0;				// mutex to modify
 static u32						s_PacketBufferMax	= 2048;				// max number of inflight packets
 static PacketBuffer_t			s_PacketBufferList[2048];				// list of header structs for each buffer^
 static volatile PacketBuffer_t*	s_PacketBuffer		= NULL;				// linked list of free packet buffers
-static volatile u32				s_PacketBufferLock	= 0;
+static u32						s_PacketBufferLock	= 0;
 
 static u32						s_DecodeCPUActive 	= 0;				// total number of active decode threads
 static pthread_t   				s_DecodeThread[16];						// worker decode thread list
@@ -136,7 +135,6 @@ static struct Output_t*			s_Output			= NULL;				// output module
 
 static u64						s_PacketQueueCnt	= 0;
 static u64						s_PacketDecodeCnt	= 0;
-
 
 //---------------------------------------------------------------------------------------------
 // generate a 20bit hash index 
@@ -807,7 +805,6 @@ void DecodePacket(struct Output_t* Out, PacketBuffer_t* Pkt)
 	// update the flow records
 	if (g_IsJSONFlow)
 	{
-
 		sync_lock(&s_FlowLock, 100);
 
 		// insert to flow table
@@ -831,7 +828,6 @@ void DecodePacket(struct Output_t* Out, PacketBuffer_t* Pkt)
 
 		sync_unlock(&s_FlowLock);
 	}
-	s_PacketDecodeCnt++;
 }
 
 //---------------------------------------------------------------------------------------------
@@ -894,6 +890,9 @@ void* Flow_Worker(void* User)
 				// release buffer
 				Flow_PacketFree(Pkt);
 
+				//s_PacketDecodeCnt++;
+				__sync_fetch_and_add(&s_PacketDecodeCnt, 1);
+
 				u64 TSC3 = rdtsc();
 				s_DecodeThreadTSCDecode[CPUID] += TSC3 - TSC2;
 			}
@@ -920,21 +919,19 @@ PacketBuffer_t* Flow_PacketAlloc(void)
 	}
 
 	// acquire lock
-	while (!__sync_bool_compare_and_swap(&s_PacketBufferLock, 0, 1))
+	PacketBuffer_t* B = NULL; 
+	sync_lock(&s_PacketBufferLock, 50);
 	{
-		ndelay(50);
-		//usleep(0);
+		B = (PacketBuffer_t*)s_PacketBuffer;
+		assert(B != NULL);
+
+		s_PacketBuffer = B->FreeNext;
+
+		// release lock
+		sfence();
+		assert(s_PacketBufferLock == 1); 
 	}
-
-	PacketBuffer_t* B = (PacketBuffer_t*)s_PacketBuffer;
-	assert(B != NULL);
-
-	s_PacketBuffer = B->FreeNext;
-
-	// release lock
-	sfence();
-	assert(s_PacketBufferLock == 1); 
-	s_PacketBufferLock = 0;
+	sync_unlock(&s_PacketBufferLock);
 
 	// double check its a valid free pkt
 	assert(B->IsUsed == false);
@@ -946,22 +943,19 @@ PacketBuffer_t* Flow_PacketAlloc(void)
 void Flow_PacketFree(PacketBuffer_t* B)
 {
 	// acquire lock
-	while (!__sync_bool_compare_and_swap(&s_PacketBufferLock, 0, 1))
+	sync_lock(&s_PacketBufferLock, 100); 
 	{
-		ndelay(100);
-		//usleep(0);
+		// push at head
+		B->FreeNext 	= (PacketBuffer_t*)s_PacketBuffer;
+		s_PacketBuffer 	= B;
+
+		B->IsUsed = false;
+
+		// release lock
+		sfence();
+		assert(s_PacketBufferLock == 1); 
 	}
-
-	// push at head
-	B->FreeNext 	= (PacketBuffer_t*)s_PacketBuffer;
-	s_PacketBuffer 	= B;
-
-	B->IsUsed = false;
-
-	// release lock
-	sfence();
-	assert(s_PacketBufferLock == 1); 
-	s_PacketBufferLock = 0;
+	sync_unlock(&s_PacketBufferLock);
 }
 
 //---------------------------------------------------------------------------------------------
@@ -1016,6 +1010,14 @@ void Flow_Open(struct Output_t* Out)
 // shutdown / flush
 void Flow_Close(struct Output_t* Out, u64 LastTS)
 {
+	// wait for all queues to drain
+	u32 Timeout = 0;
+	while (s_DecodeQueuePut != s_DecodeQueueGet)
+	{
+		usleep(0);
+		assert(Timeout++ < 1e6);
+	}
+
 	// output last flow data
 	if (g_IsJSONFlow)
 	{
