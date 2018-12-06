@@ -47,6 +47,9 @@
 #include "miniz.h"
 #include "fProfile.h"
 
+#define SOL_TCP 6  			// socket options TCP level
+#define TCP_USER_TIMEOUT 18  // tcp timeout 
+
 //---------------------------------------------------------------------------------------------
 
 #define ESHOST_MAX		128										// max number of round robbin ES host targets
@@ -59,10 +62,11 @@ typedef struct
 	u32					BufferLine;								// total line count
 	u32					BufferLineMax;							// maximum line count 
 
-
-
 	u8*					BufferCompress;							// compressed output buffer 
 	u32					BufferCompressMax;
+
+	u8*					BufferRecv;								// recv buffer replies
+	u32					BufferRecvMax;							// maximum recv size
 
 } Buffer_t;
 
@@ -134,6 +138,11 @@ Output_t* Output_Create(bool IsNULL, bool IsSTDOUT, bool IsESOut, bool IsCompres
 		B->BufferCompressMax	= kMB(16);
 		B->BufferCompress		= malloc( B->BufferCompressMax ); 
 		assert(B->BufferCompress != NULL);
+
+		B->BufferRecvMax	= kMB(16);
+		B->BufferRecv		= malloc( B->BufferRecvMax ); 
+		assert(B->BufferRecv != NULL);
+
 	}
 
 	// timeout for flushing
@@ -162,6 +171,7 @@ Output_t* Output_Create(bool IsNULL, bool IsSTDOUT, bool IsESOut, bool IsCompres
 	// create worker threads
 	u32 CPUCnt = 0;
 	pthread_create(&O->PushThread[0], NULL, Output_Worker, (void*)O); CPUCnt++;
+	/*
 	pthread_create(&O->PushThread[1], NULL, Output_Worker, (void*)O); CPUCnt++;
 	pthread_create(&O->PushThread[2], NULL, Output_Worker, (void*)O); CPUCnt++;
 	pthread_create(&O->PushThread[3], NULL, Output_Worker, (void*)O); CPUCnt++;
@@ -169,6 +179,7 @@ Output_t* Output_Create(bool IsNULL, bool IsSTDOUT, bool IsESOut, bool IsCompres
 	pthread_create(&O->PushThread[5], NULL, Output_Worker, (void*)O); CPUCnt++;
 	pthread_create(&O->PushThread[6], NULL, Output_Worker, (void*)O); CPUCnt++;
 	pthread_create(&O->PushThread[7], NULL, Output_Worker, (void*)O); CPUCnt++;
+	*/
 
 	u32 CPUMap[8] = { 0, 0, 0, 0, 0, 0, 0, 0};
 
@@ -237,6 +248,47 @@ static int SendBuffer(int Sock, u8* Buffer, u32 BufferLength)
 		Pos += slen;
 	}
 	return BufferLength;
+}
+
+//-------------------------------------------------------------------------------------------
+static void Hexdump(u8* Desc, u8* Buffer, s32 Length)
+{
+	u32 Offset = 0;
+	u32 LineStrPos = 0;
+	u8 LineStr[128];
+	while (Offset < Length)
+	{
+		if ((Offset & 0xf) == 0)
+		{
+			if (Offset != 0)
+			{
+				LineStr[LineStrPos] = 0;
+				fprintf(stderr, "| %s\n", LineStr); 
+			}
+			fprintf(stderr, "%10s [%08x]: ", Desc, Offset); 
+
+			LineStrPos = 0;	
+		}
+
+		u32 c = Buffer[Offset];
+		u32 d = c; 
+		if (c <   32) d = '.';
+		if (c >= 127) d = '.';
+
+		LineStr[LineStrPos++] = d;
+
+		fprintf(stderr, "%02x ", c);
+		Offset++;
+	}
+	while ((Offset & 0xF) != 0)	
+	{
+		fprintf(stderr, "%02s ", "  ");
+		Offset++;
+	}
+
+	LineStr[LineStrPos] = 0;
+	fprintf(stderr, "| %s\n", LineStr); 
+	fprintf(stderr, "\n");
 }
 
 //-------------------------------------------------------------------------------------------
@@ -351,8 +403,34 @@ void BulkUpload(Output_t* Out, u32 BufferIndex, u32 CPUID)
 		return;
 	}
 
-	// generate Headers for ES POST
+	// set timeout for connect 
+	{
+		int timeout = 10000;  // user timeout in milliseconds [ms]
+		ret = setsockopt (Sock, SOL_TCP, TCP_USER_TIMEOUT, (char*) &timeout, sizeof (timeout));
+		if (ret < 0)
+		{
+			fprintf(stderr, "TCP_USER_TIMEOUT failed: %i %i %s\n", ret, errno, strerror(errno));
+		}
+	}
+	// set timeout for read/write 
+	{
+		struct timeval timeout;      
+		timeout.tv_sec 	= 10;
+		timeout.tv_usec = 0;
 
+		ret = setsockopt (Sock, SOL_SOCKET, SO_RCVTIMEO, (char *)&timeout, sizeof(timeout));
+		if (ret < 0)
+		{
+			fprintf(stderr, "SO_RECVTIMEO failed: %i %i %s\n", ret, errno, strerror(errno));
+		}
+		ret = setsockopt (Sock, SOL_SOCKET, SO_SNDTIMEO, (char *)&timeout, sizeof(timeout));
+		if (ret < 0)
+		{
+			fprintf(stderr, "SO_SENDTIMEO failed: %i %i %s\n", ret, errno, strerror(errno));
+		}
+	}
+
+	// generate Headers for ES POST
 	u8 Header[16*1024];
 	u32 HeaderPos = 0;
 
@@ -407,8 +485,8 @@ void BulkUpload(Output_t* Out, u32 BufferIndex, u32 CPUID)
 	//printf("flen: %i\n", flen);
 
 	// use the compress buffer for the response
-	u8* RecvBuffer 		= B->BufferCompress;
-	u32 RecvBufferMax 	= B->BufferCompressMax; 
+	u8* RecvBuffer 		= B->BufferRecv;
+	u32 RecvBufferMax 	= B->BufferRecvMax; 
 
 	// if thers nothing in the buffer, ensure printf still has asciiz
 	strcpy(RecvBuffer, "recv error");
@@ -505,7 +583,7 @@ void BulkUpload(Output_t* Out, u32 BufferIndex, u32 CPUID)
 	// check for errors
 	if (strcmp(ErrorStr, "errors:false") != 0)
 	{
-		printf("ERROR: %i %i\n", RecvBufferLen, strlen(RecvBuffer) );
+		printf("ERROR: %i %i SendLen:%i\n", RecvBufferLen, strlen(RecvBuffer), BulkLength );
 		for (int i=0; i < 8; i++)
 		{
 			printf("ERROR:  %i [%s]\n", i, JSONStr[i]);
@@ -517,6 +595,11 @@ void BulkUpload(Output_t* Out, u32 BufferIndex, u32 CPUID)
 		// update error count
 		// NOTE: should really be an atomic update
 		Out->ESPushError[BufferIndex]++;
+
+		// print hexdump of send buffer
+		Hexdump("Header", 	Header, 	HeaderPos);
+		Hexdump("Raw",		B->Buffer, 	B->BufferPos);
+		Hexdump("Footer",   Footer, 	FooterPos);
 	}
 
 	// shutdown the socket	
