@@ -203,9 +203,9 @@ Output_t* Output_Create(bool IsNULL, bool IsSTDOUT, bool IsESOut, bool IsCompres
 		CPUMap[3] = 28;
 
 		CPUMap[4] = 25;
-		CPUMap[5] = 36;
-		CPUMap[6] = 37;
-		CPUMap[7] = 38;
+		CPUMap[5] = 26;
+		CPUMap[6] = 27;
+		CPUMap[7] = 28;
 		break;
 	}
 
