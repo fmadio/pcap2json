@@ -2,6 +2,7 @@
 #define _PCAP2JSON_FLOW_H__
 
 struct Output_t;
+struct FlowIndex_t;
 
 typedef struct PacketBuffer_t
 {
@@ -9,6 +10,8 @@ typedef struct PacketBuffer_t
 	u8*						Buffer;				// memory buffer
 
 	u64						TS;					// timestamp of this packet
+	bool					IsFlowIndexDump;	// time to dump the sample
+	struct FlowIndex_t*		FlowIndex;			// which flow index to use
 
 	struct PacketBuffer_t*	FreeNext;			// next in free list
 

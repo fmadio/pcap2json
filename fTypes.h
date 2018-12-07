@@ -429,6 +429,7 @@ static inline void sync_lock(u32* Lock, u32 delay)
 static inline void sync_unlock(u32* Lock)
 {
 	Lock[0] = 0;
+	__asm__ volatile ("sfence");	
 }
 
 // ethernet header
