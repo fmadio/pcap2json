@@ -126,7 +126,7 @@ Output_t* Output_Create(bool IsNULL, bool IsSTDOUT, bool IsESOut, bool IsCompres
 	{
 		Buffer_t* B				= &O->BufferList[i];
 		B->BufferPos			= 0;
-		B->BufferMax 			= kMB(16); 
+		B->BufferMax 			= kMB(1); 
 
 		B->BufferLine			= 0;
 		B->BufferLineMax		= OutputLineFlush;
@@ -135,11 +135,11 @@ Output_t* Output_Create(bool IsNULL, bool IsSTDOUT, bool IsESOut, bool IsCompres
 		assert(B->Buffer != NULL);
 		memset(B->Buffer, 0, B->BufferMax);
 
-		B->BufferCompressMax	= kMB(16);
+		B->BufferCompressMax	= kMB(1);
 		B->BufferCompress		= malloc( B->BufferCompressMax ); 
 		assert(B->BufferCompress != NULL);
 
-		B->BufferRecvMax	= kMB(16);
+		B->BufferRecvMax	= kMB(1);
 		B->BufferRecv		= malloc( B->BufferRecvMax ); 
 		assert(B->BufferRecv != NULL);
 
