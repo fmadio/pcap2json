@@ -20,7 +20,7 @@ typedef struct PacketBuffer_t
 } PacketBuffer_t;
 
 
-void 			Flow_Open				(struct Output_t* Out);
+void 			Flow_Open				(struct Output_t* Out, s32* CPUMap);
 void 			Flow_Close				(struct Output_t* Out, u64 LastTS);
 void 			Flow_Stats				(bool IsReset, u32* pFlowCntSnapShot, u64* pFlowCntTotal, float * pCPUUse);
 

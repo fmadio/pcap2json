@@ -39,8 +39,10 @@ typedef struct
 
 //---------------------------------------------------------------------------------------------
 // tunables
-bool			g_Verbose			= false;			// verbose print mode
-u32				g_CPUAffinity		= 0;				// which CPU to run the main flow logic on
+bool			g_Verbose			= false;				// verbose print mode
+s32				g_CPUCore			= 22;					// which CPU to run the main flow logic on
+s32				g_CPUFlow[16]		= { 19, 20, 21, 22};	// cpu mapping for flow threads
+s32				g_CPUOutput[16]		= { 25, 26, 27, 28, 25, 26, 27, 28};	// cpu mappings for output threads 
 
 bool			g_IsJSONPacket		= false;			// output JSON packet format
 bool			g_IsJSONFlow		= false;			// output JSON flow format
@@ -59,7 +61,7 @@ bool			g_Output_STDOUT		= true;				// by default output to stdout
 bool			g_Output_ESPush		= false;			// direct ES HTTP Push 
 u32				g_Output_LineFlush 	= 100e3;			// by default flush every 100e3 lines
 u64				g_Output_TimeFlush 	= 1e9;				// by default flush every 1sec of activity 
-u32				g_Output_CPUMap		= 2;				// output CPU map allocation
+u64				g_Output_ByteFlush 	= kMB(1);			// maximum buffer size per output upload 
 
 u32				g_ESHostCnt 		= 0;				// number of active ES Hosts
 ESHost_t		g_ESHost[128];							// list fo ES Hosts to output to
@@ -85,6 +87,11 @@ static void help(void)
 	fprintf(stderr, " --capture-name <name>          : capture name to use for ES Index data\n");
 	fprintf(stderr, " --verbose                      : verbose output\n");
 	fprintf(stderr, " --config <confrig file>        : read from config file\n");
+	fprintf(stderr, "\n");
+	fprintf(stderr, " --cpu-core <cpu no>            : cpu map for core thread\n"); 
+	fprintf(stderr, " --cpu-flow  <cpu0 cpu1>        : cpu map for flow threads\n"); 
+	fprintf(stderr, " --cpu-output <cpu0 .. cpu7>    : cpu map for output threads\n"); 
+	fprintf(stderr, "\n");
 	fprintf(stderr, " --json-packet                  : write JSON packet data\n");
 	fprintf(stderr, " --json-flow                    : write JSON flow data\n");
 	fprintf(stderr, "\n");
@@ -92,9 +99,9 @@ static void help(void)
 	fprintf(stderr, "Output Mode\n");
 	fprintf(stderr, " --output-stdout                : writes output to STDOUT\n");
 	fprintf(stderr, " --output-espush                : writes output directly to ES HTTP POST \n");
+	fprintf(stderr, " --output-byteflush <bytes>     : max number of bytes per output push\n");
 	fprintf(stderr, " --output-lineflush <line cnt>  : number of lines before flushing output (default 100e3)\n");
 	fprintf(stderr, " --output-timeflush  <time ns>  : maximum amount of time since last flush (default 1e9)\n");
-	fprintf(stderr, " --output-cpu <gen1|gen2>       : cpu mapping list to run on\n"); 
 
 	fprintf(stderr, "\n");
 	fprintf(stderr, "Flow specific options\n");
@@ -116,6 +123,7 @@ static void help(void)
 }
 
 //---------------------------------------------------------------------------------------------
+
 static bool ParseCommandLine(u8* argv[])
 {
 	u32 cnt = 0;
@@ -125,11 +133,36 @@ static bool ParseCommandLine(u8* argv[])
 		cnt	+= 1;
 	}
 	// CPU for main process to run on 
-	if (strcmp(argv[0], "--cpu") == 0)
+	if (strcmp(argv[0], "--cpu-core") == 0)
 	{
-		g_CPUAffinity = atoi(argv[1]);
-		fprintf(stderr, "  Run on CPU %i\n", g_CPUAffinity);
+		g_CPUCore = atoi(argv[1]);
+		fprintf(stderr, "  Core on CPU %i\n", g_CPUCore);
 		cnt	+= 2;
+	}
+	if (strcmp(argv[0], "--cpu-flow") == 0)
+	{
+		g_CPUFlow[0] = atoi(argv[1]);
+		g_CPUFlow[1] = atoi(argv[2]);
+		//g_CPUFlow[2] = atoi(argv[3]);
+		//g_CPUFlow[3] = atoi(argv[4]);
+
+		fprintf(stderr, "  Flow on CPU %i %i\n", g_CPUFlow[0], g_CPUFlow[1]);
+		cnt	+= 3;
+	}
+	if (strcmp(argv[0], "--cpu-output") == 0)
+	{
+		g_CPUOutput[0] = atoi(argv[1]);
+		g_CPUOutput[1] = atoi(argv[2]);
+		g_CPUOutput[2] = atoi(argv[3]);
+		g_CPUOutput[3] = atoi(argv[4]);
+		g_CPUOutput[4] = atoi(argv[5]);
+		g_CPUOutput[5] = atoi(argv[6]);
+		g_CPUOutput[6] = atoi(argv[7]);
+		g_CPUOutput[7] = atoi(argv[8]);
+		fprintf(stderr, "  Output on CPU %i %i %i %i  %i %i %i %i\n", 
+							g_CPUOutput[0], g_CPUOutput[1], g_CPUOutput[2], g_CPUOutput[3], 
+							g_CPUOutput[4], g_CPUOutput[5], g_CPUOutput[6], g_CPUOutput[7] );
+		cnt	+= 9;
 	}
 	// output json packet data 
 	if (strcmp(argv[0], "--json-packet") == 0)
@@ -189,6 +222,13 @@ static bool ParseCommandLine(u8* argv[])
 		fprintf(stderr, "  Output Time Flush: %lli ns\n", g_Output_TimeFlush);
 		cnt	+= 2;
 	}
+	if (strcmp(argv[0], "--output-byteflush") == 0)
+	{
+		g_Output_ByteFlush = atof(argv[1]);
+		fprintf(stderr, "  Output Byte Flush: %lli ns\n", g_Output_ByteFlush);
+		cnt	+= 2;
+	}
+	/*
 	if (strcmp(argv[0], "--output-cpu") == 0)
 	{
 		u8* CPUStr = argv[1];
@@ -210,6 +250,7 @@ static bool ParseCommandLine(u8* argv[])
 		fprintf(stderr, "  Output CPU Map: Gen%i\n", g_Output_CPUMap);
 		cnt	+= 2;
 	}
+	*/
 
 	// JSON output format
 	if (strcmp(argv[0], "--disable-mac") == 0)
@@ -482,13 +523,20 @@ int main(int argc, u8* argv[])
 
 	u64 TS0 = clock_ns();
 
+	// print cpu mapping
+	fprintf(stderr, "CPU Mapping\n");
+	fprintf(stderr, "  Core   %i\n", g_CPUCore);
+	fprintf(stderr, "  Flow   %i %i\n", g_CPUFlow[0], g_CPUFlow[1]);
+	fprintf(stderr, "  Output %i %i %i %i  %i %i %i %i\n", 
+							g_CPUOutput[0], g_CPUOutput[1], g_CPUOutput[2], g_CPUOutput[3], 
+							g_CPUOutput[4], g_CPUOutput[5], g_CPUOutput[6], g_CPUOutput[7] );
+
 	// set cpu affinity
-	if (g_CPUAffinity != 0)
+	if (g_CPUCore >= 0) 
 	{
-		fprintf(stderr, "Set CPU Affinity %i\n", g_CPUAffinity);
 		cpu_set_t Thread0CPU;
 		CPU_ZERO(&Thread0CPU);
-		CPU_SET (g_CPUAffinity, &Thread0CPU);
+		CPU_SET (g_CPUCore, &Thread0CPU);
 		pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &Thread0CPU);
 	}
 
@@ -536,14 +584,15 @@ int main(int argc, u8* argv[])
 											g_ESCompress, 
 											g_Output_LineFlush,
 											g_Output_TimeFlush,
-											g_Output_CPUMap); 
+											g_Output_ByteFlush,
+											g_CPUOutput); 
 	for (int i=0; i < g_ESHostCnt; i++)
 	{
 		Output_ESHostAdd(Out, g_ESHost[i].HostName, g_ESHost[i].HostPort);
 	}
 
 	// init flow state
-	Flow_Open(Out);
+	Flow_Open(Out, g_CPUFlow);
 
 	u64 PacketTSFirst = 0;
 	u64 PacketTSLast  = 0;

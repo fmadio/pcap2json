@@ -112,8 +112,24 @@ static void* Output_Worker(void * user);
 
 //-------------------------------------------------------------------------------------------
 
-Output_t* Output_Create(bool IsNULL, bool IsSTDOUT, bool IsESOut, bool IsCompress, u32 OutputLineFlush, u64 Output_TimeFlush, u32 Output_CPUMap)
+Output_t* Output_Create(bool IsNULL, 
+						bool IsSTDOUT, 
+						bool IsESOut, 
+						bool IsCompress, 
+						u32 Output_LineFlush, 
+						u64 Output_TimeFlush, 
+						u64 Output_ByteFlush, 
+						s32* CPUMap)
 {
+	fprintf(stderr, "OutputBuffer Config\n");
+	fprintf(stderr, "   IsNULL        : %i\n", IsNULL); 
+	fprintf(stderr, "   IsES          : %i\n", IsSTDOUT); 
+	fprintf(stderr, "   IsStdout      : %i\n", IsESOut); 
+	fprintf(stderr, "   IsCompress    : %i\n", IsCompress); 
+	fprintf(stderr, "   ByteFlush     : %lli\n", Output_ByteFlush);
+	fprintf(stderr, "   LineFlush     : %lli\n", Output_LineFlush);
+	fprintf(stderr, "   TimeFlush     : %lli\n", Output_TimeFlush);
+
 	Output_t* O = malloc(sizeof(Output_t));
 	memset(O, 0, sizeof(Output_t));	
 
@@ -126,21 +142,21 @@ Output_t* Output_Create(bool IsNULL, bool IsSTDOUT, bool IsESOut, bool IsCompres
 	{
 		Buffer_t* B				= &O->BufferList[i];
 		B->BufferPos			= 0;
-		B->BufferMax 			= kMB(1); 
+		B->BufferMax 			= Output_ByteFlush; 
 
 		B->BufferLine			= 0;
-		B->BufferLineMax		= OutputLineFlush;
+		B->BufferLineMax		= Output_LineFlush;
 
 		B->Buffer				= malloc( B->BufferMax );
 		assert(B->Buffer != NULL);
 		memset(B->Buffer, 0, B->BufferMax);
 
-		B->BufferCompressMax	= kMB(1);
+		B->BufferCompressMax	= B->BufferMax; 
 		B->BufferCompress		= malloc( B->BufferCompressMax ); 
 		assert(B->BufferCompress != NULL);
 
-		B->BufferRecvMax	= kMB(1);
-		B->BufferRecv		= malloc( B->BufferRecvMax ); 
+		B->BufferRecvMax		= B->BufferMax; 
+		B->BufferRecv			= malloc( B->BufferRecvMax ); 
 		assert(B->BufferRecv != NULL);
 
 	}
@@ -179,38 +195,10 @@ Output_t* Output_Create(bool IsNULL, bool IsSTDOUT, bool IsESOut, bool IsCompres
 	pthread_create(&O->PushThread[6], NULL, Output_Worker, (void*)O); CPUCnt++;
 	pthread_create(&O->PushThread[7], NULL, Output_Worker, (void*)O); CPUCnt++;
 
-	u32 CPUMap[8] = { 0, 0, 0, 0, 0, 0, 0, 0};
-
-	// Gen1 mapping
-	switch (Output_CPUMap)
-	{
-	case 1:
-		CPUMap[0] = 5;
-		CPUMap[1] = 5;
-		CPUMap[2] = 5;
-		CPUMap[3] = 5;
-		CPUMap[4] = 5 + 6;
-		CPUMap[5] = 5 + 6;
-		CPUMap[6] = 5 + 6;
-		CPUMap[7] = 5 + 6;
-		break;
-
-	// Gen2 mapping
-	case 2:
-		CPUMap[0] = 25;
-		CPUMap[1] = 26;
-		CPUMap[2] = 27;
-		CPUMap[3] = 28;
-
-		CPUMap[4] = 25;
-		CPUMap[5] = 26;
-		CPUMap[6] = 27;
-		CPUMap[7] = 28;
-		break;
-	}
-
 	for (int i=0; i < CPUCnt; i++)
 	{
+		if (CPUMap[i] < 0) continue;
+
 		cpu_set_t Thread0CPU;
 		CPU_ZERO(&Thread0CPU);
 		CPU_SET (CPUMap[i], &Thread0CPU);

@@ -1013,7 +1013,7 @@ void Flow_PacketFree(PacketBuffer_t* B)
 
 //---------------------------------------------------------------------------------------------
 // allocate memory and house keeping
-void Flow_Open(struct Output_t* Out)
+void Flow_Open(struct Output_t* Out, s32* CPUMap)
 {
 	s_Output = Out;
 	assert(s_Output != NULL);
@@ -1058,9 +1058,10 @@ void Flow_Open(struct Output_t* Out)
 	//pthread_create(&s_DecodeThread[2], NULL, Flow_Worker, (void*)NULL); CPUCnt++;
 	//pthread_create(&s_DecodeThread[3], NULL, Flow_Worker, (void*)NULL); CPUCnt++;
 
-	u32 CPUMap[8] = { 19, 20, 21, 22 };
 	for (int i=0; i < CPUCnt; i++)
 	{
+		if (CPUMap[i] <= 0) continue; 
+		
 		cpu_set_t Thread0CPU;
 		CPU_ZERO(&Thread0CPU);
 		CPU_SET (CPUMap[i], &Thread0CPU);
