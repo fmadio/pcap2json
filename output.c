@@ -96,15 +96,15 @@ typedef struct Output_t
 
 	bool				IsCompress;								// enable compression
 
-	pthread_t   		PushThread[16];							// worker thread list
+	pthread_t   		PushThread[128];						// worker thread list
 
 	volatile u32		CPUActiveCnt;							// total number of active cpus
 
-	volatile u64		WorkerTSCTotal[16];						// total TSC 
-	volatile u64		WorkerTSCTop[16];						// cycles used for acutal data processing 
-	volatile u64		WorkerTSCCompress[16];					// cycles spent for compression 
-	volatile u64		WorkerTSCSend[16];						// cycles spent for tcp sending 
-	volatile u64		WorkerTSCRecv[16];						// cycles spent for tcp recv
+	volatile u64		WorkerTSCTotal[128];					// total TSC 
+	volatile u64		WorkerTSCTop[128];						// cycles used for acutal data processing 
+	volatile u64		WorkerTSCCompress[128];					// cycles spent for compression 
+	volatile u64		WorkerTSCSend[128];						// cycles spent for tcp sending 
+	volatile u64		WorkerTSCRecv[128];						// cycles spent for tcp recv
 
 } Output_t;
 
@@ -135,8 +135,8 @@ Output_t* Output_Create(bool IsNULL,
 
 	O->BufferPut		= 0;
 	O->BufferGet		= 0;
-	O->BufferMax		= 16;
-	O->BufferMask		= 0xf;
+	O->BufferMax		= 64;
+	O->BufferMask		= O->BufferMax - 1;
 
 	for (int i=0; i < O->BufferMax; i++)
 	{
@@ -184,24 +184,22 @@ Output_t* Output_Create(bool IsNULL,
 		O->IsCompress	= IsCompress;
 	}
 
-	// create worker threads
+	// create 32 worker threads
+	u32 CoreCnt = 4;				// assume 4 cores for the output
 	u32 CPUCnt = 0;
-	pthread_create(&O->PushThread[0], NULL, Output_Worker, (void*)O); CPUCnt++;
-	pthread_create(&O->PushThread[1], NULL, Output_Worker, (void*)O); CPUCnt++;
-	pthread_create(&O->PushThread[2], NULL, Output_Worker, (void*)O); CPUCnt++;
-	pthread_create(&O->PushThread[3], NULL, Output_Worker, (void*)O); CPUCnt++;
-	pthread_create(&O->PushThread[4], NULL, Output_Worker, (void*)O); CPUCnt++;
-	pthread_create(&O->PushThread[5], NULL, Output_Worker, (void*)O); CPUCnt++;
-	pthread_create(&O->PushThread[6], NULL, Output_Worker, (void*)O); CPUCnt++;
-	pthread_create(&O->PushThread[7], NULL, Output_Worker, (void*)O); CPUCnt++;
-
+	for (int i=0; i < 32; i++)
+	{
+		pthread_create(&O->PushThread[i], NULL, Output_Worker, (void*)O); 
+		CPUCnt++;
+	}
 	for (int i=0; i < CPUCnt; i++)
 	{
-		if (CPUMap[i] < 0) continue;
+		s32 CPU = CPUMap[i % CoreCnt];
+		if (CPU < 0) continue;
 
 		cpu_set_t Thread0CPU;
 		CPU_ZERO(&Thread0CPU);
-		CPU_SET (CPUMap[i], &Thread0CPU);
+		CPU_SET (CPU, &Thread0CPU);
 		pthread_setaffinity_np(O->PushThread[i], sizeof(cpu_set_t), &Thread0CPU);
 	}
 
@@ -742,7 +740,7 @@ void Output_LineAdd(Output_t* Out, u8* Buffer, u32 BufferLen)
 				fProfile_Start(7, "Push Stall");
 				while (((Out->BufferPut + 8 + 4) & Out->BufferMask) == Out->BufferGet)
 				{
-					usleep(10e3);
+					usleep(250);
 				}
 				fProfile_Stop(7);
 

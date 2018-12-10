@@ -88,9 +88,9 @@ static void help(void)
 	fprintf(stderr, " --verbose                      : verbose output\n");
 	fprintf(stderr, " --config <confrig file>        : read from config file\n");
 	fprintf(stderr, "\n");
-	fprintf(stderr, " --cpu-core <cpu no>            : cpu map for core thread\n"); 
-	fprintf(stderr, " --cpu-flow  <cpu0 cpu1>        : cpu map for flow threads\n"); 
-	fprintf(stderr, " --cpu-output <cpu0 .. cpu7>    : cpu map for output threads\n"); 
+	fprintf(stderr, " --cpu-core   <cpu no>          : cpu map for core thread\n"); 
+	fprintf(stderr, " --cpu-flow   <cpu0.. cpu3>     : cpu map for flow threads\n"); 
+	fprintf(stderr, " --cpu-output <cpu0 .. cpu3>    : cpu map for output threads\n"); 
 	fprintf(stderr, "\n");
 	fprintf(stderr, " --json-packet                  : write JSON packet data\n");
 	fprintf(stderr, " --json-flow                    : write JSON flow data\n");
@@ -143,11 +143,11 @@ static bool ParseCommandLine(u8* argv[])
 	{
 		g_CPUFlow[0] = atoi(argv[1]);
 		g_CPUFlow[1] = atoi(argv[2]);
-		//g_CPUFlow[2] = atoi(argv[3]);
-		//g_CPUFlow[3] = atoi(argv[4]);
+		g_CPUFlow[2] = atoi(argv[3]);
+		g_CPUFlow[3] = atoi(argv[4]);
 
-		fprintf(stderr, "  Flow on CPU %i %i\n", g_CPUFlow[0], g_CPUFlow[1]);
-		cnt	+= 3;
+		fprintf(stderr, "  Flow on CPU %i %i %i %i\n", g_CPUFlow[0], g_CPUFlow[1], g_CPUFlow[2], g_CPUFlow[3]);
+		cnt	+= 4 + 1;
 	}
 	if (strcmp(argv[0], "--cpu-output") == 0)
 	{
@@ -155,14 +155,9 @@ static bool ParseCommandLine(u8* argv[])
 		g_CPUOutput[1] = atoi(argv[2]);
 		g_CPUOutput[2] = atoi(argv[3]);
 		g_CPUOutput[3] = atoi(argv[4]);
-		g_CPUOutput[4] = atoi(argv[5]);
-		g_CPUOutput[5] = atoi(argv[6]);
-		g_CPUOutput[6] = atoi(argv[7]);
-		g_CPUOutput[7] = atoi(argv[8]);
-		fprintf(stderr, "  Output on CPU %i %i %i %i  %i %i %i %i\n", 
-							g_CPUOutput[0], g_CPUOutput[1], g_CPUOutput[2], g_CPUOutput[3], 
-							g_CPUOutput[4], g_CPUOutput[5], g_CPUOutput[6], g_CPUOutput[7] );
-		cnt	+= 9;
+		fprintf(stderr, "  Output on CPU %i %i %i %i\n", 
+							g_CPUOutput[0], g_CPUOutput[1], g_CPUOutput[2], g_CPUOutput[3] );
+		cnt	+= 4 + 1;
 	}
 	// output json packet data 
 	if (strcmp(argv[0], "--json-packet") == 0)
@@ -526,10 +521,9 @@ int main(int argc, u8* argv[])
 	// print cpu mapping
 	fprintf(stderr, "CPU Mapping\n");
 	fprintf(stderr, "  Core   %i\n", g_CPUCore);
-	fprintf(stderr, "  Flow   %i %i\n", g_CPUFlow[0], g_CPUFlow[1]);
-	fprintf(stderr, "  Output %i %i %i %i  %i %i %i %i\n", 
-							g_CPUOutput[0], g_CPUOutput[1], g_CPUOutput[2], g_CPUOutput[3], 
-							g_CPUOutput[4], g_CPUOutput[5], g_CPUOutput[6], g_CPUOutput[7] );
+	fprintf(stderr, "  Flow   %i %i %i %i\n", g_CPUFlow[0], g_CPUFlow[1], g_CPUFlow[2], g_CPUFlow[3]);
+	fprintf(stderr, "  Output %i %i %i %i\n",
+							g_CPUOutput[0], g_CPUOutput[1], g_CPUOutput[2], g_CPUOutput[3]);
 
 	// set cpu affinity
 	if (g_CPUCore >= 0) 

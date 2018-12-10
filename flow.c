@@ -867,7 +867,7 @@ void Flow_PacketQueue(PacketBuffer_t* Pkt)
 		fProfile_Start(1, "FlowQueueStall");
 		while (((s_DecodeQueuePut + 8) & s_DecodeQueueMsk) == (s_DecodeQueueGet & s_DecodeQueueMsk))
 		{
-			//ndelay(100);
+			//ndelay(250);
 			usleep(0);
 		}
 		fProfile_Stop(1);
@@ -1055,8 +1055,8 @@ void Flow_Open(struct Output_t* Out, s32* CPUMap)
 	u32 CPUCnt = 0;
 	pthread_create(&s_DecodeThread[0], NULL, Flow_Worker, (void*)NULL); CPUCnt++;
 	pthread_create(&s_DecodeThread[1], NULL, Flow_Worker, (void*)NULL); CPUCnt++;
-	//pthread_create(&s_DecodeThread[2], NULL, Flow_Worker, (void*)NULL); CPUCnt++;
-	//pthread_create(&s_DecodeThread[3], NULL, Flow_Worker, (void*)NULL); CPUCnt++;
+	pthread_create(&s_DecodeThread[2], NULL, Flow_Worker, (void*)NULL); CPUCnt++;
+	pthread_create(&s_DecodeThread[3], NULL, Flow_Worker, (void*)NULL); CPUCnt++;
 
 	for (int i=0; i < CPUCnt; i++)
 	{
