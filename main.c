@@ -625,13 +625,14 @@ int main(int argc, u8* argv[])
 			float PCAPbps = ((TotalByte - TotalByteLast) * 8.0) / SamplePCAPWallTime; 
 
 			float OutputWorkerCPU;
-			Output_Stats(Out, 0,  &OutputWorkerCPU, NULL, NULL, NULL, NULL);
+			float OutputWorkerCPURecv;
+			Output_Stats(Out, 0,  &OutputWorkerCPU, NULL, NULL, &OutputWorkerCPURecv, NULL);
 
 			u32 FlowCntSnapshot;	
 			float FlowCPU;
 			Flow_Stats(false, &FlowCntSnapshot, NULL, &FlowCPU);
 
-			fprintf(stderr, "[%s] Input:%.3f GB %6.2f Gbps PCAP: %6.2f Gbps | Output %.5f GB Flows/Snap: %6i FlowCPU:%.3f | ESPush:%8lli %6.2fK ESErr %4lli | OutputCPU: %.3f\n", 
+			fprintf(stderr, "[%s] In:%.3f GB %6.2f Gbps PCAP: %6.2f Gbps | Out %.5f GB Flows/Snap: %6i FlowCPU:%.3f | ESPush:%6lli %6.2fK ESErr %4lli | OutCPU: %.3f (%.3f)\n", 
 
 								FormatTS(PacketTSLast),
 
@@ -644,7 +645,8 @@ int main(int argc, u8* argv[])
 								Output_ESPushCnt(Out),
 								lps/1e3,
 								Output_ESErrorCnt(Out),
-								OutputWorkerCPU
+								OutputWorkerCPU,
+								OutputWorkerCPURecv
 							);
 			fflush(stderr);
 
