@@ -735,10 +735,10 @@ void Output_LineAdd(Output_t* Out, u8* Buffer, u32 BufferLen)
 			if (IsFlush)
 			{
 				// block until push has completed
-				// NOTE: there may be 8 buffers/workers in progress so add bit 
+				// NOTE: there may be X buffers due to X workers in progress so add bit 
 				//       of extra padding in queuing behaviour
 				fProfile_Start(7, "Push Stall");
-				while (((Out->BufferPut + 8 + 4) & Out->BufferMask) == Out->BufferGet)
+				while (((Out->BufferPut + Out->CPUActiveCnt + 4) & Out->BufferMask) == Out->BufferGet)
 				{
 					usleep(250);
 				}
