@@ -17,6 +17,8 @@ typedef struct PacketBuffer_t
 
 	volatile bool			IsUsed;	
 
+	u32						ID;
+
 } PacketBuffer_t;
 
 

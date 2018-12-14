@@ -159,6 +159,7 @@ static u64						s_DecodeThreadTSCDecode[128];			// total cycles for decoding
 
 static volatile u32				s_DecodeQueuePut 	= 0;				// put/get processing queue
 static volatile u32				s_DecodeQueueGet 	= 0;
+static u32						s_DecodeQueueMax 	= 1024;
 static u32						s_DecodeQueueMsk 	= 1023;
 static volatile PacketBuffer_t*	s_DecodeQueue[1024];					// list of packets pending processing
 
@@ -865,20 +866,23 @@ void Flow_PacketQueue(PacketBuffer_t* Pkt)
 	{
 		// wait for space int he queue 
 		fProfile_Start(1, "FlowQueueStall");
-		while (((s_DecodeQueuePut + 8) & s_DecodeQueueMsk) == (s_DecodeQueueGet & s_DecodeQueueMsk))
+		u32 Timeout = 0; 
+		while ((s_DecodeQueuePut  - s_DecodeQueueGet) > (s_DecodeQueueMax - 8))
 		{
 			//ndelay(250);
 			usleep(0);
+			assert(Timeout++ < 1e6);
 		}
 		fProfile_Stop(1);
 
 		// add to processing queue
-		u32 Index 				= s_DecodeQueuePut & s_DecodeQueueMsk;
-		s_DecodeQueue[Index] 	= Pkt;
+		s_DecodeQueue[s_DecodeQueuePut & s_DecodeQueueMsk] 	= Pkt;
 
 		// flow index
 		Pkt->IsFlowIndexDump	 = false;
 		Pkt->FlowIndex			 = &s_FlowIndex[s_FlowIndexPos];
+
+		Pkt->ID					= s_DecodeQueuePut;
 
 		// purge the flow records every 100msec
 		// as this is the singled threaded serialized
@@ -933,13 +937,24 @@ void* Flow_Worker(void* User)
 		}
 		else
 		{
+			// fetch the to be processed pkt *before* atomic lock 
+			PacketBuffer_t* Pkt = (PacketBuffer_t*)s_DecodeQueue[Get & s_DecodeQueueMsk];
+			assert(Pkt != NULL);
+
+			// get the entry atomically 
 			if (__sync_bool_compare_and_swap(&s_DecodeQueueGet, Get, Get + 1))
 			{
-				u32 Index = Get & s_DecodeQueueMsk;
+
+// back pressure testing
+//u32 delay =  ((u64)rand() * 100000ULL) / (u64)RAND_MAX; 
+//ndelay(delay);
 
 				u64 TSC2 = rdtsc();
 
-				PacketBuffer_t* Pkt = (PacketBuffer_t*)s_DecodeQueue[Index];
+				// ensure no sync problems
+				assert(Pkt->ID == Get);
+
+				// process the packet
 				DecodePacket(s_Output, Pkt);
 
 				// release buffer
@@ -948,6 +963,7 @@ void* Flow_Worker(void* User)
 				// update counter
 				__sync_fetch_and_add(&s_PacketDecodeCnt, 1);
 
+				// cpu usage stats
 				u64 TSC3 = rdtsc();
 				s_DecodeThreadTSCDecode[CPUID] += TSC3 - TSC2;
 			}
@@ -990,6 +1006,7 @@ PacketBuffer_t* Flow_PacketAlloc(void)
 	// double check its a valid free pkt
 	assert(B->IsUsed == false);
 	B->IsUsed = true;
+
 
 	return B;
 }

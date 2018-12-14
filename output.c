@@ -709,6 +709,7 @@ void Output_LineAdd(Output_t* Out, u8* Buffer, u32 BufferLen)
 	// push directly to ES
 	if (Out->ESPush)
 	{
+
 		// multiple cpus call this function, ensure its
 		// mutually exclusive
 		sync_lock(&Out->BufferLock, 50); 
