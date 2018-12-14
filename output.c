@@ -773,7 +773,7 @@ static void* Output_Worker(void * user)
 		if (Get == Out->BufferPut)
 		{
 			// nothing to process so zzzz 
-			usleep(1e3);
+			usleep(0);
 		}
 		else
 		{

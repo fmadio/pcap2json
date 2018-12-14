@@ -223,30 +223,6 @@ static bool ParseCommandLine(u8* argv[])
 		fprintf(stderr, "  Output Byte Flush: %lli ns\n", g_Output_ByteFlush);
 		cnt	+= 2;
 	}
-	/*
-	if (strcmp(argv[0], "--output-cpu") == 0)
-	{
-		u8* CPUStr = argv[1];
-		if (strcmp(CPUStr, "gen1") == 0)
-		{
-			g_Output_CPUMap = 1;
-			fprintf(stderr, "  Output CPU Map Gen1\n");
-		}
-		else if (strcmp(CPUStr, "gen2") == 0)
-		{
-			g_Output_CPUMap = 2;
-			fprintf(stderr, "  Output CPU Map Gen2\n");
-		}
-		else
-		{
-			fprintf(stderr, "  Output CPU Map unkown");
-		}
-
-		fprintf(stderr, "  Output CPU Map: Gen%i\n", g_Output_CPUMap);
-		cnt	+= 2;
-	}
-	*/
-
 	// JSON output format
 	if (strcmp(argv[0], "--disable-mac") == 0)
 	{
@@ -591,6 +567,7 @@ int main(int argc, u8* argv[])
 	u64 PacketTSFirst = 0;
 	u64 PacketTSLast  = 0;
 	u64 TotalByteLast = 0;
+	u64 TotalPktLast = 0;
 
 	u64 OutputLineLast = 0;
 
@@ -612,6 +589,7 @@ int main(int argc, u8* argv[])
 
 			float bps = ((TotalByte - TotalByteLast) * 8.0) / (tsc2ns(TSC - LastTSC)/1e9); 
 			float lps = (OutputLine - OutputLineLast) / (tsc2ns(TSC - LastTSC)/1e9); 
+			float pps = (TotalPkt - TotalPktLast) / (tsc2ns(TSC - LastTSC)/1e9); 
 
 
 			// is it keeping up ? > 1.0 means it will lag
@@ -632,11 +610,12 @@ int main(int argc, u8* argv[])
 			float FlowCPU;
 			Flow_Stats(false, &FlowCntSnapshot, NULL, &FlowCPU);
 
-			fprintf(stderr, "[%s] In:%.3f GB %6.2f Gbps PCAP: %6.2f Gbps | Out %.5f GB Flows/Snap: %6i FlowCPU:%.3f | ESPush:%6lli %6.2fK ESErr %4lli | OutCPU: %.3f (%.3f)\n", 
+			fprintf(stderr, "[%s] In:%.3f GB %.2f Mpps %.2f Gbps PCAP: %6.2f Gbps | Out %.5f GB Flows/Snap: %6i FlowCPU:%.2f | ESPush:%6lli %6.2fK ESErr %4lli | OutCPU: %.2f (%.2f)\n", 
 
 								FormatTS(PacketTSLast),
 
 								(float)TotalByte / kGB(1), 
+								pps / 1e6, 
 								bps / 1e9, 
 								PCAPbps / 1e9, 
 								OutputByte / 1e9, 
@@ -653,6 +632,7 @@ int main(int argc, u8* argv[])
 			LastTSC 			= TSC;
 			PCAPOffsetLast 		= PCAPOffset;	
 			TotalByteLast		= TotalByte;
+			TotalPktLast		= TotalPkt;
 		
 			OutputLineLast		= OutputLine;
 

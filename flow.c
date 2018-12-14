@@ -869,8 +869,8 @@ void Flow_PacketQueue(PacketBuffer_t* Pkt)
 		u32 Timeout = 0; 
 		while ((s_DecodeQueuePut  - s_DecodeQueueGet) > (s_DecodeQueueMax - 8))
 		{
-			//ndelay(250);
-			usleep(0);
+			ndelay(250);
+			//usleep(0);
 			assert(Timeout++ < 1e6);
 		}
 		fProfile_Stop(1);
@@ -908,6 +908,7 @@ void Flow_PacketQueue(PacketBuffer_t* Pkt)
 		s_DecodeQueuePut++;
 		s_PacketQueueCnt++;
 	}
+
 /*
 	// single cpu
 	{
@@ -915,6 +916,8 @@ void Flow_PacketQueue(PacketBuffer_t* Pkt)
 		Flow_PacketFree(Pkt);
 	}	
 */
+
+//	Flow_PacketFree(Pkt);
 }
 
 //---------------------------------------------------------------------------------------------
@@ -932,8 +935,8 @@ void* Flow_Worker(void* User)
 		if (Get == s_DecodeQueuePut)
 		{
 			// nothing to do
-			//ndelay(1000);
-			usleep(0);
+			ndelay(100);
+			//usleep(0);
 		}
 		else
 		{
