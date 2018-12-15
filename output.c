@@ -31,6 +31,7 @@
 #include <unistd.h>
 #include <string.h>
 #include <errno.h>
+#include <malloc.h>
 #include <sys/stat.h>
 #include <sys/mman.h>
 #include <sys/shm.h>
@@ -130,7 +131,7 @@ Output_t* Output_Create(bool IsNULL,
 	fprintf(stderr, "   LineFlush     : %lli\n", Output_LineFlush);
 	fprintf(stderr, "   TimeFlush     : %lli\n", Output_TimeFlush);
 
-	Output_t* O = malloc(sizeof(Output_t));
+	Output_t* O = memalign(4096, sizeof(Output_t));
 	memset(O, 0, sizeof(Output_t));	
 
 	O->BufferPut		= 0;
@@ -147,16 +148,16 @@ Output_t* Output_Create(bool IsNULL,
 		B->BufferLine			= 0;
 		B->BufferLineMax		= Output_LineFlush;
 
-		B->Buffer				= malloc( B->BufferMax );
+		B->Buffer				= memalign(4096, B->BufferMax );
 		assert(B->Buffer != NULL);
 		memset(B->Buffer, 0, B->BufferMax);
 
 		B->BufferCompressMax	= B->BufferMax; 
-		B->BufferCompress		= malloc( B->BufferCompressMax ); 
+		B->BufferCompress		= memalign(4096, B->BufferCompressMax ); 
 		assert(B->BufferCompress != NULL);
 
 		B->BufferRecvMax		= B->BufferMax; 
-		B->BufferRecv			= malloc( B->BufferRecvMax ); 
+		B->BufferRecv			= memalign(4096, B->BufferRecvMax ); 
 		assert(B->BufferRecv != NULL);
 
 	}

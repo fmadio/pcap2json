@@ -34,6 +34,7 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <string.h>
+#include <malloc.h>
 #include <errno.h>
 #include <sys/stat.h>
 #include <sys/mman.h>
@@ -147,8 +148,8 @@ static u32						s_FlowCntSnapshotLast = 0;				// last total flows in the last sn
 
 static u64						s_FlowCntTotal		= 0;				// total number of active flows
 
-static u32						s_PacketBufferMax	= 2048;				// max number of inflight packets
-static PacketBuffer_t			s_PacketBufferList[2048];				// list of header structs for each buffer^
+static u32						s_PacketBufferMax	= 1024;				// max number of inflight packets
+static PacketBuffer_t			s_PacketBufferList[1024];				// list of header structs for each buffer^
 static volatile PacketBuffer_t*	s_PacketBuffer		= NULL;				// linked list of free packet buffers
 static u32						s_PacketBufferLock	= 0;
 
@@ -865,7 +866,6 @@ void Flow_PacketQueue(PacketBuffer_t* Pkt)
 	// multi-core version
 	{
 		// wait for space int he queue 
-		fProfile_Start(1, "FlowQueueStall");
 		u32 Timeout = 0; 
 		while ((s_DecodeQueuePut  - s_DecodeQueueGet) > (s_DecodeQueueMax - 8))
 		{
@@ -873,7 +873,6 @@ void Flow_PacketQueue(PacketBuffer_t* Pkt)
 			//usleep(0);
 			assert(Timeout++ < 1e6);
 		}
-		fProfile_Stop(1);
 
 		// add to processing queue
 		s_DecodeQueue[s_DecodeQueuePut & s_DecodeQueueMsk] 	= Pkt;
@@ -917,7 +916,7 @@ void Flow_PacketQueue(PacketBuffer_t* Pkt)
 	}	
 */
 
-//	Flow_PacketFree(Pkt);
+	//Flow_PacketFree(Pkt);
 }
 
 //---------------------------------------------------------------------------------------------
@@ -935,8 +934,8 @@ void* Flow_Worker(void* User)
 		if (Get == s_DecodeQueuePut)
 		{
 			// nothing to do
-			ndelay(100);
-			//usleep(0);
+			//ndelay(100);
+			usleep(0);
 		}
 		else
 		{
@@ -1010,7 +1009,6 @@ PacketBuffer_t* Flow_PacketAlloc(void)
 	assert(B->IsUsed == false);
 	B->IsUsed = true;
 
-
 	return B;
 }
 
@@ -1045,7 +1043,7 @@ void Flow_Open(struct Output_t* Out, s32* CPUMap)
 		memset(B, 0, sizeof(PacketBuffer_t));
 
 		B->BufferMax 	= 16*1024;
-		B->Buffer 		= malloc(B->BufferMax);
+		B->Buffer 		= memalign(4096, B->BufferMax);
 		memset(B->Buffer, 0, B->BufferMax);	
 
 		Flow_PacketFree(B);
@@ -1060,11 +1058,11 @@ void Flow_Open(struct Output_t* Out, s32* CPUMap)
 		FlowIndex->FlowMax	= 1024*1024;
 
 		// allocate and clear flow index
-		FlowIndex->FlowHash = (FlowRecord_t **)malloc( sizeof(FlowRecord_t *) * (2 << 20) );
+		FlowIndex->FlowHash = (FlowRecord_t **)memalign(4096, sizeof(FlowRecord_t *) * (2 << 20) );
 		assert(FlowIndex->FlowHash != NULL);
 
 		// allocate statically allocated flow list
-		FlowIndex->FlowList = (FlowRecord_t *)malloc (sizeof(FlowRecord_t) * FlowIndex->FlowMax );
+		FlowIndex->FlowList = (FlowRecord_t *)memalign (4096, sizeof(FlowRecord_t) * FlowIndex->FlowMax );
 		assert(FlowIndex->FlowList != NULL);
 
 		// reset flow info

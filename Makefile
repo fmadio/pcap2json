@@ -7,7 +7,7 @@ OBJS += miniz.o
 OBJS += fProfile.o
 
 DEF = 
-DEF += -O2 
+DEF += -O3 
 DEF += --std=c99 
 DEF += -D_LARGEFILE64_SOURCE 
 DEF += -D_GNU_SOURCE 

@@ -33,7 +33,9 @@ typedef int					s32;
 typedef unsigned long long	u64;
 typedef long long			s64;
 
+#ifndef offsetof
 #define offsetof(s,m) (size_t)(unsigned long)&(((s *)0)->m)
+#endif
 
 #define k1E9 1000000000ULL
 

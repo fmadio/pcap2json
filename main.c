@@ -15,6 +15,7 @@
 #include <unistd.h>
 #include <string.h>
 #include <errno.h>
+#include <malloc.h>
 #include <sys/stat.h>
 #include <sys/mman.h>
 #include <sys/shm.h>
@@ -40,7 +41,7 @@ typedef struct
 //---------------------------------------------------------------------------------------------
 // tunables
 bool			g_Verbose			= false;				// verbose print mode
-s32				g_CPUCore			= 22;					// which CPU to run the main flow logic on
+s32				g_CPUCore[2]		= {14, 12};					// which CPU to run the main flow logic on
 s32				g_CPUFlow[16]		= { 19, 20, 21, 22};	// cpu mapping for flow threads
 s32				g_CPUOutput[16]		= { 25, 26, 27, 28, 25, 26, 27, 28};	// cpu mappings for output threads 
 
@@ -69,6 +70,22 @@ bool			g_ESCompress		= false;			// elastic push enable compression
 
 u8 				g_CaptureName[256];						// name of the capture / index to push to
 u8				g_DeviceName[128];						// name of the device this is sourced from
+
+//---------------------------------------------------------------------------------------------
+
+// internal ring
+static volatile u32		s_PacketRingPut[128];			// write pointer 
+static volatile u32		s_PacketRingGet[128];			// read pointer 
+static u32				s_PacketRingMsk = 63;			// mask 
+static u32				s_PacketRingMax = 64;			// total entry count 
+static PCAPPacket_t*	s_PacketRing[1024];				// packet ring buffer
+
+
+static u32				s_PacketSizeHistoBin = 32;		// max index (not in byte)
+static u32				s_PacketSizeHistoMax = 1024;	// max index (not in byte)
+static u32				s_PacketSizeHisto[1024];
+
+static void* Push_Worker(void* _User);
 
 //---------------------------------------------------------------------------------------------
 
@@ -135,8 +152,8 @@ static bool ParseCommandLine(u8* argv[])
 	// CPU for main process to run on 
 	if (strcmp(argv[0], "--cpu-core") == 0)
 	{
-		g_CPUCore = atoi(argv[1]);
-		fprintf(stderr, "  Core on CPU %i\n", g_CPUCore);
+		g_CPUCore[0] = atoi(argv[1]);
+		fprintf(stderr, "  Core on CPU %i\n", g_CPUCore[0]);
 		cnt	+= 2;
 	}
 	if (strcmp(argv[0], "--cpu-flow") == 0)
@@ -459,6 +476,28 @@ static void ProfileDump(struct Output_t* Out)
 	printf("  CPU     : %.3f\n", FlowCPUDecode);
 	printf("\n");
 
+	// packet size histogram
+	printf("Packet Size Histogram:\n");	
+
+	u32 MaxCnt = 0;
+	for (int i=0; i < s_PacketSizeHistoMax; i++)
+	{
+		MaxCnt = (MaxCnt < s_PacketSizeHisto[i]) ? s_PacketSizeHisto[i] : MaxCnt;
+	}
+	for (int i=0; i < s_PacketSizeHistoMax; i++)
+	{
+		u32 Size = i * s_PacketSizeHistoBin;
+		if (s_PacketSizeHisto[i] == 0) continue;
+
+		printf("%5i : %10i :", Size, s_PacketSizeHisto[i]);
+		u32 Cnt = (s_PacketSizeHisto[i] * 80 ) / MaxCnt;
+		for (int j=0; j < Cnt; j++) printf("*");
+
+		printf("\n");
+	}
+	memset(s_PacketSizeHisto, 0, sizeof(s_PacketSizeHisto));
+	printf("\n");
+
 	fflush(stdout);
 }
 
@@ -496,26 +535,24 @@ int main(int argc, u8* argv[])
 
 	// print cpu mapping
 	fprintf(stderr, "CPU Mapping\n");
-	fprintf(stderr, "  Core   %i\n", g_CPUCore);
+	fprintf(stderr, "  Core   %i %i\n", g_CPUCore[0], g_CPUCore[1]);
 	fprintf(stderr, "  Flow   %i %i %i %i\n", g_CPUFlow[0], g_CPUFlow[1], g_CPUFlow[2], g_CPUFlow[3]);
 	fprintf(stderr, "  Output %i %i %i %i\n",
 							g_CPUOutput[0], g_CPUOutput[1], g_CPUOutput[2], g_CPUOutput[3]);
 
 	// set cpu affinity
-	if (g_CPUCore >= 0) 
+	if (g_CPUCore[0] >= 0) 
 	{
 		cpu_set_t Thread0CPU;
 		CPU_ZERO(&Thread0CPU);
-		CPU_SET (g_CPUCore, &Thread0CPU);
+		CPU_SET (g_CPUCore[0], &Thread0CPU);
 		pthread_setaffinity_np(pthread_self(), sizeof(cpu_set_t), &Thread0CPU);
 	}
-
 	CycleCalibration();
 
 	FILE* FileIn 	= stdin;
 	FILE* FileOut 	= stdout;
 
-	u64  PCAPOffset	= 0;
 
 	// read header
 	PCAPHeader_t HeaderMaster;
@@ -525,7 +562,6 @@ int main(int argc, u8* argv[])
 		fprintf(stderr, "Failed to read pcap header\n");
 		return 0;
 	}
-	PCAPOffset		= sizeof(PCAPHeader_t);
 
 	u64 TScale = 0;
 	switch (HeaderMaster.Magic)
@@ -541,7 +577,6 @@ int main(int argc, u8* argv[])
 	u64				ProfileNextTSC	= 0;
 	u64				StartTSC		= rdtsc();
 	u64				LastTSC			= rdtsc();
-	u64				PCAPOffsetLast	= 0;
 	u64 			LastTS			= 0;
 
 	u64				TotalByte		= 0;
@@ -563,6 +598,23 @@ int main(int argc, u8* argv[])
 
 	// init flow state
 	Flow_Open(Out, g_CPUFlow);
+
+	// allocate packet ring
+	s_PacketRingPut[0] = 0;
+	s_PacketRingGet[0] = 0;
+	for (int i=0; i < s_PacketRingMax; i++)
+	{
+		s_PacketRing[i] = (PCAPPacket_t*)memalign(4096, 16*1024);
+	}
+
+	// create worker thread to push the raw ring data 
+	pthread_t PushThread;
+	pthread_create(&PushThread, NULL, Push_Worker, (void*)Out);
+
+	cpu_set_t Thread1CPU;
+	CPU_ZERO(&Thread1CPU);
+	CPU_SET (g_CPUCore[1], &Thread1CPU);
+	pthread_setaffinity_np(PushThread, sizeof(cpu_set_t), &Thread1CPU);
 
 	u64 PacketTSFirst = 0;
 	u64 PacketTSLast  = 0;
@@ -630,7 +682,6 @@ int main(int argc, u8* argv[])
 			fflush(stderr);
 
 			LastTSC 			= TSC;
-			PCAPOffsetLast 		= PCAPOffset;	
 			TotalByteLast		= TotalByte;
 			TotalPktLast		= TotalPkt;
 		
@@ -648,15 +699,26 @@ int main(int argc, u8* argv[])
 		}
 
 		fProfile_Start(0, "Top");
-		fProfile_Start(6, "PacketFetch");
 
-		PacketBuffer_t*	Pkt			= Flow_PacketAlloc();
-		PCAPPacket_t*	PktHeader	= (PCAPPacket_t*)Pkt->Buffer;
+		fProfile_Start(7, "PacketStall");
+
+		//PacketBuffer_t*	Pkt			= Flow_PacketAlloc();
+		///PCAPPacket_t*	PktHeader	= (PCAPPacket_t*)Pkt->Buffer;
+
+		while ( ((s_PacketRingPut[0] + 4) & s_PacketRingMsk) == (s_PacketRingGet[0] & s_PacketRingMsk))
+		{
+			ndelay(100);
+			//usleep(0);
+		}
+		PCAPPacket_t*	PktHeader	= (PCAPPacket_t*)s_PacketRing[ s_PacketRingPut[0] & s_PacketRingMsk ];
+
+		fProfile_Stop(7);
+
+		fProfile_Start(6, "PacketFetch");
 
 		// header
 		int rlen = fread(PktHeader, 1, sizeof(PCAPPacket_t), FileIn);
 		if (rlen != sizeof(PCAPPacket_t)) break;
-		PCAPOffset += sizeof(PCAPPacket_t);
 
 		// validate size
 		if ((PktHeader->LengthCapture == 0) || (PktHeader->LengthCapture > 128*1024)) 
@@ -672,26 +734,31 @@ int main(int argc, u8* argv[])
 			fprintf(stderr, "payload read fail %i expect %i\n", rlen, PktHeader->LengthCapture);
 			break;
 		}
-		PCAPOffset += PktHeader->LengthCapture; 
-		Pkt->TS= (u64)PktHeader->Sec * 1000000000ULL + (u64)PktHeader->NSec * TScale;
+		u64 TS = (u64)PktHeader->Sec * 1000000000ULL + (u64)PktHeader->NSec * TScale;
 
-		if (PacketTSFirst == 0) PacketTSFirst = Pkt->TS;
-		PacketTSLast = Pkt->TS;
+		if (PacketTSFirst == 0) PacketTSFirst = TS;
+		PacketTSLast = TS;
+
+		// update size histo
+		u32 SizeIndex = (PktHeader->LengthWire / s_PacketSizeHistoBin);
+		if (SizeIndex >= s_PacketSizeHistoMax) SizeIndex = s_PacketSizeHistoMax - 1;
+		s_PacketSizeHisto[SizeIndex]++;
+
+
+		s_PacketRingPut[0]++;
 
 		fProfile_Stop(6);
-		fProfile_Start(8, "PacketProcess");
 		u64 TSC0 		= rdtsc();
 
 		// queue the packet for processing 
-		Flow_PacketQueue(Pkt);
+		//Flow_PacketQueue(Pkt);
 
 		DecodeTimeTSC 	+= rdtsc() -  TSC0;
-		LastTS 			= Pkt->TS;
+		LastTS 			= TS;
 
 		TotalByte		+= PktHeader->LengthWire;
 		TotalPkt		+= 1;
 
-		fProfile_Stop(8);
 		fProfile_Stop(0);
 	}
 	fProfile_Stop(6);
@@ -719,6 +786,36 @@ int main(int argc, u8* argv[])
 	printf("PCAPWall time: %.2f sec ProcessTime %.2f sec (%.3f)\n", PCAPWallTime, dT, dT / PCAPWallTime);
 
 	printf("Total Time: %.2f sec RawInput[%.3f Gbps %.f Pps] Output[%.3f Gbps] TotalLine:%lli %.f Line/Sec\n", dT, bps / 1e9, pps, obps / 1e9, TotalLine, lps); 
+}
+
+//---------------------------------------------------------------------------------------------
+
+static void* Push_Worker(void* _User)
+{
+	printf("Push Worker Started\n");
+	while (true)
+	{
+		if (s_PacketRingPut[0] == s_PacketRingGet[0])
+		{
+			ndelay(100);
+			//usleep(0);
+		}
+		else
+		{
+			PCAPPacket_t* Packet = s_PacketRing[ s_PacketRingGet[0] & s_PacketRingMsk ];
+
+			PacketBuffer_t*	Pkt			= Flow_PacketAlloc();
+			PCAPPacket_t*	PktHeader	= (PCAPPacket_t*)Pkt->Buffer;
+
+			memcpy(PktHeader, Packet, sizeof(PCAPPacket_t) + Packet->LengthCapture);
+
+			Pkt->TS = (u64)PktHeader->Sec * 1000000000ULL + (u64)PktHeader->NSec;
+
+			Flow_PacketQueue(Pkt);
+
+			s_PacketRingGet[0]++;
+		}
+	}
 }
 
 /* vim: set ts=4 sts=4 */
