@@ -871,7 +871,7 @@ void Flow_PacketQueue(PacketBuffer_t* Pkt)
 		{
 			ndelay(250);
 			//usleep(0);
-			assert(Timeout++ < 1e6);
+			assert(Timeout++ < 1e9);
 		}
 
 		// add to processing queue
