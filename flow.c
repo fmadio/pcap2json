@@ -133,6 +133,7 @@ extern bool				g_JSONEnb_UDP;
 extern bool				g_JSONEnb_TCP;
 
 extern  s64				g_FlowSampleRate;
+extern bool				g_IsFlowNULL;
 
 extern u8 				g_CaptureName[256];
 extern u8				g_DeviceName[128];
@@ -864,6 +865,7 @@ void DecodePacket(struct Output_t* Out, PacketBuffer_t* Pkt)
 void Flow_PacketQueue(PacketBuffer_t* Pkt)
 {
 	// multi-core version
+	if (!g_IsFlowNULL)
 	{
 		// wait for space int he queue 
 		u32 Timeout = 0; 
@@ -906,6 +908,11 @@ void Flow_PacketQueue(PacketBuffer_t* Pkt)
 
 		s_DecodeQueuePut++;
 		s_PacketQueueCnt++;
+	}
+	else
+	{
+		// benchmarking mode just release the buffer
+		Flow_PacketFree(Pkt);
 	}
 
 /*

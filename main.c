@@ -49,6 +49,7 @@ bool			g_IsJSONPacket		= false;			// output JSON packet format
 bool			g_IsJSONFlow		= false;			// output JSON flow format
 
 s64				g_FlowSampleRate	= 100e6;			// default to flow sample rate of 100msec
+bool			g_IsFlowNULL		= false;			// benchmarking NULL flow rate 
 
 bool			g_JSONEnb_MAC		= true;				// include the MAC address in JSON output
 bool			g_JSONEnb_VLAN		= true;				// include the VLAN in JSON output
@@ -330,6 +331,13 @@ static bool ParseCommandLine(u8* argv[])
 		g_FlowSampleRate = atof(argv[1]);
 		fprintf(stderr, "  Flow Sample rate %.3f msec\n", g_FlowSampleRate / 1e6);
 		cnt	+= 2;
+	}
+	// flow null 
+	if (strcmp(argv[0], "--flow-null") == 0)
+	{
+		g_IsFlowNULL = true; 
+		fprintf(stderr, "  Flow NULL benchmarking\n"); 
+		cnt	+= 1;
 	}
 
 	// create a unique id so calling applications
