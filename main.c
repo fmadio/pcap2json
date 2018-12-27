@@ -1,11 +1,18 @@
 //---------------------------------------------------------------------------------------------
 //
-// Copyright (c) 2018, fmad engineering llc 
+// Copyright (c) 2018 fmad engineering llc 
 //
 // The MIT License (MIT) see LICENSE file for details 
 // 
 // PCAP to JSON file conversion. convers a PCAP and extracts basic IP / TCP / UDP information
 // that can be fed into Elastic Search for further processing and analysis 
+//
+// PCAP format (2018/12/17)
+//
+// 64B line rate 2 x 10Gbps
+// [05:54:55.555.243.408] In:12.000 GB 2.68 Mpps 1.37 Gbps PCAP:  14.88 Gbps | Out 0.00000 GB Flows/Snap:      0 FlowCPU:0.00 | ESPush:     0   0.00K ESErr    0 | OutCPU: 0.00 (0.00)
+// [05:54:55.647.520.418] In:12.160 GB 2.68 Mpps 1.37 Gbps PCAP:  14.88 Gbps | Out 0.00000 GB Flows/Snap:      0 FlowCPU:0.00 | ESPush:     0   0.00K ESErr    0 | OutCPU: 0.00 (0.00)
+// [05:54:55.739.617.444] In:12.319 GB 2.68 Mpps 1.37 Gbps PCAP:  14.88 Gbps | Out 0.00000 GB Flows/Snap:      0 FlowCPU:0.00 | ESPush:     0   0.00K ESErr    0 | OutCPU: 0.00 (0.00)
 //
 //---------------------------------------------------------------------------------------------
 
@@ -73,14 +80,6 @@ u8 				g_CaptureName[256];						// name of the capture / index to push to
 u8				g_DeviceName[128];						// name of the device this is sourced from
 
 //---------------------------------------------------------------------------------------------
-
-// internal ring
-static volatile u32		s_PacketRingPut[128];			// write pointer 
-static volatile u32		s_PacketRingGet[128];			// read pointer 
-static u32				s_PacketRingMsk = 63;			// mask 
-static u32				s_PacketRingMax = 64;			// total entry count 
-static PCAPPacket_t*	s_PacketRing[1024];				// packet ring buffer
-
 
 static u32				s_PacketSizeHistoBin = 32;		// max index (not in byte)
 static u32				s_PacketSizeHistoMax = 1024;	// max index (not in byte)
@@ -387,45 +386,45 @@ static bool ParseConfigFile(u8* ConfigFile)
 		u32 c = fgetc(F);
 		switch (c)
 		{
-			case '\n':
-			case ' ':
+		case '\n':
+		case ' ':
+			{
+				// remove any trailing whitespace
+				// easy to copy the cmdline args + paste it into a config file
+				for (int k=LinePos-1;  k > 0; k--)
 				{
-					// remove any trailing whitespace
-					// easy to copy the cmdline args + paste it into a config file
-					for (int k=LinePos-1;  k > 0; k--)
-					{
-						if (LineBuffer[k] == ' ') LineBuffer[k] = 0;
-						else break;
-					}
-					LineBuffer[LinePos++] = 0;		// asciiz
-
-					if (LinePos > 1)
-					{
-						LineList[LineListPos] = strdup(LineBuffer);
-						LineListPos += 1;
-					}
-
-					LinePos		=  0;
+					if (LineBuffer[k] == ' ') LineBuffer[k] = 0;
+					else break;
 				}
-				break;
+				LineBuffer[LinePos++] = 0;		// asciiz
 
-			// argument encased in "" 
-			case '"':
+				if (LinePos > 1)
 				{
-					// consume line buffer until matching "
-					while (!feof(F))
-					{
-						c = fgetc(F);
-						if (c == '"') break;
-
-						LineBuffer[LinePos++] = c;
-					}
+					LineList[LineListPos] = strdup(LineBuffer);
+					LineListPos += 1;
 				}
-				break;
 
-			default:
-				LineBuffer[LinePos++] = c;
-				break;
+				LinePos		=  0;
+			}
+			break;
+
+		// argument encased in "" 
+		case '"':
+			{
+				// consume line buffer until matching "
+				while (!feof(F))
+				{
+					c = fgetc(F);
+					if (c == '"') break;
+
+					LineBuffer[LinePos++] = c;
+				}
+			}
+			break;
+
+		default:
+			LineBuffer[LinePos++] = c;
+			break;
 		}
 	}
 	fclose(F);
@@ -607,23 +606,6 @@ int main(int argc, u8* argv[])
 	// init flow state
 	Flow_Open(Out, g_CPUFlow);
 
-	// allocate packet ring
-	s_PacketRingPut[0] = 0;
-	s_PacketRingGet[0] = 0;
-	for (int i=0; i < s_PacketRingMax; i++)
-	{
-		s_PacketRing[i] = (PCAPPacket_t*)memalign(4096, 16*1024);
-	}
-
-	// create worker thread to push the raw ring data 
-	pthread_t PushThread;
-	pthread_create(&PushThread, NULL, Push_Worker, (void*)Out);
-
-	cpu_set_t Thread1CPU;
-	CPU_ZERO(&Thread1CPU);
-	CPU_SET (g_CPUCore[1], &Thread1CPU);
-	pthread_setaffinity_np(PushThread, sizeof(cpu_set_t), &Thread1CPU);
-
 	u64 PacketTSFirst = 0;
 	u64 PacketTSLast  = 0;
 	u64 TotalByteLast = 0;
@@ -710,62 +692,85 @@ int main(int argc, u8* argv[])
 
 		fProfile_Start(7, "PacketStall");
 
-		//PacketBuffer_t*	Pkt			= Flow_PacketAlloc();
-		///PCAPPacket_t*	PktHeader	= (PCAPPacket_t*)Pkt->Buffer;
-
-		while ( ((s_PacketRingPut[0] + 4) & s_PacketRingMsk) == (s_PacketRingGet[0] & s_PacketRingMsk))
-		{
-			ndelay(100);
-			//usleep(0);
-		}
-		PCAPPacket_t*	PktHeader	= (PCAPPacket_t*)s_PacketRing[ s_PacketRingPut[0] & s_PacketRingMsk ];
+		PacketBuffer_t*	PktBlock = Flow_PacketAlloc();
 
 		fProfile_Stop(7);
 
 		fProfile_Start(6, "PacketFetch");
 
-		// header
-		int rlen = fread(PktHeader, 1, sizeof(PCAPPacket_t), FileIn);
-		if (rlen != sizeof(PCAPPacket_t)) break;
+		// fill the pkt buffer up
+		u32 PktCnt 		= 0;
+		u32 ByteWire 	= 0;
+		u32 ByteCapture = 0;
 
-		// validate size
-		if ((PktHeader->LengthCapture == 0) || (PktHeader->LengthCapture > 128*1024)) 
+		u64 TSFirst		= 0;
+		u64 TSLast		= 0;
+
+		u32 Offset 		= 0;
+		while (Offset < PktBlock->BufferMax - kKB(16))
 		{
-			fprintf(stderr, "Invalid packet length: %i\n", PktHeader->LengthCapture);
-			break;
+			PCAPPacket_t*	PktHeader	= (PCAPPacket_t*)(PktBlock->Buffer + Offset);
+			
+			// header
+			int rlen = fread(PktHeader, 1, sizeof(PCAPPacket_t), FileIn);
+			if (rlen != sizeof(PCAPPacket_t)) break;
+
+			// validate size
+			if ((PktHeader->LengthCapture == 0) || (PktHeader->LengthCapture > 128*1024)) 
+			{
+				fprintf(stderr, "Invalid packet length: %i\n", PktHeader->LengthCapture);
+				break;
+			}
+
+			// payload
+			rlen = fread(PktHeader + 1, 1, PktHeader->LengthCapture, FileIn);
+			if (rlen != PktHeader->LengthCapture)
+			{
+				fprintf(stderr, "payload read fail %i expect %i\n", rlen, PktHeader->LengthCapture);
+				break;
+			}
+			u64 TS = (u64)PktHeader->Sec * 1000000000ULL + (u64)PktHeader->NSec * TScale;
+
+			LastTS			= TS;
+
+			// update size histo
+			u32 SizeIndex = (PktHeader->LengthWire / s_PacketSizeHistoBin);
+			if (SizeIndex >= s_PacketSizeHistoMax) SizeIndex = s_PacketSizeHistoMax - 1;
+			s_PacketSizeHisto[SizeIndex]++;
+
+			// next in packet block
+			Offset += sizeof(PCAPPacket_t) + PktHeader->LengthCapture;
+
+			// time range 
+			if (TSFirst == 0) TSFirst = TS;
+			TSLast = TS;
+
+			PktCnt		+= 1;
+			ByteWire	+= PktHeader->LengthWire;
+			ByteCapture	+= PktHeader->LengthCapture;
 		}
 
-		// payload
-		rlen = fread(PktHeader + 1, 1, PktHeader->LengthCapture, FileIn);
-		if (rlen != PktHeader->LengthCapture)
-		{
-			fprintf(stderr, "payload read fail %i expect %i\n", rlen, PktHeader->LengthCapture);
-			break;
-		}
-		u64 TS = (u64)PktHeader->Sec * 1000000000ULL + (u64)PktHeader->NSec * TScale;
+		// general stats on the packet block
+		PktBlock->PktCnt 		= PktCnt;
+		PktBlock->ByteWire 		= ByteWire;
+		PktBlock->ByteCapture 	= ByteCapture;
+		PktBlock->TSFirst 		= TSFirst;
+		PktBlock->TSLast 		= TSLast;
 
-		if (PacketTSFirst == 0) PacketTSFirst = TS;
-		PacketTSLast = TS;
-
-		// update size histo
-		u32 SizeIndex = (PktHeader->LengthWire / s_PacketSizeHistoBin);
-		if (SizeIndex >= s_PacketSizeHistoMax) SizeIndex = s_PacketSizeHistoMax - 1;
-		s_PacketSizeHisto[SizeIndex]++;
-
-
-		s_PacketRingPut[0]++;
+		// wall time calcs
+		if (PacketTSFirst == 0) PacketTSFirst = TSFirst;
+		PacketTSLast 	= TSLast;
 
 		fProfile_Stop(6);
 		u64 TSC0 		= rdtsc();
 
 		// queue the packet for processing 
-		//Flow_PacketQueue(Pkt);
+		Flow_PacketQueue(PktBlock);
 
 		DecodeTimeTSC 	+= rdtsc() -  TSC0;
-		LastTS 			= TS;
 
-		TotalByte		+= PktHeader->LengthWire;
-		TotalPkt		+= 1;
+		TotalPkt		+= PktCnt;
+		TotalByte		+= ByteWire; 
 
 		fProfile_Stop(0);
 	}
@@ -794,36 +799,6 @@ int main(int argc, u8* argv[])
 	printf("PCAPWall time: %.2f sec ProcessTime %.2f sec (%.3f)\n", PCAPWallTime, dT, dT / PCAPWallTime);
 
 	printf("Total Time: %.2f sec RawInput[%.3f Gbps %.f Pps] Output[%.3f Gbps] TotalLine:%lli %.f Line/Sec\n", dT, bps / 1e9, pps, obps / 1e9, TotalLine, lps); 
-}
-
-//---------------------------------------------------------------------------------------------
-
-static void* Push_Worker(void* _User)
-{
-	printf("Push Worker Started\n");
-	while (true)
-	{
-		if (s_PacketRingPut[0] == s_PacketRingGet[0])
-		{
-			ndelay(100);
-			//usleep(0);
-		}
-		else
-		{
-			PCAPPacket_t* Packet = s_PacketRing[ s_PacketRingGet[0] & s_PacketRingMsk ];
-
-			PacketBuffer_t*	Pkt			= Flow_PacketAlloc();
-			PCAPPacket_t*	PktHeader	= (PCAPPacket_t*)Pkt->Buffer;
-
-			memcpy(PktHeader, Packet, sizeof(PCAPPacket_t) + Packet->LengthCapture);
-
-			Pkt->TS = (u64)PktHeader->Sec * 1000000000ULL + (u64)PktHeader->NSec;
-
-			Flow_PacketQueue(Pkt);
-
-			s_PacketRingGet[0]++;
-		}
-	}
 }
 
 /* vim: set ts=4 sts=4 */

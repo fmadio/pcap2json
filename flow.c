@@ -19,14 +19,16 @@
 // [11:54:56.768.221.696] Input:33.900 GB  17.09 Gbps PCAP: 273.26 Gbps | Output 0.29819 GB Flows/Snap:  43591 FlowCPU:0.619 | ESPush:       0  43.59K ESErr    0 | OutputCPU: 0.000
 // [11:54:56.831.990.784] Input:35.886 GB  17.05 Gbps PCAP: 267.44 Gbps | Output 0.31004 GB Flows/Snap:  43591 FlowCPU:0.616 | ESPush:       0  22.04K ESErr    0 | OutputCPU: 0.000
 //
-// test configuration
-//	--cpu 23
-//	--json-flow
-//	--es-host 192.168.2.115:9200
-//	--output-null
-//	--output-timeflush 1e9
-//	--capture-name pcap2json_test
-//	--flow-samplerate 100e6
+// 2018/12/27
+// 
+// PCAP interface using packet blocks
+//
+// [11:53:14.433.064.192] In:55.479 GB 2.52 Mpps 22.98 Gbps PCAP: 251.61 Gbps | Out 0.46024 GB Flows/Snap:  42101 FlowCPU:0.31 | ESPush:     0  42.09K ESErr    0 | OutCPU: 0.00 (0.00)
+// [11:53:14.524.824.832] In:58.166 GB 2.53 Mpps 23.08 Gbps PCAP: 251.52 Gbps | Out 0.48452 GB Flows/Snap:  44751 FlowCPU:0.32 | ESPush:     0  44.75K ESErr    0 | OutCPU: 0.00 (0.00)
+// [11:53:14.611.949.056] In:60.846 GB 2.55 Mpps 23.02 Gbps PCAP: 264.30 Gbps | Out 0.50738 GB Flows/Snap:  41926 FlowCPU:0.32 | ESPush:     0  41.92K ESErr    0 | OutCPU: 0.00 (0.00)
+//
+// PCAPWall time: 3.09 sec ProcessTime 37.40 sec (12.105)
+//
 //---------------------------------------------------------------------------------------------
 
 #include <stdio.h>
@@ -586,11 +588,12 @@ static u32 FlowDump(struct Output_t* Out, u64 TS, FlowRecord_t* Flow, u32 FlowID
 //
 // parse a packet and generate a flow record 
 //
-void DecodePacket(struct Output_t* Out, PacketBuffer_t* Pkt)
+void DecodePacket(	struct Output_t* Out, 
+					PCAPPacket_t* PktHeader, 
+					u64 PktTS, 
+					FlowIndex_t* FlowIndex,
+					bool IsFlowIndexDump)
 {
-	u64 PacketTS 			= Pkt->TS;
-	PCAPPacket_t* PktHeader = (PCAPPacket_t*)Pkt->Buffer;
-
 	FlowRecord_t	sFlow;	
 	FlowRecord_t*	FlowPkt = &sFlow;	
 	memset(FlowPkt, 0, sizeof(FlowRecord_t));
@@ -824,14 +827,12 @@ void DecodePacket(struct Output_t* Out, PacketBuffer_t* Pkt)
 	// packet mode then print record as a packet 
 	if (g_IsJSONPacket)
 	{
-		FlowDump(Out, PacketTS, FlowPkt, 0);
+		FlowDump(Out, PktTS, FlowPkt, 0);
 	}
 
 	// update the flow records
 	if (g_IsJSONFlow)
 	{
-		// assigned index to add the packet to
-		FlowIndex_t* FlowIndex = Pkt->FlowIndex; 
 
 		// insert to flow table
 		// NOTE: lock around it so therems no RMW problems
@@ -840,16 +841,16 @@ void DecodePacket(struct Output_t* Out, PacketBuffer_t* Pkt)
 		//       specific flow index instance while its beeing dumped 
 		sync_lock(&FlowIndex->FlowLock, 100);
 		{
-			FlowInsert(FlowIndex, FlowPkt, SHA1State, PktHeader->LengthWire, PacketTS);
+			FlowInsert(FlowIndex, FlowPkt, SHA1State, PktHeader->LengthWire, PktTS);
 
 			// flow snapshot dump triggered by Flow_PacketQueue
 			// as its serialized and single threaded
-			if (Pkt->IsFlowIndexDump)
+			if (IsFlowIndexDump)
 			{
 				for (int i=0; i < FlowIndex->FlowCntSnapshot; i++)
 				{
 					FlowRecord_t* Flow = &FlowIndex->FlowList[i];	
-					FlowDump(Out, PacketTS, Flow, i);
+					FlowDump(Out, PktTS, Flow, i);
 				}
 
 				// reset index and counts
@@ -890,10 +891,10 @@ void Flow_PacketQueue(PacketBuffer_t* Pkt)
 		// entry point, can flag it here instead of
 		// in the worker threads
 		static u64 LastPacketTS = 0;
-		s64 dTS = Pkt->TS - LastPacketTS;
+		s64 dTS = Pkt->TSLast - LastPacketTS;
 		if (dTS > g_FlowSampleRate)
 		{
-			LastPacketTS 			= Pkt->TS;
+			LastPacketTS 			= Pkt->TSLast;
 			Pkt->IsFlowIndexDump	 = true;
 
 			// next flow structure. means all the  
@@ -947,13 +948,12 @@ void* Flow_Worker(void* User)
 		else
 		{
 			// fetch the to be processed pkt *before* atomic lock 
-			PacketBuffer_t* Pkt = (PacketBuffer_t*)s_DecodeQueue[Get & s_DecodeQueueMsk];
-			assert(Pkt != NULL);
+			PacketBuffer_t* PktBlock = (PacketBuffer_t*)s_DecodeQueue[Get & s_DecodeQueueMsk];
+			assert(PktBlock != NULL);
 
 			// get the entry atomically 
 			if (__sync_bool_compare_and_swap(&s_DecodeQueueGet, Get, Get + 1))
 			{
-
 // back pressure testing
 //u32 delay =  ((u64)rand() * 100000ULL) / (u64)RAND_MAX; 
 //ndelay(delay);
@@ -961,13 +961,35 @@ void* Flow_Worker(void* User)
 				u64 TSC2 = rdtsc();
 
 				// ensure no sync problems
-				assert(Pkt->ID == Get);
+				assert(PktBlock->ID == Get);
 
-				// process the packet
-				DecodePacket(s_Output, Pkt);
+				// assigned index to add the packet to
+				FlowIndex_t* FlowIndex = PktBlock->FlowIndex; 
+
+				// process all packets in this block 
+				u32 Offset = 0;
+				for (int i=0; i < PktBlock->PktCnt; i++)
+				{
+					PCAPPacket_t* PktHeader = (PCAPPacket_t*)(PktBlock->Buffer + Offset);
+					Offset += sizeof(PCAPPacket_t) + PktHeader->LengthCapture;
+
+					assert(PktHeader->LengthWire    < 16*1024);
+					assert(PktHeader->LengthCapture < 16*1024);
+
+					u64 PktTS 				= PktHeader->Sec * (u64)1000000000ULL + PktHeader->NSec;
+
+					bool FlowIndexDump = false;
+					if ((i == PktBlock->PktCnt-1) && (PktBlock->IsFlowIndexDump))
+					{
+						FlowIndexDump = true;
+					}
+
+					// process the packet
+					DecodePacket(s_Output, PktHeader, PktTS, FlowIndex, FlowIndexDump);
+				}
 
 				// release buffer
-				Flow_PacketFree(Pkt);
+				Flow_PacketFree(PktBlock);
 
 				// update counter
 				__sync_fetch_and_add(&s_PacketDecodeCnt, 1);
@@ -1016,6 +1038,13 @@ PacketBuffer_t* Flow_PacketAlloc(void)
 	assert(B->IsUsed == false);
 	B->IsUsed = true;
 
+	// reset stats
+	B->PktCnt		= 0;
+	B->ByteWire		= 0;
+	B->ByteCapture	= 0;
+	B->TSFirst		= 0;
+	B->TSLast		= 0;
+
 	return B;
 }
 
@@ -1049,7 +1078,7 @@ void Flow_Open(struct Output_t* Out, s32* CPUMap)
 		PacketBuffer_t* B = &s_PacketBufferList[i];
 		memset(B, 0, sizeof(PacketBuffer_t));
 
-		B->BufferMax 	= 16*1024;
+		B->BufferMax 	= 256*1024;
 		B->Buffer 		= memalign(4096, B->BufferMax);
 		memset(B->Buffer, 0, B->BufferMax);	
 

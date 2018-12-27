@@ -6,18 +6,23 @@ struct FlowIndex_t;
 
 typedef struct PacketBuffer_t
 {
+	u32						PktCnt;				// number of packets in this buffer
+	u32						ByteWire;			// total wire bytes 
+	u32						ByteCapture;		// total captured bytes 
+
+	u64						TSFirst;			// first Pkt TS
+	u64						TSLast;				// last Pkt TS
+
 	u32						BufferMax;			// max size
 	u8*						Buffer;				// memory buffer
 
-	u64						TS;					// timestamp of this packet
 	bool					IsFlowIndexDump;	// time to dump the sample
 	struct FlowIndex_t*		FlowIndex;			// which flow index to use
 
 	struct PacketBuffer_t*	FreeNext;			// next in free list
 
-	volatile bool			IsUsed;	
-
-	u32						ID;
+	volatile bool			IsUsed;				// sanity checking confirm single ownership
+	u32						ID;					// flow control sanity check
 
 } PacketBuffer_t;
 
