@@ -509,7 +509,7 @@ static void ProfileDump(struct Output_t* Out)
 
 		fprintf(stderr, "%5i : %10i :", Size, s_PacketSizeHisto[i]);
 		u32 Cnt = (s_PacketSizeHisto[i] * 80 ) / MaxCnt;
-		for (int j=0; j < Cnt; j++) printf("*");
+		for (int j=0; j < Cnt; j++) fprintf(stderr, "*");
 
 		fprintf(stderr, "\n");
 	}
