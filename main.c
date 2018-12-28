@@ -514,7 +514,7 @@ static void ProfileDump(struct Output_t* Out)
 
 	fprintf(stderr, "Flow:\n");
 	fprintf(stderr, "  Total   : %lli\n", FlowCntTotal);
-	fprintf(stderr, "  CPU     : %.3f\n", FlowCPUDecode);
+	fprintf(stderr, "  Process : %.3f\n", FlowCPUDecode);
 	fprintf(stderr, "  Hash    : %.3f\n", FlowCPUHash);
 	fprintf(stderr, "  Output  : %.3f\n", FlowCPUOutput);
 	fprintf(stderr, "\n");
