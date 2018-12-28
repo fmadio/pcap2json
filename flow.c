@@ -39,6 +39,7 @@
 // [00:26:30.089.333.248] In:63.266 GB 6.45 Mpps 58.26 Gbps PCAP: 258.71 Gbps | Out 0.56736 GB Flows/Snap:  44352 FlowCPU:0.88 | ESPush:     0 161.32K ESErr    0 | OutCPU: 0.00 (0.00)
 //
 // PCAPWall time: 16900787200.00 sec ProcessTime 17.74 sec (0.000)
+// Total Time: 17.84 sec RawInput[44.211 Gbps 38906940 Pps] Output[0.469 Gbps] TotalLine:1909656 107021 Line/Sec
 //
 //---------------------------------------------------------------------------------------------
 
@@ -903,7 +904,6 @@ void DecodePacket(	u32 CPUID,
 	{
 		// insert to flow table
 		// NOTE: each CPU has its own FlowIndex no need to lock it 
-
 		FlowInsert(CPUID, FlowIndex, FlowPkt, SHA1State, PktHeader->LengthWire, PktHeader->TS);
 
 		// flow snapshot dump triggered by Flow_PacketQueue
@@ -914,7 +914,7 @@ void DecodePacket(	u32 CPUID,
 			FlowIndex_t* FlowIndexRoot = FlowIndex - CPUID;
 
 			// merge flows
-			FlowMerge(FlowIndex, FlowIndexRoot, 4);
+			FlowMerge(FlowIndex, FlowIndexRoot, s_FlowIndexSub);
 
 			// dump flows
 			for (int i=0; i < FlowIndex->FlowCntSnapshot; i++)
@@ -925,7 +925,10 @@ void DecodePacket(	u32 CPUID,
 
 			// reset is done per cpu in the worker thread
 			// keep all writes to that memory on the same CPU 
-			//FlowReset(FlowIndexRoot + 0);
+			for (int i=0; i < s_FlowIndexSub; i++)
+			{
+				FlowReset(FlowIndexRoot + i);
+			}
 		}
 	}
 }
@@ -954,7 +957,7 @@ void Flow_PacketQueue(PacketBuffer_t* Pkt)
 		//       so there is no coherencey conflicts between workers
 		//       and no mutual exclusive locks
 		Pkt->IsFlowIndexDump	 = false;
-		Pkt->FlowIndex			 = &s_FlowIndex[s_FlowIndexPos*s_FlowIndexSub];
+		Pkt->FlowIndex			 = &s_FlowIndex[s_FlowIndexPos * s_FlowIndexSub];
 
 		Pkt->ID					= s_DecodeQueuePut;
 
@@ -1029,13 +1032,6 @@ void* Flow_Worker(void* User)
 
 				// assigned index to add the packet to
 				FlowIndex_t* FlowIndex = PktBlock->FlowIndex + CPUID; 
-
-				// new index so reset it
-				if (FlowIndex != FlowIndexLast)
-				{
-					FlowIndexLast = FlowIndex;
-					FlowReset(FlowIndex);	
-				}
 
 				// process all packets in this block 
 				u32 Offset = 0;
