@@ -63,7 +63,9 @@ void 			Flow_Stats				(bool IsReset,
 										 u32* pFlowCntSnapShot,
 										 u64* pFlowCntTotal,
 										 float* pCPUUse, 
-										 float* pCPUHash);
+										 float* pCPUHash,
+										 float* pCPUOutput
+										);
 
 void 			Flow_PacketQueue		(PacketBuffer_t* Pkt);
 

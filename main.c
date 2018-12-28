@@ -80,6 +80,7 @@ bool			g_Output_ESPush		= false;			// direct ES HTTP Push
 u32				g_Output_LineFlush 	= 100e3;			// by default flush every 100e3 lines
 u64				g_Output_TimeFlush 	= 1e9;				// by default flush every 1sec of activity 
 u64				g_Output_ByteFlush 	= kMB(1);			// maximum buffer size per output upload 
+u32				g_Output_BufferCnt	= 64;				// number of output buffers
 
 u32				g_ESHostCnt 		= 0;				// number of active ES Hosts
 ESHost_t		g_ESHost[128];							// list fo ES Hosts to output to
@@ -127,7 +128,8 @@ static void help(void)
 	fprintf(stderr, " --output-espush                : writes output directly to ES HTTP POST \n");
 	fprintf(stderr, " --output-byteflush <bytes>     : max number of bytes per output push\n");
 	fprintf(stderr, " --output-lineflush <line cnt>  : number of lines before flushing output (default 100e3)\n");
-	fprintf(stderr, " --output-timeflush  <time ns>  : maximum amount of time since last flush (default 1e9)\n");
+	fprintf(stderr, " --output-timeflush <time ns>   : maximum amount of time since last flush (default 1e9)\n");
+	fprintf(stderr, " --output-buffercnt <pow2 cnt>  : number of output buffers (default is 64)\n");
 
 	fprintf(stderr, "\n");
 	fprintf(stderr, "Flow specific options\n");
@@ -249,6 +251,24 @@ static bool ParseCommandLine(u8* argv[])
 		fprintf(stderr, "  Output Byte Flush: %lli ns\n", g_Output_ByteFlush);
 		cnt	+= 2;
 	}
+	if (strcmp(argv[0], "--output-buffercnt") == 0)
+	{
+		g_Output_BufferCnt = atoi(argv[1]);
+		if (g_Output_BufferCnt & (g_Output_BufferCnt  -1))
+		{
+			fprintf(stderr, "  Output Buffer Cnt must be Power of 2: %i\n", g_Output_BufferCnt);
+			return false;
+		}
+		if (g_Output_BufferCnt > 1024)
+		{
+			fprintf(stderr, "  Output Buffer Cnt maximum of 1024: %i\n", g_Output_BufferCnt);
+			return false;
+		}
+
+		fprintf(stderr, "  Output Buffer Cnt: %i\n", g_Output_BufferCnt);
+		cnt	+= 2;
+	}
+
 	// JSON output format
 	if (strcmp(argv[0], "--disable-mac") == 0)
 	{
@@ -469,11 +489,13 @@ static void ProfileDump(struct Output_t* Out)
 	float OutputWorkerCPUSend;
 	float OutputWorkerCPURecv;
 	u64   OutputTotalCycle;
+	u64   OutputPendingByte;
 	Output_Stats(Out, 1,  	&OutputWorkerCPU, 
 							&OutputWorkerCPUCompress, 
 							&OutputWorkerCPUSend, 
 							&OutputWorkerCPURecv,
-							&OutputTotalCycle);
+							&OutputTotalCycle,
+							&OutputPendingByte);
 
 	fprintf(stderr, "Output Worker CPU\n");
 	fprintf(stderr, "  Top     : %.6f\n", OutputWorkerCPU);
@@ -481,17 +503,20 @@ static void ProfileDump(struct Output_t* Out)
 	fprintf(stderr, "  Send    : %.6f\n", OutputWorkerCPUSend);
 	fprintf(stderr, "  Recv    : %.6f\n", OutputWorkerCPURecv);
 	fprintf(stderr, "  Total   : %.6f sec\n", tsc2ns(OutputTotalCycle)/1e9 );
+	fprintf(stderr, "  Pending : %.6f MB\n", OutputPendingByte / 1e6); 
 	fprintf(stderr, "\n");
 
 	u64 FlowCntTotal = 0;
 	float FlowCPUDecode = 0;
 	float FlowCPUHash = 0;
-	Flow_Stats(true, NULL, &FlowCntTotal, &FlowCPUDecode, &FlowCPUHash);
+	float FlowCPUOutput = 0;
+	Flow_Stats(true, NULL, &FlowCntTotal, &FlowCPUDecode, &FlowCPUHash, &FlowCPUOutput);
 
 	fprintf(stderr, "Flow:\n");
 	fprintf(stderr, "  Total   : %lli\n", FlowCntTotal);
 	fprintf(stderr, "  CPU     : %.3f\n", FlowCPUDecode);
 	fprintf(stderr, "  Hash    : %.3f\n", FlowCPUHash);
+	fprintf(stderr, "  Output  : %.3f\n", FlowCPUOutput);
 	fprintf(stderr, "\n");
 
 	// packet size histogram
@@ -626,6 +651,7 @@ int main(int argc, u8* argv[])
 											g_Output_STDOUT, 
 											g_Output_ESPush, 
 											g_ESCompress, 
+											g_Output_BufferCnt,
 											g_Output_LineFlush,
 											g_Output_TimeFlush,
 											g_Output_ByteFlush,
@@ -678,11 +704,12 @@ int main(int argc, u8* argv[])
 
 			float OutputWorkerCPU;
 			float OutputWorkerCPURecv;
-			Output_Stats(Out, 0,  &OutputWorkerCPU, NULL, NULL, &OutputWorkerCPURecv, NULL);
+			u64 OutputPendingB;
+			Output_Stats(Out, 0,  &OutputWorkerCPU, NULL, NULL, &OutputWorkerCPURecv, NULL, NULL);
 
 			u32 FlowCntSnapshot;	
 			float FlowCPU;
-			Flow_Stats(false, &FlowCntSnapshot, NULL, &FlowCPU, NULL);
+			Flow_Stats(false, &FlowCntSnapshot, NULL, &FlowCPU, NULL, NULL);
 
 			fprintf(stderr, "[%s] In:%.3f GB %.2f Mpps %.2f Gbps PCAP: %6.2f Gbps | Out %.5f GB Flows/Snap: %6i FlowCPU:%.2f | ESPush:%6lli %6.2fK ESErr %4lli | OutCPU: %.2f (%.2f)\n", 
 

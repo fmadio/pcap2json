@@ -175,6 +175,7 @@ static u64						s_DecodeThreadTSCTop[128];				// total cycles
 static u64						s_DecodeThreadTSCDecode[128];			// total cycles for decoding
 static u64						s_DecodeThreadTSCInsert[128];			// cycles spend in hash table lookup 
 static u64						s_DecodeThreadTSCHash[128];				// cycles spend hashing the flow 
+static u64						s_DecodeThreadTSCOutput[128];			// cycles spent in output logic 
 
 static volatile u32				s_DecodeQueuePut 	= 0;				// put/get processing queue
 static volatile u32				s_DecodeQueueGet 	= 0;
@@ -602,7 +603,6 @@ static u32 FlowDump(struct Output_t* Out, u64 TS, FlowRecord_t* Flow, u32 FlowID
 
 	u32 OutputLen = Output - OutputStart;
 
-	// write to output
 	Output_LineAdd(Out, OutputStart, OutputLen);
 }
 
@@ -910,6 +910,9 @@ void DecodePacket(	u32 CPUID,
 		// as its serialized and single threaded
 		if (IsFlowIndexDump)
 		{
+			// write to output
+			u64 TSC0 = rdtsc();
+
 			// merge everything into this CPUs index 
 			FlowIndex_t* FlowIndexRoot = FlowIndex - CPUID;
 
@@ -929,6 +932,7 @@ void DecodePacket(	u32 CPUID,
 			{
 				FlowReset(FlowIndexRoot + i);
 			}
+			s_DecodeThreadTSCOutput[CPUID] += rdtsc() - TSC0;
 		}
 	}
 }
@@ -1014,6 +1018,7 @@ void* Flow_Worker(void* User)
 		}
 		else
 		{
+
 			// fetch the to be processed pkt *before* atomic lock 
 			PacketBuffer_t* PktBlock = (PacketBuffer_t*)s_DecodeQueue[Get & s_DecodeQueueMsk];
 			assert(PktBlock != NULL);
@@ -1066,10 +1071,12 @@ void* Flow_Worker(void* User)
 				u64 TSC3 = rdtsc();
 				s_DecodeThreadTSCDecode[CPUID] += TSC3 - TSC2;
 			}
+
 		}
 
 		u64 TSC1 = rdtsc();
 		s_DecodeThreadTSCTop[CPUID] += TSC1 - TSC0;
+
 	}
 }
 
@@ -1232,21 +1239,25 @@ void Flow_Close(struct Output_t* Out, u64 LastTS)
 void Flow_Stats(	bool IsReset, 
 					u32* pFlowCntSnapShot, 
 					u64* pFlowCntTotal, 
-					float * pCPUUse,
-					float * pCPUHash)
+					float * pCPUDecode,
+					float * pCPUHash,
+					float * pCPUOutput)
 {
 	if (pFlowCntSnapShot)	pFlowCntSnapShot[0] = s_FlowCntSnapshotLast;
 	if (pFlowCntTotal)		pFlowCntTotal[0]	= s_FlowCntTotal;
 
-	u64 TotalTSC = 0;
-	u64 DecodeTSC = 0;
-	u64 HashTSC  = 0;
+	u64 TotalTSC 	= 0;
+	u64 DecodeTSC 	= 0;
+	u64 HashTSC  	= 0;
+	u64 OutputTSC	= 0;
 	for (int i=0; i < s_DecodeCPUActive; i++)
 	{
-		TotalTSC 	+= s_DecodeThreadTSCTop[i];
-		DecodeTSC 	+= s_DecodeThreadTSCDecode[i];
-		HashTSC 	+= s_DecodeThreadTSCHash[i];
+		TotalTSC 	+= s_DecodeThreadTSCTop		[i];
+		DecodeTSC 	+= s_DecodeThreadTSCDecode	[i];
+		HashTSC 	+= s_DecodeThreadTSCHash	[i];
+		OutputTSC 	+= s_DecodeThreadTSCOutput	[i];
 	}
+
 	if (IsReset)
 	{
 		for (int i=0; i < s_DecodeCPUActive; i++)
@@ -1254,10 +1265,13 @@ void Flow_Stats(	bool IsReset,
 			s_DecodeThreadTSCTop[i]		= 0;
 			s_DecodeThreadTSCDecode[i]	= 0;
 			s_DecodeThreadTSCHash[i]	= 0;
+			s_DecodeThreadTSCOutput[i]	= 0;
 		}
 	}
-	if (pCPUUse) pCPUUse[0] = DecodeTSC * inverse(TotalTSC);
-	if (pCPUHash) pCPUHash[0] = HashTSC * inverse(TotalTSC);
+
+	if (pCPUDecode) pCPUDecode[0] 	= DecodeTSC * inverse(TotalTSC);
+	if (pCPUHash) 	pCPUHash[0] 	= HashTSC * inverse(TotalTSC);
+	if (pCPUOutput) pCPUOutput[0] 	= OutputTSC * inverse(TotalTSC);
 }
 
 /* vim: set ts=4 sts=4 */

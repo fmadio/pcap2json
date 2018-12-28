@@ -77,11 +77,12 @@ typedef struct Output_t
 {
 	volatile u32		BufferPut;								// buffers current put 
 	volatile u32		BufferGet;								// buffer current get
+	volatile u32		BufferFin;								// buffers finished 
 	u32					BufferMask;
 	u32					BufferMax;
 	u32					BufferLock;								// mutual exclusion lock
-	Buffer_t			BufferList[128];						// buffer list 
-	u64					TotalByte[128];							// total amount of bytes sent by each buffer^ 
+	Buffer_t			BufferList[1024];						// buffer list 
+	u64					TotalByte[1024];						// total amount of bytes sent by each buffer^ 
 	u64					TotalLine;								// total number of lines output
 
 	u64					FlushTimeout;							// flush atleast this nsec
@@ -119,6 +120,7 @@ Output_t* Output_Create(bool IsNULL,
 						bool IsSTDOUT, 
 						bool IsESOut, 
 						bool IsCompress, 
+						u32 Output_BufferCnt, 
 						u32 Output_LineFlush, 
 						u64 Output_TimeFlush, 
 						u64 Output_ByteFlush, 
@@ -138,7 +140,7 @@ Output_t* Output_Create(bool IsNULL,
 
 	O->BufferPut		= 0;
 	O->BufferGet		= 0;
-	O->BufferMax		= 64;
+	O->BufferMax		= Output_BufferCnt;
 	O->BufferMask		= O->BufferMax - 1;
 
 	for (int i=0; i < O->BufferMax; i++)
@@ -161,7 +163,6 @@ Output_t* Output_Create(bool IsNULL,
 		B->BufferRecvMax		= B->BufferMax; 
 		B->BufferRecv			= memalign(4096, B->BufferRecvMax ); 
 		assert(B->BufferRecv != NULL);
-
 	}
 
 	// timeout for flushing
@@ -189,7 +190,7 @@ Output_t* Output_Create(bool IsNULL,
 
 	// create 32 worker threads
 	u32 CoreCnt = 4;				// assume 4 cores for the output
-	u32 CPUCnt = 0;
+	u32 CPUCnt 	= 0;
 	for (int i=0; i < 32; i++)
 	{
 		pthread_create(&O->PushThread[i], NULL, Output_Worker, (void*)O); 
@@ -581,7 +582,7 @@ void BulkUpload(Output_t* Out, u32 BufferIndex, u32 CPUID)
 
 		// update error count
 		// NOTE: should really be an atomic update
-		Out->ESPushError[BufferIndex]++;
+		Out->ESPushError[CPUID]++;
 
 		// print hexdump of send buffer
 		Hexdump("Header", 	Header, 	HeaderPos);
@@ -601,7 +602,10 @@ void BulkUpload(Output_t* Out, u32 BufferIndex, u32 CPUID)
 	memset(B->Buffer, 0, B->BufferMax);
 
 	// update counts
-	Out->ESPushTotal[BufferIndex] += 1;
+	Out->ESPushTotal[CPUID] += 1;
+
+	// update completion count
+	__sync_fetch_and_add(&Out->BufferFin, 1);
 }
 
 //-------------------------------------------------------------------------------------------
@@ -634,7 +638,7 @@ u64 Output_TotalLine(Output_t* Out)
 u64 Output_ESErrorCnt(Output_t* Out)
 {
 	u32 TotalError = 0; 
-	for (int i=0; i < Out->BufferMax; i++)
+	for (int i=0; i < Out->CPUActiveCnt; i++)
 	{
 		TotalError += Out->ESPushError[i];
 	}
@@ -646,7 +650,7 @@ u64 Output_ESErrorCnt(Output_t* Out)
 u64 Output_ESPushCnt(Output_t* Out)
 {
 	u32 TotalPush = 0; 
-	for (int i=0; i < Out->BufferMax; i++)
+	for (int i=0; i < Out->CPUActiveCnt; i++)
 	{
 		TotalPush += Out->ESPushTotal[i];
 	}
@@ -775,7 +779,8 @@ void Output_Stats(	Output_t* Out,
 					float* pCompress, 
 					float* pSend,
 					float* pRecv,
-					u64*   pTotalCycle)
+					u64*   pTotalCycle,
+					u64*   pPendingB)
 {
 	u64 Total 	= 0;
 	u64 Top 	= 0;
@@ -808,5 +813,10 @@ void Output_Stats(	Output_t* Out,
 	if (pSend) 			pSend[0] 		= Send * inverse(Total);
 	if (pRecv) 			pRecv[0] 		= Recv * inverse(Total);
 	if (pTotalCycle)	pTotalCycle[0]	= Total;
-}
 
+	// how much output data is pending
+	u32 BufferPending = Out->BufferPut - Out->BufferFin;
+	u32 BufferPendingB = BufferPending  * Out->BufferMax;
+
+	if (pPendingB) pPendingB[0] = BufferPendingB;
+}
