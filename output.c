@@ -69,6 +69,8 @@ typedef struct
 	u8*					BufferRecv;								// recv buffer replies
 	u32					BufferRecvMax;							// maximum recv size
 
+	u32					Lock;									// dont let LineAdd write to an outputing buffer
+
 } Buffer_t;
 
 typedef struct Output_t
@@ -606,7 +608,6 @@ void BulkUpload(Output_t* Out, u32 BufferIndex, u32 CPUID)
 
 void Output_Close(Output_t* Out)
 {
-
 }
 
 //-------------------------------------------------------------------------------------------
@@ -653,6 +654,119 @@ u64 Output_ESPushCnt(Output_t* Out)
 }
 
 //-------------------------------------------------------------------------------------------
+
+void Output_LineAdd(Output_t* Out, u8* Buffer, u32 BufferLen)
+{
+	// multiple CPU call this function, ensure its
+	// mutually exclusive output
+	sync_lock(&Out->BufferLock, 50); 
+
+	// write to a text file
+	if (Out->FileTXT)
+	{
+		Out->TotalByte[0] += strlen(Buffer);
+		fprintf(Out->FileTXT, Buffer);
+	}
+
+	// push directly to ES
+	if (Out->ESPush)
+	{
+		Buffer_t* B = &Out->BufferList[Out->BufferPut];
+
+		// ensure block is not currently being pushed 
+		sync_lock(&B->Lock, 100);
+		{
+			memcpy(B->Buffer + B->BufferPos, Buffer, BufferLen);
+			B->BufferPos += BufferLen;
+
+			B->BufferLine += 1;
+
+			// time to flush to ES?
+			bool IsFlush = false;
+
+			// flush every X lines
+			IsFlush |= (B->BufferLine > B->BufferLineMax);
+
+			// flush when near the end of the write buffer
+			IsFlush |= (B->BufferPos + kKB(16) > B->BufferMax);
+
+			// flush every X nanosec
+			u64 TS = clock_ns();
+			IsFlush |= ((TS - Out->FlushLastTS) > Out->FlushTimeout);
+			if (IsFlush)
+			{
+				// block until push has completed
+				// NOTE: there may be X buffers due to X workers in progress so add bit 
+				//       of extra padding in queuing behaviour
+				fProfile_Start(12, "Push Stall");
+				while (((Out->BufferPut + Out->CPUActiveCnt + 4) & Out->BufferMask) == Out->BufferGet)
+				{
+					usleep(0);
+				}
+				fProfile_Stop(12);
+
+				// add so the workers can push it
+				//BulkUpload(Out, Out->BufferPut);
+				Out->BufferPut = (Out->BufferPut + 1) & Out->BufferMask;
+
+				// set last flush time
+				Out->FlushLastTS = TS;
+			}
+		}
+		sync_unlock(&B->Lock);
+	}
+	Out->TotalLine++;
+
+	sync_unlock(&Out->BufferLock);
+}
+
+//-------------------------------------------------------------------------------------------
+
+static void* Output_Worker(void * user)
+{
+	Output_t* Out = (Output_t*)user;
+
+	// allocate a CPU number
+	u32 CPUID = __sync_fetch_and_add(&Out->CPUActiveCnt, 1);
+	while (true)
+	{
+		u64 TSC0 = rdtsc(); 
+		u32 Get = Out->BufferGet;
+		if (Get == Out->BufferPut)
+		{
+			// nothing to process so zzzz 
+			usleep(0);
+		}
+		else
+		{
+			// attempt to get the next one
+			Buffer_t* B = &Out->BufferList[ Get ];
+
+			// lock the buffer so LineAdd doesnt attempt to write
+			// into it while the buffer is being pushed
+			sync_lock(&B->Lock, 50); 
+			{
+				// fetch and process the next block 
+				if (__sync_bool_compare_and_swap(&Out->BufferGet, Get, (Get + 1) & Out->BufferMask))
+				{
+					u64 TSC2 = rdtsc(); 
+
+					BulkUpload(Out, Get, CPUID);	
+
+					u64 TSC3 = rdtsc(); 
+					Out->WorkerTSCTop[CPUID] += TSC3 - TSC2;
+				}
+			}
+			sync_unlock(&B->Lock);
+		}
+
+		u64 TSC1 = rdtsc(); 
+		Out->WorkerTSCTotal[CPUID] += TSC1 - TSC0;
+	}
+	return NULL;
+}
+
+//-------------------------------------------------------------------------------------------
 // calculates the CPU usage of output worker threads.
 // this is compress + HTTP framing + send  + recv + error processing time
 void Output_Stats(	Output_t* Out, 
@@ -696,105 +810,3 @@ void Output_Stats(	Output_t* Out,
 	if (pTotalCycle)	pTotalCycle[0]	= Total;
 }
 
-//-------------------------------------------------------------------------------------------
-
-void Output_LineAdd(Output_t* Out, u8* Buffer, u32 BufferLen)
-{
-	// write to a text file
-	if (Out->FileTXT)
-	{
-		Out->TotalByte[0] += strlen(Buffer);
-		fprintf(Out->FileTXT, Buffer);
-	}
-
-	// push directly to ES
-	if (Out->ESPush)
-	{
-
-		// multiple cpus call this function, ensure its
-		// mutually exclusive
-		sync_lock(&Out->BufferLock, 50); 
-		{
-			Buffer_t* B = &Out->BufferList[Out->BufferPut];
-
-			memcpy(B->Buffer + B->BufferPos, Buffer, BufferLen);
-			B->BufferPos += BufferLen;
-
-			B->BufferLine += 1;
-
-			// time to flush to ES?
-			bool IsFlush = false;
-
-			// flush every X lines
-			IsFlush |= (B->BufferLine > B->BufferLineMax);
-
-			// flush when near the end of the write buffer
-			IsFlush |= (B->BufferPos + kKB(16) > B->BufferMax);
-
-			// flush every X nanosec
-			u64 TS = clock_ns();
-			IsFlush |= ((TS - Out->FlushLastTS) > Out->FlushTimeout);
-			if (IsFlush)
-			{
-				// block until push has completed
-				// NOTE: there may be X buffers due to X workers in progress so add bit 
-				//       of extra padding in queuing behaviour
-				fProfile_Start(7, "Push Stall");
-				while (((Out->BufferPut + Out->CPUActiveCnt + 4) & Out->BufferMask) == Out->BufferGet)
-				{
-					usleep(250);
-				}
-				fProfile_Stop(7);
-
-				// add so the workers can push it
-				//BulkUpload(Out, Out->BufferPut);
-				Out->BufferPut = (Out->BufferPut + 1) & Out->BufferMask;
-
-				// set last flush time
-				Out->FlushLastTS = TS;
-			}
-		}
-		sync_unlock(&Out->BufferLock);
-	}
-	Out->TotalLine++;
-}
-
-//-------------------------------------------------------------------------------------------
-
-static void* Output_Worker(void * user)
-{
-	Output_t* Out = (Output_t*)user;
-
-	// allocate a CPU number
-	u32 CPUID = __sync_fetch_and_add(&Out->CPUActiveCnt, 1);
-	while (true)
-	{
-		u64 TSC0 = rdtsc(); 
-		u32 Get = Out->BufferGet;
-		if (Get == Out->BufferPut)
-		{
-			// nothing to process so zzzz 
-			usleep(0);
-		}
-		else
-		{
-			// attempt to get the next one
-			Buffer_t* B = &Out->BufferList[ Get ];
-
-			// fetch and process the next block 
-			if (__sync_bool_compare_and_swap(&Out->BufferGet, Get, (Get + 1) & Out->BufferMask))
-			{
-				u64 TSC2 = rdtsc(); 
-
-				BulkUpload(Out, Get, CPUID);	
-
-				u64 TSC3 = rdtsc(); 
-				Out->WorkerTSCTop[CPUID] += TSC3 - TSC2;
-			}
-		}
-
-		u64 TSC1 = rdtsc(); 
-		Out->WorkerTSCTotal[CPUID] += TSC1 - TSC0;
-	}
-	return NULL;
-}

@@ -29,6 +29,17 @@
 //
 // PCAPWall time: 3.09 sec ProcessTime 37.40 sec (12.105)
 //
+// 2018/12/28
+//
+// FMAD chunked format + per CPU FlowIndex with Merged output 
+//
+// [00:26:29.381.616.896] In:42.241 GB 6.75 Mpps 61.25 Gbps PCAP: 254.51 Gbps | Out 0.36618 GB Flows/Snap:  40431 FlowCPU:0.87 | ESPush:     0  97.81K ESErr    0 | OutCPU: 0.00 (0.00)
+// [00:26:29.620.605.696] In:49.352 GB 6.73 Mpps 61.08 Gbps PCAP: 255.59 Gbps | Out 0.42603 GB Flows/Snap:  55289 FlowCPU:0.87 | ESPush:     0 109.22K ESErr    0 | OutCPU: 0.00 (0.00)
+// [00:26:29.864.099.840] In:56.482 GB 6.70 Mpps 61.25 Gbps PCAP: 251.53 Gbps | Out 0.47893 GB Flows/Snap:  42116 FlowCPU:0.87 | ESPush:     0  96.60K ESErr    0 | OutCPU: 0.00 (0.00)
+// [00:26:30.089.333.248] In:63.266 GB 6.45 Mpps 58.26 Gbps PCAP: 258.71 Gbps | Out 0.56736 GB Flows/Snap:  44352 FlowCPU:0.88 | ESPush:     0 161.32K ESErr    0 | OutCPU: 0.00 (0.00)
+//
+// PCAPWall time: 16900787200.00 sec ProcessTime 17.74 sec (0.000)
+//
 //---------------------------------------------------------------------------------------------
 
 #include <stdio.h>
@@ -143,10 +154,11 @@ extern u8				g_DeviceName[128];
 //---------------------------------------------------------------------------------------------
 // static
 
-static u32						s_FlowIndexMax		= 4;
+static u32						s_FlowIndexMax		= 16;
 static u32						s_FlowIndexPos		= 0;
 static u32						s_FlowIndexMsk		= 3;
-static FlowIndex_t				s_FlowIndex[4];
+static u32						s_FlowIndexSub		= 4;				// number of sub slots, one per CPU worker 
+static FlowIndex_t				s_FlowIndex[128];
 static u32						s_FlowCntSnapshotLast = 0;				// last total flows in the last snapshot
 
 static u64						s_FlowCntTotal		= 0;				// total number of active flows
@@ -160,6 +172,8 @@ static u32						s_DecodeCPUActive 	= 0;				// total number of active decode thre
 static pthread_t   				s_DecodeThread[16];						// worker decode thread list
 static u64						s_DecodeThreadTSCTop[128];				// total cycles
 static u64						s_DecodeThreadTSCDecode[128];			// total cycles for decoding
+static u64						s_DecodeThreadTSCInsert[128];			// cycles spend in hash table lookup 
+static u64						s_DecodeThreadTSCHash[128];				// cycles spend hashing the flow 
 
 static volatile u32				s_DecodeQueuePut 	= 0;				// put/get processing queue
 static volatile u32				s_DecodeQueueGet 	= 0;
@@ -235,21 +249,19 @@ static FlowRecord_t* FlowAlloc(FlowIndex_t* FlowIndex, FlowRecord_t* F)
 static void FlowReset(FlowIndex_t* FlowIndex)
 {
 	memset(FlowIndex->FlowHash, 0, sizeof(FlowRecord_t*) * (2 << 20) );
-
-	// save last count for stats
-	s_FlowCntSnapshotLast = FlowIndex->FlowCntSnapshot;
-
 	FlowIndex->FlowCntSnapshot = 0;
 }
 
 //---------------------------------------------------------------------------------------------
-// assumption is this is mutually exclusive per FlowIndex
-static void FlowInsert(FlowIndex_t* FlowIndex, FlowRecord_t* FlowPkt, u32* SHA1, u32 Length, u64 TS)
+// returns the flow entry or creates one in the index
+static FlowRecord_t* FlowAdd(FlowIndex_t* FlowIndex, FlowRecord_t* FlowPkt, u32* SHA1)
 {
-	u32 Index = HashIndex(SHA1);
+	//u64 TSC0 = rdtsc();
 
-	FlowRecord_t* F = NULL;
 	bool IsFlowNew = false;
+	FlowRecord_t* F = NULL;
+
+	u32 Index = HashIndex(SHA1);
 
 	// first record ?
 	if (FlowIndex->FlowHash[ Index ] == NULL)
@@ -320,6 +332,20 @@ static void FlowInsert(FlowIndex_t* FlowIndex, FlowRecord_t* FlowPkt, u32* SHA1,
 		s_FlowCntTotal++;
 	}
 
+	//u64 TSC1 = rdtsc();
+	//s_DecodeThreadTSCInsert[CPUID] += TSC1 - TSC0;
+
+	return F;
+}
+
+//---------------------------------------------------------------------------------------------
+// assumption is this is mutually exclusive per FlowIndex
+static void FlowInsert(u32 CPUID, FlowIndex_t* FlowIndex, FlowRecord_t* FlowPkt, u32* SHA1, u32 Length, u64 TS)
+{
+	// create/fetch the flow entry
+	FlowRecord_t* F = FlowAdd(FlowIndex, FlowPkt, SHA1);
+	assert(F != NULL);
+
 	// update flow stats
 	F->TotalPkt		+= 1;
 	F->TotalByte	+= Length;
@@ -343,6 +369,7 @@ static void FlowInsert(FlowIndex_t* FlowIndex, FlowRecord_t* FlowPkt, u32* SHA1,
 		// https://en.wikipedia.org/wiki/TCP_congestion_control#Fast_retransmit
 		// 
 		// 2018/12/04: SACK traffic messes this up
+/*
 		if (TCP_FLAG_ACK(TCPFlags))
 		{
 			u32 TCPAckNo	= swap32(TCP->AckNo);
@@ -357,15 +384,10 @@ static void FlowInsert(FlowIndex_t* FlowIndex, FlowRecord_t* FlowPkt, u32* SHA1,
 				{
 					F->TCPACKDupCnt	+= 1; 
 				}
-				//if (F->PortSrc == 49279)
-				//{
-				//	printf("[%s] seqno dup: %u %i %i : %i %i %i %i -> %i %i %i %i\n", 
-				//		FormatTS(TS),
-				//			TCPAckNo, F->TCPLength, FlowPkt->TCPLength, F->IPSrc[0], F->IPSrc[1], F->IPSrc[2], F->IPSrc[3], F->IPDst[0], F->IPDst[1], F->IPDst[2], F->IPDst[3] );
-				//}
 			}
 			F->TCPAckNo = TCPAckNo;
 		}
+*/
 
 		// first packet
 		u32 TCPWindow = swap16(TCP->Window); 
@@ -374,8 +396,8 @@ static void FlowInsert(FlowIndex_t* FlowIndex, FlowRecord_t* FlowPkt, u32* SHA1,
 			F->TCPWindowMin = TCPWindow; 
 			F->TCPWindowMax = TCPWindow; 
 		}
-		F->TCPWindowMin = (F->TCPWindowMin > TCPWindow) ? TCPWindow : F->TCPWindowMin;
-		F->TCPWindowMax = (F->TCPWindowMax < TCPWindow) ? TCPWindow : F->TCPWindowMax;
+		F->TCPWindowMin = min32(F->TCPWindowMin, TCPWindow);
+		F->TCPWindowMax = max32(F->TCPWindowMax, TCPWindow);
 	}
 }
 
@@ -583,14 +605,55 @@ static u32 FlowDump(struct Output_t* Out, u64 TS, FlowRecord_t* Flow, u32 FlowID
 	Output_LineAdd(Out, OutputStart, OutputLen);
 }
 
+//---------------------------------------------------------------------------------------------
+// merges mutliple flow entries into a single index
+// as each CPU flow list gets merged into a single list 
+static void FlowMerge(FlowIndex_t* IndexOut, FlowIndex_t* IndexRoot, u32 IndexCnt)
+{
+	for (int CPU=0; CPU < IndexCnt; CPU++)
+	{
+		FlowIndex_t* Source = IndexRoot + CPU; 
+		if (Source == IndexOut) continue;
+
+		for (int i=0; i < Source->FlowCntSnapshot; i++)
+		{
+			FlowRecord_t* Flow = &Source->FlowList[i];
+
+			FlowRecord_t* F = FlowAdd(IndexOut, Flow, Flow->SHA1);
+
+			F->TotalPkt 	+= Flow->TotalPkt;
+			F->TotalByte 	+= Flow->TotalByte;
+			F->FirstTS 		= min64(F->FirstTS, Flow->FirstTS);
+			F->LastTS 		= max64(F->LastTS, Flow->LastTS);
+
+			// TCP stats
+			if (F->IPProto == IPv4_PROTO_TCP)
+			{
+				F->TCPFINCnt	+= Flow->TCPFINCnt; 
+				F->TCPSYNCnt	+= Flow->TCPSYNCnt; 
+				F->TCPRSTCnt	+= Flow->TCPRSTCnt; 
+				F->TCPPSHCnt	+= Flow->TCPPSHCnt; 
+				F->TCPACKCnt	+= Flow->TCPACKCnt; 
+
+				// Need work out tcp retransmit
+
+				F->TCPWindowMin = min32(F->TCPWindowMin, Flow->TCPWindowMin);
+				F->TCPWindowMax = max32(F->TCPWindowMax, Flow->TCPWindowMax);
+			}
+		}
+	}
+
+	// save total merged flow count 
+	s_FlowCntSnapshotLast = IndexOut->FlowCntSnapshot;
+}
 
 //---------------------------------------------------------------------------------------------
 //
 // parse a packet and generate a flow record 
 //
-void DecodePacket(	struct Output_t* Out, 
-					PCAPPacket_t* PktHeader, 
-					u64 PktTS, 
+void DecodePacket(	u32 CPUID,
+					struct Output_t* Out, 
+					FMADPacket_t* PktHeader, 
 					FlowIndex_t* FlowIndex,
 					bool IsFlowIndexDump)
 {
@@ -815,6 +878,8 @@ void DecodePacket(	struct Output_t* Out,
 	//       with packet and housekeeping info stored after. sha1_compress
 	//       runs on the first 64B only 
 
+	u64 TSC0 = rdtsc();
+
 	u32 SHA1State[5] = { 0, 0, 0, 0, 0 };
 	sha1_compress(SHA1State, (u8*)FlowPkt);
 
@@ -824,40 +889,44 @@ void DecodePacket(	struct Output_t* Out,
 	FlowPkt->SHA1[3] = SHA1State[3];
 	FlowPkt->SHA1[4] = SHA1State[4];
 
+	u64 TSC1 = rdtsc();
+	s_DecodeThreadTSCHash[CPUID] += TSC1 - TSC0;
+
 	// packet mode then print record as a packet 
 	if (g_IsJSONPacket)
 	{
-		FlowDump(Out, PktTS, FlowPkt, 0);
+		FlowDump(Out, PktHeader->TS, FlowPkt, 0);
 	}
 
 	// update the flow records
 	if (g_IsJSONFlow)
 	{
-
 		// insert to flow table
-		// NOTE: lock around it so therems no RMW problems
-		//       with the hash overflow list, and also the counters
-		//       on output ensure no one modifies the 
-		//       specific flow index instance while its beeing dumped 
-		sync_lock(&FlowIndex->FlowLock, 100);
+		// NOTE: each CPU has its own FlowIndex no need to lock it 
+
+		FlowInsert(CPUID, FlowIndex, FlowPkt, SHA1State, PktHeader->LengthWire, PktHeader->TS);
+
+		// flow snapshot dump triggered by Flow_PacketQueue
+		// as its serialized and single threaded
+		if (IsFlowIndexDump)
 		{
-			FlowInsert(FlowIndex, FlowPkt, SHA1State, PktHeader->LengthWire, PktTS);
+			// merge everything into this CPUs index 
+			FlowIndex_t* FlowIndexRoot = FlowIndex - CPUID;
 
-			// flow snapshot dump triggered by Flow_PacketQueue
-			// as its serialized and single threaded
-			if (IsFlowIndexDump)
+			// merge flows
+			FlowMerge(FlowIndex, FlowIndexRoot, 4);
+
+			// dump flows
+			for (int i=0; i < FlowIndex->FlowCntSnapshot; i++)
 			{
-				for (int i=0; i < FlowIndex->FlowCntSnapshot; i++)
-				{
-					FlowRecord_t* Flow = &FlowIndex->FlowList[i];	
-					FlowDump(Out, PktTS, Flow, i);
-				}
-
-				// reset index and counts
-				FlowReset(FlowIndex);
+				FlowRecord_t* Flow = &FlowIndex->FlowList[i];	
+				FlowDump(Out, PktHeader->TS, Flow, i);
 			}
+
+			// reset is done per cpu in the worker thread
+			// keep all writes to that memory on the same CPU 
+			//FlowReset(FlowIndexRoot + 0);
 		}
-		sync_unlock(&FlowIndex->FlowLock);
 	}
 }
 
@@ -881,8 +950,11 @@ void Flow_PacketQueue(PacketBuffer_t* Pkt)
 		s_DecodeQueue[s_DecodeQueuePut & s_DecodeQueueMsk] 	= Pkt;
 
 		// flow index
+		// NOTE: one index per CPU worker, thus the FlowIndexSub
+		//       so there is no coherencey conflicts between workers
+		//       and no mutual exclusive locks
 		Pkt->IsFlowIndexDump	 = false;
-		Pkt->FlowIndex			 = &s_FlowIndex[s_FlowIndexPos];
+		Pkt->FlowIndex			 = &s_FlowIndex[s_FlowIndexPos*s_FlowIndexSub];
 
 		Pkt->ID					= s_DecodeQueuePut;
 
@@ -915,16 +987,6 @@ void Flow_PacketQueue(PacketBuffer_t* Pkt)
 		// benchmarking mode just release the buffer
 		Flow_PacketFree(Pkt);
 	}
-
-/*
-	// single cpu
-	{
-		DecodePacket(s_Output, Pkt);
-		Flow_PacketFree(Pkt);
-	}	
-*/
-
-	//Flow_PacketFree(Pkt);
 }
 
 //---------------------------------------------------------------------------------------------
@@ -932,6 +994,8 @@ void Flow_PacketQueue(PacketBuffer_t* Pkt)
 void* Flow_Worker(void* User)
 {
 	u32 CPUID = __sync_fetch_and_add(&s_DecodeCPUActive, 1);
+
+	FlowIndex_t* FlowIndexLast = NULL;
 
 	printf("Start decoder thread: %i\n", CPUID);
 	while (true)
@@ -955,7 +1019,7 @@ void* Flow_Worker(void* User)
 			if (__sync_bool_compare_and_swap(&s_DecodeQueueGet, Get, Get + 1))
 			{
 // back pressure testing
-//u32 delay =  ((u64)rand() * 100000ULL) / (u64)RAND_MAX; 
+//u32 delay =  ((u64)rand() * 10000000ULL) / (u64)RAND_MAX; 
 //ndelay(delay);
 
 				u64 TSC2 = rdtsc();
@@ -964,19 +1028,27 @@ void* Flow_Worker(void* User)
 				assert(PktBlock->ID == Get);
 
 				// assigned index to add the packet to
-				FlowIndex_t* FlowIndex = PktBlock->FlowIndex; 
+				FlowIndex_t* FlowIndex = PktBlock->FlowIndex + CPUID; 
+
+				// new index so reset it
+				if (FlowIndex != FlowIndexLast)
+				{
+					FlowIndexLast = FlowIndex;
+					FlowReset(FlowIndex);	
+				}
 
 				// process all packets in this block 
 				u32 Offset = 0;
 				for (int i=0; i < PktBlock->PktCnt; i++)
 				{
-					PCAPPacket_t* PktHeader = (PCAPPacket_t*)(PktBlock->Buffer + Offset);
+					FMADPacket_t* PktHeader = (FMADPacket_t*)(PktBlock->Buffer + Offset);
 					Offset += sizeof(PCAPPacket_t) + PktHeader->LengthCapture;
+
+					assert(PktHeader->LengthWire    > 0); 
+					assert(PktHeader->LengthCapture	> 0); 
 
 					assert(PktHeader->LengthWire    < 16*1024);
 					assert(PktHeader->LengthCapture < 16*1024);
-
-					u64 PktTS 				= PktHeader->Sec * (u64)1000000000ULL + PktHeader->NSec;
 
 					bool FlowIndexDump = false;
 					if ((i == PktBlock->PktCnt-1) && (PktBlock->IsFlowIndexDump))
@@ -985,7 +1057,7 @@ void* Flow_Worker(void* User)
 					}
 
 					// process the packet
-					DecodePacket(s_Output, PktHeader, PktTS, FlowIndex, FlowIndexDump);
+					DecodePacket(CPUID, s_Output, PktHeader, FlowIndex, FlowIndexDump);
 				}
 
 				// release buffer
@@ -1078,12 +1150,33 @@ void Flow_Open(struct Output_t* Out, s32* CPUMap)
 		PacketBuffer_t* B = &s_PacketBufferList[i];
 		memset(B, 0, sizeof(PacketBuffer_t));
 
-		B->BufferMax 	= 256*1024;
+		B->BufferMax 	= 256*1024 + 1024;
 		B->Buffer 		= memalign(4096, B->BufferMax);
 		memset(B->Buffer, 0, B->BufferMax);	
 
 		Flow_PacketFree(B);
 	}
+
+	// create worker threads
+	u32 CPUCnt = 0;
+	pthread_create(&s_DecodeThread[0], NULL, Flow_Worker, (void*)NULL); CPUCnt++;
+	pthread_create(&s_DecodeThread[1], NULL, Flow_Worker, (void*)NULL); CPUCnt++;
+	pthread_create(&s_DecodeThread[2], NULL, Flow_Worker, (void*)NULL); CPUCnt++;
+	pthread_create(&s_DecodeThread[3], NULL, Flow_Worker, (void*)NULL); CPUCnt++;
+
+	for (int i=0; i < CPUCnt; i++)
+	{
+		if (CPUMap[i] <= 0) continue; 
+		
+		cpu_set_t Thread0CPU;
+		CPU_ZERO(&Thread0CPU);
+		CPU_SET (CPUMap[i], &Thread0CPU);
+		pthread_setaffinity_np(s_DecodeThread[i], sizeof(cpu_set_t), &Thread0CPU);
+	}
+
+	s_FlowIndexMax = 4 * CPUCnt; 
+	s_FlowIndexMsk = 3; 
+	s_FlowIndexSub = CPUCnt; 
 
 	// allocate flow indexes
 	for (int i=0; i < s_FlowIndexMax; i++)
@@ -1105,22 +1198,6 @@ void Flow_Open(struct Output_t* Out, s32* CPUMap)
 		FlowReset(FlowIndex);
 	}
 
-	// create worker threads
-	u32 CPUCnt = 0;
-	pthread_create(&s_DecodeThread[0], NULL, Flow_Worker, (void*)NULL); CPUCnt++;
-	pthread_create(&s_DecodeThread[1], NULL, Flow_Worker, (void*)NULL); CPUCnt++;
-	pthread_create(&s_DecodeThread[2], NULL, Flow_Worker, (void*)NULL); CPUCnt++;
-	pthread_create(&s_DecodeThread[3], NULL, Flow_Worker, (void*)NULL); CPUCnt++;
-
-	for (int i=0; i < CPUCnt; i++)
-	{
-		if (CPUMap[i] <= 0) continue; 
-		
-		cpu_set_t Thread0CPU;
-		CPU_ZERO(&Thread0CPU);
-		CPU_SET (CPUMap[i], &Thread0CPU);
-		pthread_setaffinity_np(s_DecodeThread[i], sizeof(cpu_set_t), &Thread0CPU);
-	}
 }
 
 //---------------------------------------------------------------------------------------------
@@ -1156,17 +1233,23 @@ void Flow_Close(struct Output_t* Out, u64 LastTS)
 
 //---------------------------------------------------------------------------------------------
 
-void Flow_Stats(bool IsReset, u32* pFlowCntSnapShot, u64* pFlowCntTotal, float * pCPUUse)
+void Flow_Stats(	bool IsReset, 
+					u32* pFlowCntSnapShot, 
+					u64* pFlowCntTotal, 
+					float * pCPUUse,
+					float * pCPUHash)
 {
 	if (pFlowCntSnapShot)	pFlowCntSnapShot[0] = s_FlowCntSnapshotLast;
 	if (pFlowCntTotal)		pFlowCntTotal[0]	= s_FlowCntTotal;
 
 	u64 TotalTSC = 0;
 	u64 DecodeTSC = 0;
+	u64 HashTSC  = 0;
 	for (int i=0; i < s_DecodeCPUActive; i++)
 	{
 		TotalTSC 	+= s_DecodeThreadTSCTop[i];
 		DecodeTSC 	+= s_DecodeThreadTSCDecode[i];
+		HashTSC 	+= s_DecodeThreadTSCHash[i];
 	}
 	if (IsReset)
 	{
@@ -1174,9 +1257,11 @@ void Flow_Stats(bool IsReset, u32* pFlowCntSnapShot, u64* pFlowCntTotal, float *
 		{
 			s_DecodeThreadTSCTop[i]		= 0;
 			s_DecodeThreadTSCDecode[i]	= 0;
+			s_DecodeThreadTSCHash[i]	= 0;
 		}
 	}
 	if (pCPUUse) pCPUUse[0] = DecodeTSC * inverse(TotalTSC);
+	if (pCPUHash) pCPUHash[0] = HashTSC * inverse(TotalTSC);
 }
 
 /* vim: set ts=4 sts=4 */

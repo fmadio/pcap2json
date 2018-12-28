@@ -7,12 +7,21 @@
 // PCAP to JSON file conversion. convers a PCAP and extracts basic IP / TCP / UDP information
 // that can be fed into Elastic Search for further processing and analysis 
 //
-// PCAP format (2018/12/17)
+// PCAP format (2018/12/27)
 //
 // 64B line rate 2 x 10Gbps
 // [05:54:55.555.243.408] In:12.000 GB 2.68 Mpps 1.37 Gbps PCAP:  14.88 Gbps | Out 0.00000 GB Flows/Snap:      0 FlowCPU:0.00 | ESPush:     0   0.00K ESErr    0 | OutCPU: 0.00 (0.00)
 // [05:54:55.647.520.418] In:12.160 GB 2.68 Mpps 1.37 Gbps PCAP:  14.88 Gbps | Out 0.00000 GB Flows/Snap:      0 FlowCPU:0.00 | ESPush:     0   0.00K ESErr    0 | OutCPU: 0.00 (0.00)
 // [05:54:55.739.617.444] In:12.319 GB 2.68 Mpps 1.37 Gbps PCAP:  14.88 Gbps | Out 0.00000 GB Flows/Snap:      0 FlowCPU:0.00 | ESPush:     0   0.00K ESErr    0 | OutCPU: 0.00 (0.00)
+//
+// FMAD chunked format (2018/12/28)
+//
+// es-stdout > /dev/null
+//
+// [05:54:51.333.710.607] In:4.685 GB 10.79 Mpps 5.52 Gbps PCAP:  14.88 Gbps | Out 0.00002 GB Flows/Snap:      2 FlowCPU:1.00 | ESPush:     0   0.01K ESErr    0 | OutCPU: 0.00 (0.00)
+// [05:54:51.704.135.799] In:5.327 GB 10.77 Mpps 5.51 Gbps PCAP:  14.88 Gbps | Out 0.00002 GB Flows/Snap:      2 FlowCPU:1.00 | ESPush:     0   0.01K ESErr    0 | OutCPU: 0.00 (0.00)
+// [05:54:52.073.885.145] In:5.968 GB 10.75 Mpps 5.50 Gbps PCAP:  14.88 Gbps | Out 0.00002 GB Flows/Snap:      2 FlowCPU:1.00 | ESPush:     0   0.01K ESErr    0 | OutCPU: 0.00 (0.00)
+// [05:54:52.445.099.551] In:6.611 GB 10.79 Mpps 5.52 Gbps PCAP:  14.88 Gbps | Out 0.00003 GB Flows/Snap:      2 FlowCPU:1.00 | ESPush:     0   0.01K ESErr    0 | OutCPU: 0.00 (0.00)
 //
 //---------------------------------------------------------------------------------------------
 
@@ -453,7 +462,7 @@ static bool ParseConfigFile(u8* ConfigFile)
 static void ProfileDump(struct Output_t* Out)
 {
 	fProfile_Dump(0);
-	printf("\n");
+	fprintf(stderr, "\n");
 
 	float OutputWorkerCPU;
 	float OutputWorkerCPUCompress;
@@ -466,25 +475,27 @@ static void ProfileDump(struct Output_t* Out)
 							&OutputWorkerCPURecv,
 							&OutputTotalCycle);
 
-	printf("Output Worker CPU\n");
-	printf("  Top     : %.6f\n", OutputWorkerCPU);
-	printf("  Compress: %.6f\n", OutputWorkerCPUCompress);
-	printf("  Send    : %.6f\n", OutputWorkerCPUSend);
-	printf("  Recv    : %.6f\n", OutputWorkerCPURecv);
-	printf("  Total   : %.6f sec\n", tsc2ns(OutputTotalCycle)/1e9 );
-	printf("\n");
+	fprintf(stderr, "Output Worker CPU\n");
+	fprintf(stderr, "  Top     : %.6f\n", OutputWorkerCPU);
+	fprintf(stderr, "  Compress: %.6f\n", OutputWorkerCPUCompress);
+	fprintf(stderr, "  Send    : %.6f\n", OutputWorkerCPUSend);
+	fprintf(stderr, "  Recv    : %.6f\n", OutputWorkerCPURecv);
+	fprintf(stderr, "  Total   : %.6f sec\n", tsc2ns(OutputTotalCycle)/1e9 );
+	fprintf(stderr, "\n");
 
 	u64 FlowCntTotal = 0;
 	float FlowCPUDecode = 0;
-	Flow_Stats(true, NULL, &FlowCntTotal, &FlowCPUDecode);
+	float FlowCPUHash = 0;
+	Flow_Stats(true, NULL, &FlowCntTotal, &FlowCPUDecode, &FlowCPUHash);
 
-	printf("Flow:\n");
-	printf("  Total   : %lli\n", FlowCntTotal);
-	printf("  CPU     : %.3f\n", FlowCPUDecode);
-	printf("\n");
+	fprintf(stderr, "Flow:\n");
+	fprintf(stderr, "  Total   : %lli\n", FlowCntTotal);
+	fprintf(stderr, "  CPU     : %.3f\n", FlowCPUDecode);
+	fprintf(stderr, "  Hash    : %.3f\n", FlowCPUHash);
+	fprintf(stderr, "\n");
 
 	// packet size histogram
-	printf("Packet Size Histogram:\n");	
+	fprintf(stderr, "Packet Size Histogram:\n");	
 
 	u32 MaxCnt = 0;
 	for (int i=0; i < s_PacketSizeHistoMax; i++)
@@ -496,16 +507,17 @@ static void ProfileDump(struct Output_t* Out)
 		u32 Size = i * s_PacketSizeHistoBin;
 		if (s_PacketSizeHisto[i] == 0) continue;
 
-		printf("%5i : %10i :", Size, s_PacketSizeHisto[i]);
+		fprintf(stderr, "%5i : %10i :", Size, s_PacketSizeHisto[i]);
 		u32 Cnt = (s_PacketSizeHisto[i] * 80 ) / MaxCnt;
 		for (int j=0; j < Cnt; j++) printf("*");
 
-		printf("\n");
+		fprintf(stderr, "\n");
 	}
 	memset(s_PacketSizeHisto, 0, sizeof(s_PacketSizeHisto));
-	printf("\n");
+	fprintf(stderr, "\n");
 
 	fflush(stdout);
+	fflush(stderr);
 }
 
 //---------------------------------------------------------------------------------------------
@@ -570,24 +582,44 @@ int main(int argc, u8* argv[])
 		return 0;
 	}
 
+	// work out the input file format
+	bool IsPCAP = false;
+	bool IsFMAD = false;
 	u64 TScale = 0;
 	switch (HeaderMaster.Magic)
 	{
-	case PCAPHEADER_MAGIC_NANO: fprintf(stderr, "PCAP Nano\n"); TScale = 1;    break;
-	case PCAPHEADER_MAGIC_USEC: fprintf(stderr, "PCAP Micro\n"); TScale = 1000; break;
+	case PCAPHEADER_MAGIC_NANO: 
+		fprintf(stderr, "PCAP Nano\n"); 
+		TScale = 1;    
+		IsPCAP = true;
+		break;
+	case PCAPHEADER_MAGIC_USEC: 
+		fprintf(stderr, "PCAP Micro\n");
+		TScale = 1000; 
+		IsPCAP = true;
+		break;
+
+	case PCAPHEADER_MAGIC_FMAD: 
+		fprintf(stderr, "FMAD Format\n");
+		TScale = 1; 
+		IsFMAD = true;
+		break;
+
+	default:
+		fprintf(stderr, "invaliid PCAP format\n");
+		return -1;
 	}
 
-	u64 NextPrintTS				= 0;
+	u64 NextPrintTS		= 0;
 
+	u64 PrintNextTSC	= 0;
+	u64 ProfileNextTSC	= 0;
+	u64 StartTSC		= rdtsc();
+	u64 LastTSC			= rdtsc();
+	u64 LastTS			= 0;
 
-	u64				PrintNextTSC	= 0;
-	u64				ProfileNextTSC	= 0;
-	u64				StartTSC		= rdtsc();
-	u64				LastTSC			= rdtsc();
-	u64 			LastTS			= 0;
-
-	u64				TotalByte		= 0;
-	u64				TotalPkt		= 0;
+	u64 TotalByte		= 0;
+	u64 TotalPkt		= 0;
 
 	// output + add all the ES targets
 	struct Output_t* Out = Output_Create(	g_Output_NULL,
@@ -650,7 +682,7 @@ int main(int argc, u8* argv[])
 
 			u32 FlowCntSnapshot;	
 			float FlowCPU;
-			Flow_Stats(false, &FlowCntSnapshot, NULL, &FlowCPU);
+			Flow_Stats(false, &FlowCntSnapshot, NULL, &FlowCPU, NULL);
 
 			fprintf(stderr, "[%s] In:%.3f GB %.2f Mpps %.2f Gbps PCAP: %6.2f Gbps | Out %.5f GB Flows/Snap: %6i FlowCPU:%.2f | ESPush:%6lli %6.2fK ESErr %4lli | OutCPU: %.2f (%.2f)\n", 
 
@@ -705,49 +737,87 @@ int main(int argc, u8* argv[])
 
 		u64 TSFirst		= 0;
 		u64 TSLast		= 0;
-
+	
 		u32 Offset 		= 0;
-		while (Offset < PktBlock->BufferMax - kKB(16))
+
+		// PCAP format
+		if (IsPCAP)
 		{
-			PCAPPacket_t*	PktHeader	= (PCAPPacket_t*)(PktBlock->Buffer + Offset);
-			
-			// header
-			int rlen = fread(PktHeader, 1, sizeof(PCAPPacket_t), FileIn);
-			if (rlen != sizeof(PCAPPacket_t)) break;
-
-			// validate size
-			if ((PktHeader->LengthCapture == 0) || (PktHeader->LengthCapture > 128*1024)) 
+			while (Offset < PktBlock->BufferMax - kKB(16))
 			{
-				fprintf(stderr, "Invalid packet length: %i\n", PktHeader->LengthCapture);
+				PCAPPacket_t*	PktHeader	= (PCAPPacket_t*)(PktBlock->Buffer + Offset);
+				
+				// header
+				int rlen = fread(PktHeader, 1, sizeof(PCAPPacket_t), FileIn);
+				if (rlen != sizeof(PCAPPacket_t)) break;
+
+				// validate size
+				if ((PktHeader->LengthCapture == 0) || (PktHeader->LengthCapture > 128*1024)) 
+				{
+					fprintf(stderr, "Invalid packet length: %i\n", PktHeader->LengthCapture);
+					break;
+				}
+
+				// payload
+				rlen = fread(PktHeader + 1, 1, PktHeader->LengthCapture, FileIn);
+				if (rlen != PktHeader->LengthCapture)
+				{
+					fprintf(stderr, "payload read fail %i expect %i\n", rlen, PktHeader->LengthCapture);
+					break;
+				}
+				u64 TS = (u64)PktHeader->Sec * 1000000000ULL + (u64)PktHeader->NSec * TScale;
+				u32 LengthWire 		= PktHeader->LengthWire;
+				u32 LengthCapture 	= PktHeader->LengthCapture;
+				u32 PortNo			= 0;
+
+				// in-place conversion to FMAD Packet 
+				FMADPacket_t* PktFMAD	= (FMADPacket_t*)PktHeader;
+				PktFMAD->TS				= TS;
+				PktFMAD->PortNo			= 0;
+				PktFMAD->Flag			= 0;
+				PktFMAD->LengthWire		= LengthWire;
+				PktFMAD->LengthCapture	= LengthCapture;
+
+				// update size histo
+				u32 SizeIndex = (LengthWire / s_PacketSizeHistoBin);
+				if (SizeIndex >= s_PacketSizeHistoMax) SizeIndex = s_PacketSizeHistoMax - 1;
+				s_PacketSizeHisto[SizeIndex]++;
+
+				// next in packet block
+				Offset += sizeof(PCAPPacket_t) + LengthCapture;
+
+				// time range 
+				if (TSFirst == 0) TSFirst = TS;
+				TSLast = TS;
+
+				PktCnt		+= 1;
+				ByteWire	+= LengthWire; 
+				ByteCapture	+= LengthCapture;
+			}
+		}
+		if (IsFMAD)
+		{
+			FMADHeader_t Header;
+			int rlen = fread(&Header, 1, sizeof(Header), FileIn);
+			if (rlen != sizeof(Header))
+			{
+				fprintf(stderr, "FMADHeader read fail: %i %i : %i\n", rlen, sizeof(Header), errno, strerror(errno));
 				break;
 			}
 
-			// payload
-			rlen = fread(PktHeader + 1, 1, PktHeader->LengthCapture, FileIn);
-			if (rlen != PktHeader->LengthCapture)
+			rlen = fread(PktBlock->Buffer, 1, Header.Length, FileIn);
+			if (rlen != Header.Length)
 			{
-				fprintf(stderr, "payload read fail %i expect %i\n", rlen, PktHeader->LengthCapture);
+				fprintf(stderr, "FMADHeader payload read fail: %i %i : %i\n", rlen, Header.Length, errno, strerror(errno));
 				break;
 			}
-			u64 TS = (u64)PktHeader->Sec * 1000000000ULL + (u64)PktHeader->NSec * TScale;
 
-			LastTS			= TS;
-
-			// update size histo
-			u32 SizeIndex = (PktHeader->LengthWire / s_PacketSizeHistoBin);
-			if (SizeIndex >= s_PacketSizeHistoMax) SizeIndex = s_PacketSizeHistoMax - 1;
-			s_PacketSizeHisto[SizeIndex]++;
-
-			// next in packet block
-			Offset += sizeof(PCAPPacket_t) + PktHeader->LengthCapture;
-
-			// time range 
-			if (TSFirst == 0) TSFirst = TS;
-			TSLast = TS;
-
-			PktCnt		+= 1;
-			ByteWire	+= PktHeader->LengthWire;
-			ByteCapture	+= PktHeader->LengthCapture;
+			PktCnt		= Header.PktCnt; 
+			ByteWire	= Header.BytesWire;
+			ByteCapture	= Header.BytesCapture;
+			TSFirst		= Header.TSStart;
+			TSLast		= Header.TSEnd;
+			Offset		= Header.Length;
 		}
 
 		// general stats on the packet block
@@ -756,6 +826,7 @@ int main(int argc, u8* argv[])
 		PktBlock->ByteCapture 	= ByteCapture;
 		PktBlock->TSFirst 		= TSFirst;
 		PktBlock->TSLast 		= TSLast;
+		PktBlock->BufferLength 	= Offset;
 
 		// wall time calcs
 		if (PacketTSFirst == 0) PacketTSFirst = TSFirst;
@@ -764,8 +835,12 @@ int main(int argc, u8* argv[])
 		fProfile_Stop(6);
 		u64 TSC0 		= rdtsc();
 
+		fProfile_Start(8, "PacketQueue");
+
 		// queue the packet for processing 
 		Flow_PacketQueue(PktBlock);
+
+		fProfile_Stop(8);
 
 		DecodeTimeTSC 	+= rdtsc() -  TSC0;
 
@@ -778,7 +853,7 @@ int main(int argc, u8* argv[])
 	fProfile_Stop(0);
 
 	// flush any remaining flows
-	Flow_Close(Out, LastTS);
+	Flow_Close(Out, PacketTSLast);
 
 	ProfileDump(Out);
 
