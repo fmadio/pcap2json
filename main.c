@@ -822,6 +822,7 @@ int main(int argc, u8* argv[])
 				ByteCapture	+= LengthCapture;
 			}
 		}
+		// FMAD chunked format 
 		if (IsFMAD)
 		{
 			FMADHeader_t Header;

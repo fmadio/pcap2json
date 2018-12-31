@@ -163,6 +163,7 @@ static FlowIndex_t				s_FlowIndex[128];
 static u32						s_FlowCntSnapshotLast = 0;				// last total flows in the last snapshot
 
 static u64						s_FlowCntTotal		= 0;				// total number of active flows
+static u64						s_FlowSampleTSLast	= 0;				// last time the flow was sampled 
 
 static u32						s_PacketBufferMax	= 1024;				// max number of inflight packets
 static PacketBuffer_t			s_PacketBufferList[1024];				// list of header structs for each buffer^
@@ -644,8 +645,6 @@ static void FlowMerge(FlowIndex_t* IndexOut, FlowIndex_t* IndexRoot, u32 IndexCn
 		}
 	}
 
-	// save total merged flow count 
-	s_FlowCntSnapshotLast = IndexOut->FlowCntSnapshot;
 }
 
 //---------------------------------------------------------------------------------------------
@@ -917,7 +916,7 @@ void DecodePacket(	u32 CPUID,
 			FlowIndex_t* FlowIndexRoot = FlowIndex - CPUID;
 
 			// merge flows
-			FlowMerge(FlowIndex, FlowIndexRoot, s_FlowIndexSub);
+			//FlowMerge(FlowIndex, FlowIndexRoot, s_FlowIndexSub);
 
 			// dump flows
 			for (int i=0; i < FlowIndex->FlowCntSnapshot; i++)
@@ -925,6 +924,9 @@ void DecodePacket(	u32 CPUID,
 				FlowRecord_t* Flow = &FlowIndex->FlowList[i];	
 				FlowDump(Out, PktHeader->TS, Flow, i);
 			}
+
+			// save total merged flow count 
+			s_FlowCntSnapshotLast = FlowIndex->FlowCntSnapshot;
 
 			// reset is done per cpu in the worker thread
 			// keep all writes to that memory on the same CPU 
@@ -969,11 +971,15 @@ void Flow_PacketQueue(PacketBuffer_t* Pkt)
 		// as this is the singled threaded serialized
 		// entry point, can flag it here instead of
 		// in the worker threads
-		static u64 LastPacketTS = 0;
-		s64 dTS = Pkt->TSLast - LastPacketTS;
+		if (s_FlowSampleTSLast  == 0)
+		{
+			s_FlowSampleTSLast  = (u64)(Pkt->TSLast / g_FlowSampleRate) * g_FlowSampleRate;
+		}
+
+		s64 dTS = Pkt->TSLast - s_FlowSampleTSLast;
 		if (dTS > g_FlowSampleRate)
 		{
-			LastPacketTS 			= Pkt->TSLast;
+			s_FlowSampleTSLast 		+= g_FlowSampleRate; 
 			Pkt->IsFlowIndexDump	 = true;
 
 			// next flow structure. means all the  
