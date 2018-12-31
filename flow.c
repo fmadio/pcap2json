@@ -1272,6 +1272,13 @@ void Flow_Open(struct Output_t* Out, s32* CPUMap)
 // shutdown / flush
 void Flow_Close(struct Output_t* Out, u64 LastTS)
 {
+	// push a flush packet
+	// this ensures the last flow data gets flushed to the output queue
+	// in a fully pipelined manner 
+	PacketBuffer_t*	PktBlock 	= Flow_PacketAlloc();
+	PktBlock->IsFlowIndexDump	= false;
+	Flow_PacketQueue(PktBlock);
+
 	// wait for all queues to drain
 	u32 Timeout = 0;
 	while (s_DecodeQueuePut != s_DecodeQueueGet)
@@ -1279,24 +1286,14 @@ void Flow_Close(struct Output_t* Out, u64 LastTS)
 		usleep(0);
 		assert(Timeout++ < 1e6);
 	}
-/*
-	// output last flow data
-	if (g_IsJSONFlow)
-	{
-		for (int j=0; j < s_FlowIndexMax; j++)
-		{
-			FlowIndex_t* FlowIndex = &s_FlowIndex[j];
-			for (int i=0; i < FlowIndex->FlowCntSnapshot; i++)
-			{
-				FlowRecord_t* Flow = &FlowIndex->FlowList[i];	
-				FlowDump(Out, LastTS, Flow, i);
-			}
-			printf("Total Flows: %i\n", FlowIndex->FlowCntSnapshot);
-		}
-	}
-*/
+
 	printf("QueueCnt : %lli\n", s_PacketQueueCnt);	
 	printf("DecodeCnt: %lli\n", s_PacketDecodeCnt);	
+
+	pthread_join(&s_DecodeThread[0]);
+	pthread_join(&s_DecodeThread[1]);
+	pthread_join(&s_DecodeThread[2]);
+	pthread_join(&s_DecodeThread[3]);
 }
 
 //---------------------------------------------------------------------------------------------
