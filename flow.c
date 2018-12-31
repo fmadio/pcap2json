@@ -161,6 +161,9 @@ extern u8				g_DeviceName[128];
 
 //---------------------------------------------------------------------------------------------
 // static
+
+static volatile bool			s_Exit = false;
+
 static u32						s_FlowCntSnapshotLast = 0;				// last total flows in the last snapshot
 
 static u32						s_FlowIndexMax		= 16;
@@ -1029,7 +1032,7 @@ void* Flow_Worker(void* User)
 	FlowIndex_t* FlowIndexLast = NULL;
 
 	printf("Start decoder thread: %i\n", CPUID);
-	while (true)
+	while (!s_Exit)
 	{
 		u64 TSC0 = rdtsc();
 
@@ -1286,14 +1289,17 @@ void Flow_Close(struct Output_t* Out, u64 LastTS)
 		usleep(0);
 		assert(Timeout++ < 1e6);
 	}
+	s_Exit = true;
 
 	printf("QueueCnt : %lli\n", s_PacketQueueCnt);	
 	printf("DecodeCnt: %lli\n", s_PacketDecodeCnt);	
 
-	pthread_join(&s_DecodeThread[0]);
-	pthread_join(&s_DecodeThread[1]);
-	pthread_join(&s_DecodeThread[2]);
-	pthread_join(&s_DecodeThread[3]);
+	pthread_join(s_DecodeThread[0], NULL);
+	pthread_join(s_DecodeThread[1], NULL);
+	pthread_join(s_DecodeThread[2], NULL);
+	pthread_join(s_DecodeThread[3], NULL);
+
+	printf("Flow Close\n");
 }
 
 //---------------------------------------------------------------------------------------------

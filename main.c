@@ -895,6 +895,9 @@ int main(int argc, u8* argv[])
 	// flush any remaining flows
 	Flow_Close(Out, PacketTSLast);
 
+	// shutdown/flush the output
+	Output_Close(Out);
+
 	ProfileDump(Out);
 
 	// final stats

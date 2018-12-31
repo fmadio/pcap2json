@@ -118,6 +118,8 @@ static void* Output_Worker(void * user);
 
 extern bool g_Verbose;
 
+static volatile bool		s_Exit = false;
+
 //-------------------------------------------------------------------------------------------
 
 Output_t* Output_Create(bool IsNULL, 
@@ -620,6 +622,18 @@ void BulkUpload(Output_t* Out, u32 BufferIndex, u32 CPUID)
 
 void Output_Close(Output_t* Out)
 {
+	// wait for workers to output 
+	while (Out->BufferGet != Out->BufferPut)
+	{
+		usleep(0);
+	}
+	s_Exit = true;
+
+	for (int i=0; i < Out->CPUActiveCnt; i++)
+	{
+		pthread_join(Out->PushThread[i], NULL);
+	}
+	printf("Output Close\n");
 }
 
 //-------------------------------------------------------------------------------------------
@@ -745,7 +759,7 @@ static void* Output_Worker(void * user)
 
 	// allocate a CPU number
 	u32 CPUID = __sync_fetch_and_add(&Out->CPUActiveCnt, 1);
-	while (true)
+	while (!s_Exit)
 	{
 		u64 TSC0 = rdtsc(); 
 		u32 Get = Out->BufferGet;
