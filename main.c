@@ -89,6 +89,9 @@ bool			g_ESCompress		= false;			// elastic push enable compression
 u8 				g_CaptureName[256];						// name of the capture / index to push to
 u8				g_DeviceName[128];						// name of the device this is sourced from
 
+u64				s_TotalPkt			= 0;				// total packets processed
+u64				s_TotalByte			= 0;				// total bytes processed
+
 //---------------------------------------------------------------------------------------------
 
 static u32				s_PacketSizeHistoBin = 32;		// max index (not in byte)
@@ -498,25 +501,37 @@ static void ProfileDump(struct Output_t* Out)
 							&OutputPendingByte);
 
 	fprintf(stderr, "Output Worker CPU\n");
-	fprintf(stderr, "  Top     : %.6f\n", OutputWorkerCPU);
-	fprintf(stderr, "  Compress: %.6f\n", OutputWorkerCPUCompress);
-	fprintf(stderr, "  Send    : %.6f\n", OutputWorkerCPUSend);
-	fprintf(stderr, "  Recv    : %.6f\n", OutputWorkerCPURecv);
-	fprintf(stderr, "  Total   : %.6f sec\n", tsc2ns(OutputTotalCycle)/1e9 );
-	fprintf(stderr, "  Pending : %.6f MB\n", OutputPendingByte / 1e6); 
+	fprintf(stderr, "  Top      : %.6f\n", OutputWorkerCPU);
+	fprintf(stderr, "  Compress : %.6f\n", OutputWorkerCPUCompress);
+	fprintf(stderr, "  Send     : %.6f\n", OutputWorkerCPUSend);
+	fprintf(stderr, "  Recv     : %.6f\n", OutputWorkerCPURecv);
+	fprintf(stderr, "  Total    : %.6f sec\n", tsc2ns(OutputTotalCycle)/1e9 );
+	fprintf(stderr, "  Pending  : %.6f MB\n", OutputPendingByte / 1e6); 
 	fprintf(stderr, "\n");
 
 	u64 FlowCntTotal = 0;
 	float FlowCPUDecode = 0;
 	float FlowCPUHash = 0;
 	float FlowCPUOutput = 0;
-	Flow_Stats(true, NULL, &FlowCntTotal, &FlowCPUDecode, &FlowCPUHash, &FlowCPUOutput);
+	float FlowCPUOStall = 0;
+	Flow_Stats(true, 
+				NULL, 
+				&FlowCntTotal, 
+				&FlowCPUDecode, 
+				&FlowCPUHash, 
+				&FlowCPUOutput, 
+				&FlowCPUOStall);
 
 	fprintf(stderr, "Flow:\n");
-	fprintf(stderr, "  Total   : %lli\n", FlowCntTotal);
-	fprintf(stderr, "  Process : %.3f\n", FlowCPUDecode);
-	fprintf(stderr, "  Hash    : %.3f\n", FlowCPUHash);
-	fprintf(stderr, "  Output  : %.3f\n", FlowCPUOutput);
+	fprintf(stderr, "  Process  : %.3f\n", FlowCPUDecode);
+	fprintf(stderr, "  Hash     : %.3f\n", FlowCPUHash);
+	fprintf(stderr, "  Output   : %.3f\n", FlowCPUOutput);
+	fprintf(stderr, "  OutStall : %.3f\n", FlowCPUOStall);
+	fprintf(stderr, "\n");
+
+	fprintf(stderr, "Packets    : %-lli\n", s_TotalPkt);
+	fprintf(stderr, "Flows      : %-lli\n", FlowCntTotal);
+	fprintf(stderr, "Pkt/Flow   : %.3f\n", s_TotalPkt * inverse(FlowCntTotal));
 	fprintf(stderr, "\n");
 
 	// packet size histogram
@@ -643,9 +658,6 @@ int main(int argc, u8* argv[])
 	u64 LastTSC			= rdtsc();
 	u64 LastTS			= 0;
 
-	u64 TotalByte		= 0;
-	u64 TotalPkt		= 0;
-
 	// output + add all the ES targets
 	struct Output_t* Out = Output_Create(	g_Output_NULL,
 											g_Output_STDOUT, 
@@ -687,9 +699,9 @@ int main(int argc, u8* argv[])
 			u64 OutputByte = Output_TotalByteSent(Out);
 			u64 OutputLine = Output_TotalLine(Out);	
 
-			float bps = ((TotalByte - TotalByteLast) * 8.0) / (tsc2ns(TSC - LastTSC)/1e9); 
+			float bps = ((s_TotalByte - TotalByteLast) * 8.0) / (tsc2ns(TSC - LastTSC)/1e9); 
 			float lps = (OutputLine - OutputLineLast) / (tsc2ns(TSC - LastTSC)/1e9); 
-			float pps = (TotalPkt - TotalPktLast) / (tsc2ns(TSC - LastTSC)/1e9); 
+			float pps = (s_TotalPkt - TotalPktLast) / (tsc2ns(TSC - LastTSC)/1e9); 
 
 
 			// is it keeping up ? > 1.0 means it will lag
@@ -700,7 +712,7 @@ int main(int argc, u8* argv[])
 			float SamplePCAPWallTime 	= (PacketTSLast - PacketTSLastSample) / 1e9;
 			float SampleDecodeTime 		= (DecodeTime - DecodeTimeLast) / 1e9; 
 
-			float PCAPbps = ((TotalByte - TotalByteLast) * 8.0) / SamplePCAPWallTime; 
+			float PCAPbps = ((s_TotalByte - TotalByteLast) * 8.0) / SamplePCAPWallTime; 
 
 			float OutputWorkerCPU;
 			float OutputWorkerCPURecv;
@@ -709,13 +721,13 @@ int main(int argc, u8* argv[])
 
 			u32 FlowCntSnapshot;	
 			float FlowCPU;
-			Flow_Stats(false, &FlowCntSnapshot, NULL, &FlowCPU, NULL, NULL);
+			Flow_Stats(false, &FlowCntSnapshot, NULL, &FlowCPU, NULL, NULL, NULL);
 
 			fprintf(stderr, "[%s] In:%.3f GB %.2f Mpps %.2f Gbps PCAP: %6.2f Gbps | Out %.5f GB Flows/Snap: %6i FlowCPU:%.2f | ESPush:%6lli %6.2fK ESErr %4lli | OutCPU: %.2f (%.2f)\n", 
 
 								FormatTS(PacketTSLast),
 
-								(float)TotalByte / kGB(1), 
+								(float)s_TotalByte / kGB(1), 
 								pps / 1e6, 
 								bps / 1e9, 
 								PCAPbps / 1e9, 
@@ -731,8 +743,8 @@ int main(int argc, u8* argv[])
 			fflush(stderr);
 
 			LastTSC 			= TSC;
-			TotalByteLast		= TotalByte;
-			TotalPktLast		= TotalPkt;
+			TotalByteLast		= s_TotalByte;
+			TotalPktLast		= s_TotalPkt;
 		
 			OutputLineLast		= OutputLine;
 
@@ -872,8 +884,8 @@ int main(int argc, u8* argv[])
 
 		DecodeTimeTSC 	+= rdtsc() -  TSC0;
 
-		TotalPkt		+= PktCnt;
-		TotalByte		+= ByteWire; 
+		s_TotalPkt		+= PktCnt;
+		s_TotalByte		+= ByteWire; 
 
 		fProfile_Stop(0);
 	}
@@ -890,8 +902,8 @@ int main(int argc, u8* argv[])
 	u64 TS1 = clock_ns();
 	float dT = (TS1 - TS0) / 1e9;
 
-	float bps = (TotalByte * 8.0) / dT;
-	float pps = (TotalPkt * 8.0) / dT;
+	float bps = (s_TotalByte * 8.0) / dT;
+	float pps = (s_TotalPkt * 8.0) / dT;
 
 	float obps = (Output_TotalByteSent(Out) * 8.0) / dT;
 

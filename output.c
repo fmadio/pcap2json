@@ -116,6 +116,10 @@ static void* Output_Worker(void * user);
 
 //-------------------------------------------------------------------------------------------
 
+extern bool g_Verbose;
+
+//-------------------------------------------------------------------------------------------
+
 Output_t* Output_Create(bool IsNULL, 
 						bool IsSTDOUT, 
 						bool IsESOut, 
@@ -578,16 +582,20 @@ void BulkUpload(Output_t* Out, u32 BufferIndex, u32 CPUID)
 		}
 
 		// print full error response
-		printf("%s\n\n", RecvBuffer);
+		if (g_Verbose)
+			printf("%s\n\n", RecvBuffer);
 
 		// update error count
 		// NOTE: should really be an atomic update
 		Out->ESPushError[CPUID]++;
 
 		// print hexdump of send buffer
-		Hexdump("Header", 	Header, 	HeaderPos);
-		Hexdump("Raw",		B->Buffer, 	B->BufferPos);
-		Hexdump("Footer",   Footer, 	FooterPos);
+		if (g_Verbose)
+		{
+			Hexdump("Header", 	Header, 	HeaderPos);
+			Hexdump("Raw",		B->Buffer, 	B->BufferPos);
+			Hexdump("Footer",   Footer, 	FooterPos);
+		}	
 	}
 
 	// shutdown the socket	
@@ -659,8 +667,11 @@ u64 Output_ESPushCnt(Output_t* Out)
 
 //-------------------------------------------------------------------------------------------
 
-void Output_LineAdd(Output_t* Out, u8* Buffer, u32 BufferLen)
+u64 Output_LineAdd(Output_t* Out, u8* Buffer, u32 BufferLen)
 {
+	u64 TSC0 = 0;
+	u64 TSC1 = 0;
+
 	// multiple CPU call this function, ensure its
 	// mutually exclusive output
 	sync_lock(&Out->BufferLock, 50); 
@@ -702,12 +713,12 @@ void Output_LineAdd(Output_t* Out, u8* Buffer, u32 BufferLen)
 				// block until push has completed
 				// NOTE: there may be X buffers due to X workers in progress so add bit 
 				//       of extra padding in queuing behaviour
-				fProfile_Start(12, "Push Stall");
+				TSC0 = rdtsc();
 				while (((Out->BufferPut + Out->CPUActiveCnt + 4) & Out->BufferMask) == Out->BufferGet)
 				{
 					usleep(0);
 				}
-				fProfile_Stop(12);
+				TSC1 = rdtsc();
 
 				// add so the workers can push it
 				//BulkUpload(Out, Out->BufferPut);
@@ -722,6 +733,8 @@ void Output_LineAdd(Output_t* Out, u8* Buffer, u32 BufferLen)
 	Out->TotalLine++;
 
 	sync_unlock(&Out->BufferLock);
+
+	return TSC1 - TSC0;
 }
 
 //-------------------------------------------------------------------------------------------

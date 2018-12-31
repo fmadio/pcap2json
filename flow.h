@@ -47,6 +47,7 @@ typedef struct PacketBuffer_t
 	u32						BufferLength;		// length of valid data in buffer
 
 	bool					IsFlowIndexDump;	// time to dump the sample
+	u64						TSSnapshot;			// TS for the snapshot to be output
 	struct FlowIndex_t*		FlowIndex;			// which flow index to use
 
 	struct PacketBuffer_t*	FreeNext;			// next in free list
@@ -64,7 +65,8 @@ void 			Flow_Stats				(bool IsReset,
 										 u64* pFlowCntTotal,
 										 float* pCPUUse, 
 										 float* pCPUHash,
-										 float* pCPUOutput
+										 float* pCPUOutput,
+										 float* pCPUOStall
 										);
 
 void 			Flow_PacketQueue		(PacketBuffer_t* Pkt);

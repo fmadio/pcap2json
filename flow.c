@@ -131,6 +131,13 @@ typedef struct FlowIndex_t
 	u32						FlowLock;			// mutex to modify 
 
 	u64						FlowCntSnapshot;	// number of flows in this snapshot
+	u32						PktBlockCnt;		// current number of processes packet blocks 
+	u32						PktBlockMax;		// number of packet blocks in this index
+												// valid on root only
+
+	volatile bool			IsUse;
+
+	struct FlowIndex_t*		FreeNext;			// next in free list
 
 } FlowIndex_t;
 
@@ -154,13 +161,13 @@ extern u8				g_DeviceName[128];
 
 //---------------------------------------------------------------------------------------------
 // static
+static u32						s_FlowCntSnapshotLast = 0;				// last total flows in the last snapshot
 
 static u32						s_FlowIndexMax		= 16;
-static u32						s_FlowIndexPos		= 0;
-static u32						s_FlowIndexMsk		= 3;
 static u32						s_FlowIndexSub		= 4;				// number of sub slots, one per CPU worker 
 static FlowIndex_t				s_FlowIndex[128];
-static u32						s_FlowCntSnapshotLast = 0;				// last total flows in the last snapshot
+static u32						s_FlowIndexFreeLock	= 0;				// lock to access
+static FlowIndex_t*				s_FlowIndexFree		= NULL;				// free list
 
 static u64						s_FlowCntTotal		= 0;				// total number of active flows
 static u64						s_FlowSampleTSLast	= 0;				// last time the flow was sampled 
@@ -177,6 +184,7 @@ static u64						s_DecodeThreadTSCDecode[128];			// total cycles for decoding
 static u64						s_DecodeThreadTSCInsert[128];			// cycles spend in hash table lookup 
 static u64						s_DecodeThreadTSCHash[128];				// cycles spend hashing the flow 
 static u64						s_DecodeThreadTSCOutput[128];			// cycles spent in output logic 
+static u64						s_DecodeThreadTSCOStall[128];			// cycles spent waiting for an FlowIndex alloc 
 
 static volatile u32				s_DecodeQueuePut 	= 0;				// put/get processing queue
 static volatile u32				s_DecodeQueueGet 	= 0;
@@ -248,11 +256,51 @@ static FlowRecord_t* FlowAlloc(FlowIndex_t* FlowIndex, FlowRecord_t* F)
 }
 
 //---------------------------------------------------------------------------------------------
-// clear out the flow records 
-static void FlowReset(FlowIndex_t* FlowIndex)
+// free a flow index 
+static void FlowIndexFree(FlowIndex_t* FlowIndexRoot)
 {
-	memset(FlowIndex->FlowHash, 0, sizeof(FlowRecord_t*) * (2 << 20) );
-	FlowIndex->FlowCntSnapshot = 0;
+	for (int i=0; i < s_FlowIndexSub; i++)
+	{
+		FlowIndex_t* FlowIndex = FlowIndexRoot + i;
+
+		memset(FlowIndex->FlowHash, 0, sizeof(FlowRecord_t*) * (2 << 20) );
+		FlowIndex->FlowCntSnapshot = 0;
+
+		FlowIndex->PktBlockCnt 	= 0;
+		FlowIndex->PktBlockMax 	= 0;
+
+		FlowIndex->IsUse 		= false;
+	}
+
+	// append the root FlowIndex into the alloc list
+	sync_lock(&s_FlowIndexFreeLock, 100);
+	{
+		FlowIndexRoot->FreeNext = s_FlowIndexFree;
+		s_FlowIndexFree			= FlowIndexRoot;
+	}
+	sync_unlock(&s_FlowIndexFreeLock);
+}
+
+// allocate a root flow index
+static FlowIndex_t* FlowIndexAlloc(void)
+{
+	FlowIndex_t* F = NULL;
+	while (!F)
+	{
+		sync_lock(&s_FlowIndexFreeLock, 100);
+		{
+
+			F = s_FlowIndexFree;
+			if (F)
+			{
+				s_FlowIndexFree = F->FreeNext;
+			}
+		}
+		sync_unlock(&s_FlowIndexFreeLock);
+	}
+	F->IsUse = true;
+
+	return F;
 }
 
 //---------------------------------------------------------------------------------------------
@@ -408,9 +456,8 @@ static void FlowInsert(u32 CPUID, FlowIndex_t* FlowIndex, FlowRecord_t* FlowPkt,
 // write a flow record out as a JSON file
 // this is designed for ES bulk data upload using the 
 // mappings.json file as the index 
-static u32 FlowDump(struct Output_t* Out, u64 TS, FlowRecord_t* Flow, u32 FlowID) 
+static u64 FlowDump(struct Output_t* Out, u64 TS, FlowRecord_t* Flow, u32 FlowID) 
 {
-
 	u8 OutputStr[1024];
 	u8* Output 		= OutputStr;
 	u8* OutputStart = Output;
@@ -604,7 +651,7 @@ static u32 FlowDump(struct Output_t* Out, u64 TS, FlowRecord_t* Flow, u32 FlowID
 
 	u32 OutputLen = Output - OutputStart;
 
-	Output_LineAdd(Out, OutputStart, OutputLen);
+	return Output_LineAdd(Out, OutputStart, OutputLen);
 }
 
 //---------------------------------------------------------------------------------------------
@@ -644,7 +691,6 @@ static void FlowMerge(FlowIndex_t* IndexOut, FlowIndex_t* IndexRoot, u32 IndexCn
 			}
 		}
 	}
-
 }
 
 //---------------------------------------------------------------------------------------------
@@ -654,8 +700,7 @@ static void FlowMerge(FlowIndex_t* IndexOut, FlowIndex_t* IndexRoot, u32 IndexCn
 void DecodePacket(	u32 CPUID,
 					struct Output_t* Out, 
 					FMADPacket_t* PktHeader, 
-					FlowIndex_t* FlowIndex,
-					bool IsFlowIndexDump)
+					FlowIndex_t* FlowIndex)
 {
 	FlowRecord_t	sFlow;	
 	FlowRecord_t*	FlowPkt = &sFlow;	
@@ -663,14 +708,14 @@ void DecodePacket(	u32 CPUID,
 
 	// assume single packet flow
 	FlowPkt->TotalPkt	 	= 1;
-	FlowPkt->TotalByte 	= PktHeader->LengthWire;
+	FlowPkt->TotalByte 		= PktHeader->LengthWire;
 
 	// ether header info
-	fEther_t* Ether = (fEther_t*)(PktHeader + 1);	
-	u8* Payload 	= (u8*)(Ether + 1);
-	u16 EtherProto 	= swap16(Ether->Proto);
+	fEther_t* Ether 		= (fEther_t*)(PktHeader + 1);	
+	u8* Payload 			= (u8*)(Ether + 1);
+	u16 EtherProto 			= swap16(Ether->Proto);
 
-	FlowPkt->EtherProto	= EtherProto;
+	FlowPkt->EtherProto		= EtherProto;
 	FlowPkt->EtherSrc[0]	= Ether->Src[0];
 	FlowPkt->EtherSrc[1]	= Ether->Src[1];
 	FlowPkt->EtherSrc[2]	= Ether->Src[2];
@@ -684,7 +729,7 @@ void DecodePacket(	u32 CPUID,
 	FlowPkt->EtherDst[3]	= Ether->Dst[3];
 	FlowPkt->EtherDst[4]	= Ether->Dst[4];
 	FlowPkt->EtherDst[5]	= Ether->Dst[5];
-	
+
 	// VLAN decoder
 	if (EtherProto == ETHER_PROTO_VLAN)
 	{
@@ -877,7 +922,6 @@ void DecodePacket(	u32 CPUID,
 	// NOTE: FlowPktRecord_t setup so the first 64B contains only the flow info
 	//       with packet and housekeeping info stored after. sha1_compress
 	//       runs on the first 64B only 
-
 	u64 TSC0 = rdtsc();
 
 	u32 SHA1State[5] = { 0, 0, 0, 0, 0 };
@@ -897,50 +941,18 @@ void DecodePacket(	u32 CPUID,
 	{
 		FlowDump(Out, PktHeader->TS, FlowPkt, 0);
 	}
-
 	// update the flow records
 	if (g_IsJSONFlow)
 	{
 		// insert to flow table
 		// NOTE: each CPU has its own FlowIndex no need to lock it 
 		FlowInsert(CPUID, FlowIndex, FlowPkt, SHA1State, PktHeader->LengthWire, PktHeader->TS);
-
-		// flow snapshot dump triggered by Flow_PacketQueue
-		// as its serialized and single threaded
-		if (IsFlowIndexDump)
-		{
-			// write to output
-			u64 TSC0 = rdtsc();
-
-			// merge everything into this CPUs index 
-			FlowIndex_t* FlowIndexRoot = FlowIndex - CPUID;
-
-			// merge flows
-			//FlowMerge(FlowIndex, FlowIndexRoot, s_FlowIndexSub);
-
-			// dump flows
-			for (int i=0; i < FlowIndex->FlowCntSnapshot; i++)
-			{
-				FlowRecord_t* Flow = &FlowIndex->FlowList[i];	
-				FlowDump(Out, PktHeader->TS, Flow, i);
-			}
-
-			// save total merged flow count 
-			s_FlowCntSnapshotLast = FlowIndex->FlowCntSnapshot;
-
-			// reset is done per cpu in the worker thread
-			// keep all writes to that memory on the same CPU 
-			for (int i=0; i < s_FlowIndexSub; i++)
-			{
-				FlowReset(FlowIndexRoot + i);
-			}
-			s_DecodeThreadTSCOutput[CPUID] += rdtsc() - TSC0;
-		}
 	}
 }
 
 //---------------------------------------------------------------------------------------------
 // queue a packet for processing 
+static FlowIndex_t* s_FlowIndexQueue = NULL;
 void Flow_PacketQueue(PacketBuffer_t* Pkt)
 {
 	// multi-core version
@@ -958,14 +970,22 @@ void Flow_PacketQueue(PacketBuffer_t* Pkt)
 		// add to processing queue
 		s_DecodeQueue[s_DecodeQueuePut & s_DecodeQueueMsk] 	= Pkt;
 
-		// flow index
-		// NOTE: one index per CPU worker, thus the FlowIndexSub
-		//       so there is no coherencey conflicts between workers
-		//       and no mutual exclusive locks
+		// allocate a new flow
+		if (s_FlowIndexQueue == NULL)
+		{
+			s_FlowIndexQueue = FlowIndexAlloc();
+		}
+
+		// set the flow index
 		Pkt->IsFlowIndexDump	 = false;
-		Pkt->FlowIndex			 = &s_FlowIndex[s_FlowIndexPos * s_FlowIndexSub];
+		Pkt->FlowIndex			 = s_FlowIndexQueue; 
 
 		Pkt->ID					= s_DecodeQueuePut;
+
+		// set the total number of pktblocks for this index
+		// so merge thread can block until all pktblocks have finished
+		// processing
+		Pkt->FlowIndex->PktBlockMax	+= 1;
 
 		// purge the flow records every 100msec
 		// as this is the singled threaded serialized
@@ -976,20 +996,18 @@ void Flow_PacketQueue(PacketBuffer_t* Pkt)
 			s_FlowSampleTSLast  = (u64)(Pkt->TSLast / g_FlowSampleRate) * g_FlowSampleRate;
 		}
 
+		// time to dump the index
 		s64 dTS = Pkt->TSLast - s_FlowSampleTSLast;
 		if (dTS > g_FlowSampleRate)
 		{
-			s_FlowSampleTSLast 		+= g_FlowSampleRate; 
-			Pkt->IsFlowIndexDump	 = true;
+			Pkt->IsFlowIndexDump	= true;
+			Pkt->TSSnapshot	 		= s_FlowSampleTSLast;
 
-			// next flow structure. means all the  
-			// flow workers dont get blocked when an flow dump
-			// is triggered. as the mutual exclusion locks are
-			// per flow index
-			//
-			// no need for flow control, as there are more flow indexs
-			// than there are worker threads
-			s_FlowIndexPos 			= (s_FlowIndexPos + 1) & s_FlowIndexMsk;
+			// add next snapshot time 
+			s_FlowSampleTSLast 		+= g_FlowSampleRate; 
+
+			// force new allocation on next Queue 
+			s_FlowIndexQueue = NULL;
 		}
 
 		s_DecodeQueuePut++;
@@ -1024,7 +1042,6 @@ void* Flow_Worker(void* User)
 		}
 		else
 		{
-
 			// fetch the to be processed pkt *before* atomic lock 
 			PacketBuffer_t* PktBlock = (PacketBuffer_t*)s_DecodeQueue[Get & s_DecodeQueueMsk];
 			assert(PktBlock != NULL);
@@ -1035,17 +1052,20 @@ void* Flow_Worker(void* User)
 // back pressure testing
 //u32 delay =  ((u64)rand() * 10000000ULL) / (u64)RAND_MAX; 
 //ndelay(delay);
-
 				u64 TSC2 = rdtsc();
 
 				// ensure no sync problems
 				assert(PktBlock->ID == Get);
 
+				// root index
+				FlowIndex_t* FlowIndexRoot = PktBlock->FlowIndex;
+
 				// assigned index to add the packet to
-				FlowIndex_t* FlowIndex = PktBlock->FlowIndex + CPUID; 
+				FlowIndex_t* FlowIndex = FlowIndexRoot + CPUID; 
 
 				// process all packets in this block 
 				u32 Offset = 0;
+				u64 TSLast = 0;
 				for (int i=0; i < PktBlock->PktCnt; i++)
 				{
 					FMADPacket_t* PktHeader = (FMADPacket_t*)(PktBlock->Buffer + Offset);
@@ -1057,15 +1077,55 @@ void* Flow_Worker(void* User)
 					assert(PktHeader->LengthWire    < 16*1024);
 					assert(PktHeader->LengthCapture < 16*1024);
 
-					bool FlowIndexDump = false;
-					if ((i == PktBlock->PktCnt-1) && (PktBlock->IsFlowIndexDump))
+					// process the packet
+					DecodePacket(CPUID, s_Output, PktHeader, FlowIndex);
+
+					// save the last timesamp
+				}
+
+				// output the snapshot  
+				if (g_IsJSONFlow & PktBlock->IsFlowIndexDump)
+				{
+					// write to output
+					u64 TSC0 = rdtsc();
+
+					// wait for all workers to complete
+					// ensures workers processing on Indexs 
+					// that need to be aggregated into this one
+					// have completed processing
+					while (FlowIndexRoot->PktBlockCnt < FlowIndexRoot->PktBlockMax - 1)
 					{
-						FlowIndexDump = true;
+						usleep(0);
 					}
 
-					// process the packet
-					DecodePacket(CPUID, s_Output, PktHeader, FlowIndex, FlowIndexDump);
+					// merge everything into this CPUs index 
+					// merge flows
+					FlowMerge(FlowIndex, FlowIndexRoot, s_FlowIndexSub);
+
+
+					// dump flows
+					u64 StallTSC = 0;
+					for (int i=0; i < FlowIndex->FlowCntSnapshot; i++)
+					{
+						FlowRecord_t* Flow = &FlowIndex->FlowList[i];	
+						StallTSC += FlowDump(s_Output, PktBlock->TSSnapshot, Flow, i);
+					}
+					s_DecodeThreadTSCOStall[CPUID] += StallTSC;
+
+					// save total merged flow count 
+					s_FlowCntSnapshotLast = FlowIndex->FlowCntSnapshot;
+
+					// sanity check
+					assert(FlowIndexRoot->IsUse == true); 
+
+					// release the root index + cpu subs 
+					FlowIndexFree(FlowIndexRoot);
+
+					s_DecodeThreadTSCOutput[CPUID] += rdtsc() - TSC0;
 				}
+
+				// update pktblock count for the root index
+				__sync_fetch_and_add(&FlowIndexRoot->PktBlockCnt, 1);
 
 				// release buffer
 				Flow_PacketFree(PktBlock);
@@ -1077,12 +1137,10 @@ void* Flow_Worker(void* User)
 				u64 TSC3 = rdtsc();
 				s_DecodeThreadTSCDecode[CPUID] += TSC3 - TSC2;
 			}
-
 		}
 
 		u64 TSC1 = rdtsc();
 		s_DecodeThreadTSCTop[CPUID] += TSC1 - TSC0;
-
 	}
 }
 
@@ -1184,7 +1242,6 @@ void Flow_Open(struct Output_t* Out, s32* CPUMap)
 	}
 
 	s_FlowIndexMax = 4 * CPUCnt; 
-	s_FlowIndexMsk = 3; 
 	s_FlowIndexSub = CPUCnt; 
 
 	// allocate flow indexes
@@ -1202,11 +1259,13 @@ void Flow_Open(struct Output_t* Out, s32* CPUMap)
 		// allocate statically allocated flow list
 		FlowIndex->FlowList = (FlowRecord_t *)memalign (4096, sizeof(FlowRecord_t) * FlowIndex->FlowMax );
 		assert(FlowIndex->FlowList != NULL);
-
-		// reset flow info
-		FlowReset(FlowIndex);
 	}
-
+	// push to free list
+	for (int i=0; i < s_FlowIndexMax; i += s_FlowIndexSub)
+	{
+		FlowIndex_t* FlowIndex = &s_FlowIndex[i];
+		FlowIndexFree(FlowIndex);
+	}
 }
 
 //---------------------------------------------------------------------------------------------
@@ -1220,7 +1279,7 @@ void Flow_Close(struct Output_t* Out, u64 LastTS)
 		usleep(0);
 		assert(Timeout++ < 1e6);
 	}
-
+/*
 	// output last flow data
 	if (g_IsJSONFlow)
 	{
@@ -1235,7 +1294,7 @@ void Flow_Close(struct Output_t* Out, u64 LastTS)
 			printf("Total Flows: %i\n", FlowIndex->FlowCntSnapshot);
 		}
 	}
-
+*/
 	printf("QueueCnt : %lli\n", s_PacketQueueCnt);	
 	printf("DecodeCnt: %lli\n", s_PacketDecodeCnt);	
 }
@@ -1247,7 +1306,8 @@ void Flow_Stats(	bool IsReset,
 					u64* pFlowCntTotal, 
 					float * pCPUDecode,
 					float * pCPUHash,
-					float * pCPUOutput)
+					float * pCPUOutput,
+					float * pCPUOStall)
 {
 	if (pFlowCntSnapShot)	pFlowCntSnapShot[0] = s_FlowCntSnapshotLast;
 	if (pFlowCntTotal)		pFlowCntTotal[0]	= s_FlowCntTotal;
@@ -1256,12 +1316,14 @@ void Flow_Stats(	bool IsReset,
 	u64 DecodeTSC 	= 0;
 	u64 HashTSC  	= 0;
 	u64 OutputTSC	= 0;
+	u64 OStallTSC	= 0;
 	for (int i=0; i < s_DecodeCPUActive; i++)
 	{
 		TotalTSC 	+= s_DecodeThreadTSCTop		[i];
 		DecodeTSC 	+= s_DecodeThreadTSCDecode	[i];
 		HashTSC 	+= s_DecodeThreadTSCHash	[i];
 		OutputTSC 	+= s_DecodeThreadTSCOutput	[i];
+		OStallTSC 	+= s_DecodeThreadTSCOStall	[i];
 	}
 
 	if (IsReset)
@@ -1272,12 +1334,14 @@ void Flow_Stats(	bool IsReset,
 			s_DecodeThreadTSCDecode[i]	= 0;
 			s_DecodeThreadTSCHash[i]	= 0;
 			s_DecodeThreadTSCOutput[i]	= 0;
+			s_DecodeThreadTSCOStall[i]	= 0;
 		}
 	}
 
 	if (pCPUDecode) pCPUDecode[0] 	= DecodeTSC * inverse(TotalTSC);
-	if (pCPUHash) 	pCPUHash[0] 	= HashTSC * inverse(TotalTSC);
+	if (pCPUHash) 	pCPUHash[0] 	= HashTSC 	* inverse(TotalTSC);
 	if (pCPUOutput) pCPUOutput[0] 	= OutputTSC * inverse(TotalTSC);
+	if (pCPUOStall) pCPUOStall[0] 	= OStallTSC	* inverse(TotalTSC);
 }
 
 /* vim: set ts=4 sts=4 */
