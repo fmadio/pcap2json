@@ -828,7 +828,6 @@ void DecodePacket(	u32 CPUID,
 	if (EtherProto == ETHER_PROTO_IPV4)
 	{
 		IP4Header_t* IP4 = (IP4Header_t*)Payload;
-
 		FlowPkt->IPSrc[0] = IP4->Src.IP[0];	
 		FlowPkt->IPSrc[1] = IP4->Src.IP[1];	
 		FlowPkt->IPSrc[2] = IP4->Src.IP[2];	
@@ -849,66 +848,72 @@ void DecodePacket(	u32 CPUID,
 		{
 			TCPHeader_t* TCP = (TCPHeader_t*)(Payload + IPOffset);
 
-			FlowPkt->PortSrc	= swap16(TCP->PortSrc);
-			FlowPkt->PortDst	= swap16(TCP->PortDst);
-
-			// make a copy of the tcp header 
-			FlowPkt->TCPHeader = TCP[0];
-
-			// payload length
-			u32 TCPOffset = ((TCP->Flags&0xf0)>>4)*4;
-			FlowPkt->TCPLength =  swap16(IP4->Len) - IPOffset - TCPOffset;
-
-			// check for options
-			if (TCPOffset > 20)
+			// ensure TCP data is valid and not hashing 
+			// random data in memeory
+			if (((u8*)TCP - (u8*)Ether) + sizeof(TCPHeader_t) < PktHeader->LengthCapture)
 			{
-				bool IsDone = false;
-				u8* Options = (u8*)(TCP + 1);	
-				while ( (Options - (u8*)TCP) < TCPOffset) 
+				FlowPkt->PortSrc	= swap16(TCP->PortSrc);
+				FlowPkt->PortDst	= swap16(TCP->PortDst);
+
+				// make a copy of the tcp header 
+				FlowPkt->TCPHeader = TCP[0];
+
+				// payload length
+				u32 TCPOffset = ((TCP->Flags&0xf0)>>4)*4;
+				FlowPkt->TCPLength =  swap16(IP4->Len) - IPOffset - TCPOffset;
+
+				// check for options
+				if (TCPOffset > 20)
 				{
-					if (IsDone) break;
-
-					u32 Cmd = Options[0];
-					u32 Len = Options[1];
-
-					switch (Cmd)
+					bool IsDone = false;
+					u8* Options = (u8*)(TCP + 1);	
+					while ( (Options - (u8*)TCP) < TCPOffset) 
 					{
-					// end of list 
-					case 0x0:
-						IsDone = true;
-						break;
+						if (IsDone) break;
 
-					// NOP 
-					case 0x1: break;
+						u32 Cmd = Options[0];
+						u32 Len = Options[1];
 
-					// MSS
-					case 0x2: break;
+						switch (Cmd)
+						{
+						// end of list 
+						case 0x0:
+							IsDone = true;
+							break;
 
-					// Window Scale
-					case 0x3:
-						//printf("Window Scale: %i\n", Options[2]);
-						FlowPkt->TCPWindowScale = Options[2];
-						break;
+						// NOP 
+						case 0x1: break;
 
-					// SACK
-					case 0x5:
-						FlowPkt->TCPIsSACK = true;
-						break;
+						// MSS
+						case 0x2: break;
 
-					// TSOpt
-					case 0x8: 
-						//printf("TCP Option TS\n");
-						break;
+						// Window Scale
+						case 0x3:
+							//printf("Window Scale: %i\n", Options[2]);
+							FlowPkt->TCPWindowScale = Options[2];
+							break;
 
-					default:
-						//printf("option: %i : %i\n", Cmd, Len); 
-						break;
+						// SACK
+						case 0x5:
+							FlowPkt->TCPIsSACK = true;
+							break;
+
+						// TSOpt
+						case 0x8: 
+							//printf("TCP Option TS\n");
+							break;
+
+						default:
+							//printf("option: %i : %i\n", Cmd, Len); 
+							break;
+						}
+						Options += 1 + Len;
 					}
-					Options += 1 + Len;
 				}
 			}
 		}
 		break;
+
 		case IPv4_PROTO_UDP:
 		{
 			UDPHeader_t* UDP = (UDPHeader_t*)(Payload + IPOffset);
