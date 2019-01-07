@@ -146,13 +146,6 @@ typedef struct FlowIndex_t
 extern bool				g_IsJSONPacket;
 extern bool				g_IsJSONFlow;
 
-extern bool				g_JSONEnb_MAC;
-extern bool				g_JSONEnb_VLAN;
-extern bool				g_JSONEnb_MPLS;
-extern bool				g_JSONEnb_IPV4;
-extern bool				g_JSONEnb_UDP;
-extern bool				g_JSONEnb_TCP;
-
 extern  s64				g_FlowSampleRate;
 extern bool				g_IsFlowNULL;
 
@@ -480,167 +473,149 @@ static u64 FlowDump(struct Output_t* Out, u64 TS, FlowRecord_t* Flow, u32 FlowID
 																	Flow->SHA1[3],
 																	Flow->SHA1[4]);
 
-	if (g_JSONEnb_MAC)
+	Output += sprintf(Output, ",\"MACSrc\":\"%02x:%02x:%02x:%02x:%02x:%02x\",\"MACDst\":\"%02x:%02x:%02x:%02x:%02x:%02x\"",
+
+														Flow->EtherSrc[0],
+														Flow->EtherSrc[1],
+														Flow->EtherSrc[2],
+														Flow->EtherSrc[3],
+														Flow->EtherSrc[4],
+														Flow->EtherSrc[5],
+
+														Flow->EtherDst[0],
+														Flow->EtherDst[1],
+														Flow->EtherDst[2],
+														Flow->EtherDst[3],
+														Flow->EtherDst[4],
+														Flow->EtherDst[5]
+	);
+
+	// output human readable Ether protocol info
+	u8 MACProto[128];
+	switch (Flow->EtherProto)
 	{
-		Output += sprintf(Output, ",\"MACSrc\":\"%02x:%02x:%02x:%02x:%02x:%02x\",\"MACDst\":\"%02x:%02x:%02x:%02x:%02x:%02x\"",
-
-															Flow->EtherSrc[0],
-															Flow->EtherSrc[1],
-															Flow->EtherSrc[2],
-															Flow->EtherSrc[3],
-															Flow->EtherSrc[4],
-															Flow->EtherSrc[5],
-
-															Flow->EtherDst[0],
-															Flow->EtherDst[1],
-															Flow->EtherDst[2],
-															Flow->EtherDst[3],
-															Flow->EtherDst[4],
-															Flow->EtherDst[5]
-		);
-
-		// output human readable Ether protocol info
-		u8 MACProto[128];
-		switch (Flow->EtherProto)
-		{
-		case ETHER_PROTO_ARP:
-			strcpy(MACProto, "ARP");
-			break;
-		case ETHER_PROTO_IPV4:
-			strcpy(MACProto, "IPv4");
-			break;
-		case ETHER_PROTO_IPV6:
-			strcpy(MACProto, "IPv6");
-			break;
-		case ETHER_PROTO_VLAN:
-			strcpy(MACProto, "VLAN");
-			break;
-		case ETHER_PROTO_VNTAG:
-			strcpy(MACProto, "VNTAG");
-			break;
-		case ETHER_PROTO_MPLS:
-			strcpy(MACProto, "MPLS");
-			break;
-		default:
-			sprintf(MACProto, "%04x", Flow->EtherProto);
-			break;
-		}
-		Output += sprintf(Output, ",\"MACProto\":\"%s\"", MACProto); 
+	case ETHER_PROTO_ARP:
+		strcpy(MACProto, "ARP");
+		break;
+	case ETHER_PROTO_IPV4:
+		strcpy(MACProto, "IPv4");
+		break;
+	case ETHER_PROTO_IPV6:
+		strcpy(MACProto, "IPv6");
+		break;
+	case ETHER_PROTO_VLAN:
+		strcpy(MACProto, "VLAN");
+		break;
+	case ETHER_PROTO_VNTAG:
+		strcpy(MACProto, "VNTAG");
+		break;
+	case ETHER_PROTO_MPLS:
+		strcpy(MACProto, "MPLS");
+		break;
+	default:
+		sprintf(MACProto, "%04x", Flow->EtherProto);
+		break;
 	}
+	Output += sprintf(Output, ",\"MACProto\":\"%s\"", MACProto); 
 
 	// print VLAN is valid
-	if (g_JSONEnb_VLAN)
+	if (Flow->VLAN[0] != 0)
 	{
-		if (Flow->VLAN[0] != 0)
-		{
-			Output += sprintf(Output, ",\"VLAN.0\":%i",  Flow->VLAN[0]);
-		}
-		if (Flow->VLAN[1] != 0)
-		{
-			Output += sprintf(Output, ",\"VLAN.1\":%i",  Flow->VLAN[1]);
-		}
+		Output += sprintf(Output, ",\"VLAN.0\":%i",  Flow->VLAN[0]);
+	}
+	if (Flow->VLAN[1] != 0)
+	{
+		Output += sprintf(Output, ",\"VLAN.1\":%i",  Flow->VLAN[1]);
 	}
 
 	// print MPLS info
-	if (g_JSONEnb_MPLS)
+	if (Flow->MPLS[0])
 	{
-		if (Flow->MPLS[0])
-		{
-			Output += sprintf(Output, ",\"MPLS.0.Label\":%i, \"MPLS.0.TC\":%i",  Flow->MPLS[0], Flow->MPLStc[0]);
-		}
-		if (Flow->MPLS[1])
-		{
-			Output += sprintf(Output, ",\"MPLS.1.Label\":%i, \"MPLS.1.TC\":%i",  Flow->MPLS[1], Flow->MPLStc[1]);
-		}
+		Output += sprintf(Output, ",\"MPLS.0.Label\":%i, \"MPLS.0.TC\":%i",  Flow->MPLS[0], Flow->MPLStc[0]);
+	}
+	if (Flow->MPLS[1])
+	{
+		Output += sprintf(Output, ",\"MPLS.1.Label\":%i, \"MPLS.1.TC\":%i",  Flow->MPLS[1], Flow->MPLStc[1]);
 	}
 
 	// IPv4 proto info
 	if (Flow->EtherProto ==  ETHER_PROTO_IPV4)
 	{
-		if (g_JSONEnb_IPV4)
+		Output += sprintf(Output, ",\"IPv4.Src\":\"%i.%i.%i.%i\",\"IPv4.Dst\":\"%i.%i.%i.%i\" ",
+											Flow->IPSrc[0],
+											Flow->IPSrc[1],
+											Flow->IPSrc[2],
+											Flow->IPSrc[3],
+
+											Flow->IPDst[0],
+											Flow->IPDst[1],
+											Flow->IPDst[2],
+											Flow->IPDst[3]
+		);
+
+		// convert to readable names for common protocols 
+		u8 IPProto[128];
+		switch (Flow->IPProto) 
 		{
-			Output += sprintf(Output, ",\"IPv4.Src\":\"%i.%i.%i.%i\",\"IPv4.Dst\":\"%i.%i.%i.%i\" ",
-												Flow->IPSrc[0],
-												Flow->IPSrc[1],
-												Flow->IPSrc[2],
-												Flow->IPSrc[3],
-
-												Flow->IPDst[0],
-												Flow->IPDst[1],
-												Flow->IPDst[2],
-												Flow->IPDst[3]
-			);
-
-			// convert to readable names for common protocols 
-			u8 IPProto[128];
-			switch (Flow->IPProto) 
-			{
-			case IPv4_PROTO_UDP:	strcpy(IPProto, "UDP");		break;
-			case IPv4_PROTO_TCP:	strcpy(IPProto, "TCP");		break;
-			case IPv4_PROTO_IGMP:	strcpy(IPProto, "IGMP"); 	break;
-			case IPv4_PROTO_ICMP:	strcpy(IPProto, "ICMP"); 	break;
-			case IPv4_PROTO_GRE:	strcpy(IPProto, "GRE"); 	break;
-			case IPv4_PROTO_VRRP:	strcpy(IPProto, "VRRP"); 	break;
-			default:
-				sprintf(IPProto, "%02x", Flow->IPProto);
-				break;
-			}
-			Output += sprintf(Output, ",\"IPv4.Proto\":\"%s\"", IPProto);
+		case IPv4_PROTO_UDP:	strcpy(IPProto, "UDP");		break;
+		case IPv4_PROTO_TCP:	strcpy(IPProto, "TCP");		break;
+		case IPv4_PROTO_IGMP:	strcpy(IPProto, "IGMP"); 	break;
+		case IPv4_PROTO_ICMP:	strcpy(IPProto, "ICMP"); 	break;
+		case IPv4_PROTO_GRE:	strcpy(IPProto, "GRE"); 	break;
+		case IPv4_PROTO_VRRP:	strcpy(IPProto, "VRRP"); 	break;
+		default:
+			sprintf(IPProto, "%02x", Flow->IPProto);
+			break;
 		}
+		Output += sprintf(Output, ",\"IPv4.Proto\":\"%s\"", IPProto);
 
 		// per protocol info
 		switch (Flow->IPProto)
 		{
 		case IPv4_PROTO_UDP:
 		{
-			if (g_JSONEnb_UDP)
-			{
-				Output += sprintf(Output, ",\"UDP.Port.Src\":%i,\"UDP.Port.Dst\":%i",
-													Flow->PortSrc,
-													Flow->PortDst	
-				);
-			}
+			Output += sprintf(Output, ",\"UDP.Port.Src\":%i,\"UDP.Port.Dst\":%i",
+												Flow->PortSrc,
+												Flow->PortDst	
+			);
 		}
 		break;
 
 		case IPv4_PROTO_TCP:
 		{
-			if (g_JSONEnb_TCP)
+			if (g_IsJSONPacket)
 			{
-				if (g_IsJSONPacket)
-				{
-					TCPHeader_t* TCP = &Flow->TCPHeader; 
-					u16 Flags = swap16(TCP->Flags);
-					Output += sprintf(Output,",\"TCP.SeqNo\":%u,\"TCP.AckNo\":%u,\"TCP.FIN\":%i,\"TCP.SYN\":%i,\"TCP.RST\":%i,\"TCP.PSH\":%i,\"TCP.ACK\":%i,\"TCP.Window\":%i",
-							swap32(TCP->SeqNo),
-							swap32(TCP->AckNo),
-							TCP_FLAG_FIN(Flags),
-							TCP_FLAG_SYN(Flags),
-							TCP_FLAG_RST(Flags),
-							TCP_FLAG_PSH(Flags),
-							TCP_FLAG_ACK(Flags),
-							swap16(TCP->Window)
-					);
-				}
-				else
-				{
-					Output += sprintf(Output,",\"TCP.FIN\":%i,\"TCP.SYN\":%i,\"TCP.RST\":%i,\"TCP.PSH\":%i,\"TCP.ACK\":%i,\"TCP.WindowMin\":%i,\"TCP.WindowMax\":%i,\"TCP.ACKDup\":%i,\"TCP.SACK\":%i",
-							Flow->TCPFINCnt,
-							Flow->TCPSYNCnt,
-							Flow->TCPRSTCnt,
-							Flow->TCPPSHCnt,
-							Flow->TCPACKCnt,
-							Flow->TCPWindowMin,
-							Flow->TCPWindowMax,
-							Flow->TCPACKDupCnt,
-							Flow->TCPSACKCnt
-					);
-				}
-				Output += sprintf(Output, ",\"TCP.Port.Src\":%i,\"TCP.Port.Dst\":%i",
-											Flow->PortSrc,
-											Flow->PortDst	
+				TCPHeader_t* TCP = &Flow->TCPHeader; 
+				u16 Flags = swap16(TCP->Flags);
+				Output += sprintf(Output,",\"TCP.SeqNo\":%u,\"TCP.AckNo\":%u,\"TCP.FIN\":%i,\"TCP.SYN\":%i,\"TCP.RST\":%i,\"TCP.PSH\":%i,\"TCP.ACK\":%i,\"TCP.Window\":%i",
+						swap32(TCP->SeqNo),
+						swap32(TCP->AckNo),
+						TCP_FLAG_FIN(Flags),
+						TCP_FLAG_SYN(Flags),
+						TCP_FLAG_RST(Flags),
+						TCP_FLAG_PSH(Flags),
+						TCP_FLAG_ACK(Flags),
+						swap16(TCP->Window)
 				);
 			}
+			else
+			{
+				Output += sprintf(Output,",\"TCP.FIN\":%i,\"TCP.SYN\":%i,\"TCP.RST\":%i,\"TCP.PSH\":%i,\"TCP.ACK\":%i,\"TCP.WindowMin\":%i,\"TCP.WindowMax\":%i,\"TCP.ACKDup\":%i,\"TCP.SACK\":%i",
+						Flow->TCPFINCnt,
+						Flow->TCPSYNCnt,
+						Flow->TCPRSTCnt,
+						Flow->TCPPSHCnt,
+						Flow->TCPACKCnt,
+						Flow->TCPWindowMin,
+						Flow->TCPWindowMax,
+						Flow->TCPACKDupCnt,
+						Flow->TCPSACKCnt
+				);
+			}
+			Output += sprintf(Output, ",\"TCP.Port.Src\":%i,\"TCP.Port.Dst\":%i",
+										Flow->PortSrc,
+										Flow->PortDst	
+			);
 		}
 		break;
 		}

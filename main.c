@@ -67,13 +67,6 @@ bool			g_IsJSONFlow		= false;			// output JSON flow format
 s64				g_FlowSampleRate	= 100e6;			// default to flow sample rate of 100msec
 bool			g_IsFlowNULL		= false;			// benchmarking NULL flow rate 
 
-bool			g_JSONEnb_MAC		= true;				// include the MAC address in JSON output
-bool			g_JSONEnb_VLAN		= true;				// include the VLAN in JSON output
-bool			g_JSONEnb_MPLS		= true;				// include the MPLS in JSON output
-bool			g_JSONEnb_IPV4		= true;				// include the IPV4 in JSON output
-bool			g_JSONEnb_UDP		= true;				// include the UDP in JSON output
-bool			g_JSONEnb_TCP		= true;				// include the UDP in JSON output
-
 bool			g_Output_NULL		= false;			// benchmarking mode output to /dev/null 
 bool			g_Output_STDOUT		= true;				// by default output to stdout 
 bool			g_Output_ESPush		= false;			// direct ES HTTP Push 
@@ -137,16 +130,6 @@ static void help(void)
 	fprintf(stderr, "\n");
 	fprintf(stderr, "Flow specific options\n");
 	fprintf(stderr, " --flow-samplerate <nanos>      : scientific notation flow sample rate. default 100e6 (100msec)\n");
-
-	fprintf(stderr, "\n");
-	fprintf(stderr, "JSON Output Control (by default everything is enabled)\n");
-	fprintf(stderr, " --disable-mac                  : disable JSON MAC output\n");
-	fprintf(stderr, " --disable-vlan                 : disable JSON VLAN output\n");
-	fprintf(stderr, " --disable-mpls                 : disable JSON MPLS output\n");
-	fprintf(stderr, " --disable-ipv4                 : disable JSON IPv4 output\n");
-	fprintf(stderr, " --disable-udp                  : disable JSON UDP output\n");
-	fprintf(stderr, " --disable-tcp                  : disable JSON TCP output\n");
-	fprintf(stderr, "\n");
 
 	fprintf(stderr, "Elastic Stack options\n");
 	fprintf(stderr, " --es-host <hostname:port>      : Sets the ES Hostname\n");
@@ -275,44 +258,6 @@ static bool ParseCommandLine(u8* argv[])
 
 		fprintf(stderr, "  Output Buffer Cnt: %i\n", g_Output_BufferCnt);
 		cnt	+= 2;
-	}
-
-	// JSON output format
-	if (strcmp(argv[0], "--disable-mac") == 0)
-	{
-		g_JSONEnb_MAC = false;
-		fprintf(stderr, "  Disable JSON MAC Output\n");
-		cnt	+= 1;
-	}
-	if (strcmp(argv[0], "--disable-vlan") == 0)
-	{
-		g_JSONEnb_VLAN = false;
-		fprintf(stderr, "  Disable JSON VLAN Output\n");
-		cnt	+= 1;
-	}
-	if (strcmp(argv[0], "--disable-mpls") == 0)
-	{
-		g_JSONEnb_MPLS = false;
-		fprintf(stderr, "  Disable JSON MPLS Output\n");
-		cnt	+= 1;
-	}
-	if (strcmp(argv[0], "--disable-ipv4") == 0)
-	{
-		g_JSONEnb_IPV4 = false;
-		fprintf(stderr, "  Disable JSON IPv4 Output\n");
-		cnt	+= 1;
-	}
-	if (strcmp(argv[0], "--disable-udp") == 0)
-	{
-		g_JSONEnb_UDP = false;
-		fprintf(stderr, "  Disable JSON UDP Output\n");
-		cnt	+= 1;
-	}
-	if (strcmp(argv[0], "--disable-tcp") == 0)
-	{
-		g_JSONEnb_TCP = false;
-		fprintf(stderr, "  Disable JSON TCP Output\n");
-		cnt	+= 1;
 	}
 
 	// ES specific 
