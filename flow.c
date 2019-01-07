@@ -41,6 +41,20 @@
 // PCAPWall time: 16900787200.00 sec ProcessTime 17.74 sec (0.000)
 // Total Time: 17.84 sec RawInput[44.211 Gbps 38906940 Pps] Output[0.469 Gbps] TotalLine:1909656 107021 Line/Sec
 //
+// 2019/01/07
+//
+// added 4 more CPUs (everything HWT1 Socket1) with ES Output code on Socket0
+//
+// [11:23:19.631.513.088] In:34.963 GB 6.63 Mpps 60.00 Gbps PCAP: 260.45 Gbps | Out 0.29738 GB Flows/Snap:  43298 FlowCPU:0.42 | ESPush:     0 105.85K ESErr    0 | OutCPU: 0.00 (0.00)
+// [11:23:19.867.406.080] In:41.963 GB 6.63 Mpps 60.12 Gbps PCAP: 254.90 Gbps | Out 0.35608 GB Flows/Snap:  40994 FlowCPU:0.42 | ESPush:     0 107.84K ESErr    0 | OutCPU: 0.00 (0.00)
+// [11:23:20.101.664.768] In:48.934 GB 6.60 Mpps 59.87 Gbps PCAP: 255.62 Gbps | Out 0.40198 GB Flows/Snap:  43311 FlowCPU:0.42 | ESPush:     0  83.93K ESErr    0 | OutCPU: 0.00 (0.00)
+// [11:23:20.340.847.872] In:55.938 GB 6.57 Mpps 60.16 Gbps PCAP: 251.55 Gbps | Out 0.46324 GB Flows/Snap:  43397 FlowCPU:0.42 | ESPush:     0 111.99K ESErr    0 | OutCPU: 0.00 (0.00)
+// [11:23:20.572.062.208] In:62.882 GB 6.60 Mpps 59.65 Gbps PCAP: 258.00 Gbps | Out 0.51774 GB Flows/Snap:  44421 FlowCPU:0.41 | ESPush:     0 100.49K ESErr    0 | OutCPU: 0.00 (0.00)
+// [11:23:20.802.807.808] In:69.805 GB 6.60 Mpps 59.45 Gbps PCAP: 257.70 Gbps | Out 0.56472 GB Flows/Snap:  41743 FlowCPU:0.41 | ESPush:     0  86.64K ESErr    0 | OutCPU: 0.00 (0.00)
+//
+// PCAPWall time: 16899884032.00 sec ProcessTime 15.72 sec (0.000)
+// Total Time: 15.72 sec RawInput[50.191 Gbps 44169856 Pps] Output[0.390 Gbps] TotalLine:1396322 88838 Line/Sec
+//
 //---------------------------------------------------------------------------------------------
 
 #include <stdio.h>
