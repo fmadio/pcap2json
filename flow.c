@@ -188,6 +188,8 @@ static u64						s_DecodeThreadTSCInsert[128];			// cycles spend in hash table lo
 static u64						s_DecodeThreadTSCHash[128];				// cycles spend hashing the flow 
 static u64						s_DecodeThreadTSCOutput[128];			// cycles spent in output logic 
 static u64						s_DecodeThreadTSCOStall[128];			// cycles spent waiting for an FlowIndex alloc 
+static u64						s_DecodeThreadTSCMerge[128];			// cycles spent merging multiple flow indexs 
+static u64						s_DecodeThreadTSCWrite[128];			// cycles spent serialzing the json output sprintf dominated 
 
 static volatile u32				s_DecodeQueuePut 	= 0;				// put/get processing queue
 static volatile u32				s_DecodeQueueGet 	= 0;
@@ -1101,15 +1103,19 @@ void* Flow_Worker(void* User)
 					// ensures workers processing on Indexs 
 					// that need to be aggregated into this one
 					// have completed processing
+					u32 Timeout = 0; 
 					while (FlowIndexRoot->PktBlockCnt < FlowIndexRoot->PktBlockMax - 1)
 					{
 						usleep(0);
+						assert(Timeout++ < 1e6);	
 					}
+					u64 TSC1 = rdtsc();
 
 					// merge everything into this CPUs index 
 					// merge flows
 					FlowMerge(FlowIndex, FlowIndexRoot, s_FlowIndexSub);
 
+					u64 TSC2 = rdtsc();
 
 					// dump flows
 					u64 StallTSC = 0;
@@ -1118,7 +1124,6 @@ void* Flow_Worker(void* User)
 						FlowRecord_t* Flow = &FlowIndex->FlowList[i];	
 						StallTSC += FlowDump(s_Output, PktBlock->TSSnapshot, Flow, i);
 					}
-					s_DecodeThreadTSCOStall[CPUID] += StallTSC;
 
 					// save total merged flow count 
 					s_FlowCntSnapshotLast = FlowIndex->FlowCntSnapshot;
@@ -1126,10 +1131,16 @@ void* Flow_Worker(void* User)
 					// sanity check
 					assert(FlowIndexRoot->IsUse == true); 
 
+					u64 TSC3 = rdtsc();
+
 					// release the root index + cpu subs 
 					FlowIndexFree(FlowIndexRoot);
 
-					s_DecodeThreadTSCOutput[CPUID] += rdtsc() - TSC0;
+					u64 TSC4 						= rdtsc();
+					s_DecodeThreadTSCOutput[CPUID] += TSC4 - TSC0;
+					s_DecodeThreadTSCOStall[CPUID] += StallTSC;
+					s_DecodeThreadTSCMerge[CPUID]  += TSC2 - TSC1; 
+					s_DecodeThreadTSCWrite[CPUID]  += TSC3 - TSC2; 
 				}
 
 				// update pktblock count for the root index
@@ -1234,10 +1245,15 @@ void Flow_Open(struct Output_t* Out, s32* CPUMap)
 
 	// create worker threads
 	u32 CPUCnt = 0;
-	pthread_create(&s_DecodeThread[0], NULL, Flow_Worker, (void*)NULL); CPUCnt++;
-	pthread_create(&s_DecodeThread[1], NULL, Flow_Worker, (void*)NULL); CPUCnt++;
-	pthread_create(&s_DecodeThread[2], NULL, Flow_Worker, (void*)NULL); CPUCnt++;
-	pthread_create(&s_DecodeThread[3], NULL, Flow_Worker, (void*)NULL); CPUCnt++;
+	pthread_create(&s_DecodeThread[ 0], NULL, Flow_Worker, (void*)NULL); CPUCnt++;
+	pthread_create(&s_DecodeThread[ 1], NULL, Flow_Worker, (void*)NULL); CPUCnt++;
+	pthread_create(&s_DecodeThread[ 2], NULL, Flow_Worker, (void*)NULL); CPUCnt++;
+	pthread_create(&s_DecodeThread[ 3], NULL, Flow_Worker, (void*)NULL); CPUCnt++;
+
+	pthread_create(&s_DecodeThread[ 4], NULL, Flow_Worker, (void*)NULL); CPUCnt++;
+	pthread_create(&s_DecodeThread[ 5], NULL, Flow_Worker, (void*)NULL); CPUCnt++;
+	pthread_create(&s_DecodeThread[ 6], NULL, Flow_Worker, (void*)NULL); CPUCnt++;
+	pthread_create(&s_DecodeThread[ 7], NULL, Flow_Worker, (void*)NULL); CPUCnt++;
 
 	for (int i=0; i < CPUCnt; i++)
 	{
@@ -1299,11 +1315,11 @@ void Flow_Close(struct Output_t* Out, u64 LastTS)
 	printf("QueueCnt : %lli\n", s_PacketQueueCnt);	
 	printf("DecodeCnt: %lli\n", s_PacketDecodeCnt);	
 
-	pthread_join(s_DecodeThread[0], NULL);
-	pthread_join(s_DecodeThread[1], NULL);
-	pthread_join(s_DecodeThread[2], NULL);
-	pthread_join(s_DecodeThread[3], NULL);
-
+	for (int i=0; i < s_DecodeCPUActive; i++)
+	{
+		printf("Flow Worker Join %i\n", i);
+		pthread_join(s_DecodeThread[i], NULL);
+	}
 	printf("Flow Close\n");
 }
 
@@ -1315,8 +1331,10 @@ void Flow_Stats(	bool IsReset,
 					float * pCPUDecode,
 					float * pCPUHash,
 					float * pCPUOutput,
-					float * pCPUOStall)
-{
+					float * pCPUOStall,
+					float * pCPUMerge,
+					float * pCPUWrite
+){
 	if (pFlowCntSnapShot)	pFlowCntSnapShot[0] = s_FlowCntSnapshotLast;
 	if (pFlowCntTotal)		pFlowCntTotal[0]	= s_FlowCntTotal;
 
@@ -1325,6 +1343,8 @@ void Flow_Stats(	bool IsReset,
 	u64 HashTSC  	= 0;
 	u64 OutputTSC	= 0;
 	u64 OStallTSC	= 0;
+	u64 MergeTSC	= 0;
+	u64 WriteTSC	= 0;
 	for (int i=0; i < s_DecodeCPUActive; i++)
 	{
 		TotalTSC 	+= s_DecodeThreadTSCTop		[i];
@@ -1332,6 +1352,8 @@ void Flow_Stats(	bool IsReset,
 		HashTSC 	+= s_DecodeThreadTSCHash	[i];
 		OutputTSC 	+= s_DecodeThreadTSCOutput	[i];
 		OStallTSC 	+= s_DecodeThreadTSCOStall	[i];
+		MergeTSC 	+= s_DecodeThreadTSCMerge	[i];
+		WriteTSC 	+= s_DecodeThreadTSCWrite	[i];
 	}
 
 	if (IsReset)
@@ -1343,6 +1365,8 @@ void Flow_Stats(	bool IsReset,
 			s_DecodeThreadTSCHash[i]	= 0;
 			s_DecodeThreadTSCOutput[i]	= 0;
 			s_DecodeThreadTSCOStall[i]	= 0;
+			s_DecodeThreadTSCMerge[i]	= 0;
+			s_DecodeThreadTSCWrite[i]	= 0;
 		}
 	}
 
@@ -1350,6 +1374,8 @@ void Flow_Stats(	bool IsReset,
 	if (pCPUHash) 	pCPUHash[0] 	= HashTSC 	* inverse(TotalTSC);
 	if (pCPUOutput) pCPUOutput[0] 	= OutputTSC * inverse(TotalTSC);
 	if (pCPUOStall) pCPUOStall[0] 	= OStallTSC	* inverse(TotalTSC);
+	if (pCPUMerge)  pCPUMerge[0] 	= MergeTSC	* inverse(TotalTSC);
+	if (pCPUWrite)  pCPUWrite[0] 	= WriteTSC	* inverse(TotalTSC);
 }
 
 /* vim: set ts=4 sts=4 */

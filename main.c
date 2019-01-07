@@ -177,8 +177,13 @@ static bool ParseCommandLine(u8* argv[])
 		g_CPUFlow[2] = atoi(argv[3]);
 		g_CPUFlow[3] = atoi(argv[4]);
 
-		fprintf(stderr, "  Flow on CPU %i %i %i %i\n", g_CPUFlow[0], g_CPUFlow[1], g_CPUFlow[2], g_CPUFlow[3]);
-		cnt	+= 4 + 1;
+		g_CPUFlow[4] = atoi(argv[5]);
+		g_CPUFlow[5] = atoi(argv[6]);
+		g_CPUFlow[6] = atoi(argv[7]);
+		g_CPUFlow[7] = atoi(argv[8]);
+
+		fprintf(stderr, "  Flow on CPU %i %i %i %i  %i %i %i %i\n", g_CPUFlow[0], g_CPUFlow[1], g_CPUFlow[2], g_CPUFlow[3], g_CPUFlow[4], g_CPUFlow[5], g_CPUFlow[6], g_CPUFlow[7]);
+		cnt	+= 8 + 1;
 	}
 	if (strcmp(argv[0], "--cpu-output") == 0)
 	{
@@ -514,19 +519,25 @@ static void ProfileDump(struct Output_t* Out)
 	float FlowCPUHash = 0;
 	float FlowCPUOutput = 0;
 	float FlowCPUOStall = 0;
+	float FlowCPUMerge = 0;
+	float FlowCPUWrite = 0;
 	Flow_Stats(true, 
 				NULL, 
 				&FlowCntTotal, 
 				&FlowCPUDecode, 
 				&FlowCPUHash, 
 				&FlowCPUOutput, 
-				&FlowCPUOStall);
+				&FlowCPUOStall,
+				&FlowCPUMerge,
+				&FlowCPUWrite);
 
 	fprintf(stderr, "Flow:\n");
 	fprintf(stderr, "  Process  : %.3f\n", FlowCPUDecode);
 	fprintf(stderr, "  Hash     : %.3f\n", FlowCPUHash);
 	fprintf(stderr, "  Output   : %.3f\n", FlowCPUOutput);
-	fprintf(stderr, "  OutStall : %.3f\n", FlowCPUOStall);
+	fprintf(stderr, "  Merge    : %.3f\n", FlowCPUMerge);
+	fprintf(stderr, "  Write    : %.3f\n", FlowCPUWrite);
+	fprintf(stderr, "  OStall   : %.3f\n", FlowCPUOStall);
 	fprintf(stderr, "\n");
 
 	fprintf(stderr, "Packets    : %-lli\n", s_TotalPkt);
@@ -721,7 +732,7 @@ int main(int argc, u8* argv[])
 
 			u32 FlowCntSnapshot;	
 			float FlowCPU;
-			Flow_Stats(false, &FlowCntSnapshot, NULL, &FlowCPU, NULL, NULL, NULL);
+			Flow_Stats(false, &FlowCntSnapshot, NULL, &FlowCPU, NULL, NULL, NULL, NULL, NULL);
 
 			fprintf(stderr, "[%s] In:%.3f GB %.2f Mpps %.2f Gbps PCAP: %6.2f Gbps | Out %.5f GB Flows/Snap: %6i FlowCPU:%.2f | ESPush:%6lli %6.2fK ESErr %4lli | OutCPU: %.2f (%.2f)\n", 
 
