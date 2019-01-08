@@ -174,7 +174,7 @@ static volatile bool			s_Exit = false;
 static u32						s_FlowCntSnapshotLast = 0;				// last total flows in the last snapshot
 
 static u32						s_FlowIndexMax		= 16;
-static u32						s_FlowIndexSub		= 4;				// number of sub slots, one per CPU worker 
+static u32						s_FlowIndexSub		= 0;				// number of sub slots, one per CPU worker 
 static FlowIndex_t				s_FlowIndex[128];
 static u32						s_FlowIndexFreeLock	= 0;				// lock to access
 static FlowIndex_t*				s_FlowIndexFree		= NULL;				// free list
@@ -275,6 +275,11 @@ static void FlowIndexFree(FlowIndex_t* FlowIndexRoot)
 	{
 		FlowIndex_t* FlowIndex = FlowIndexRoot + i;
 
+		if (!FlowIndex->IsUse)
+		{
+			printf("ERRROR: IndexFree: %p %i InUse:%i\n", FlowIndexRoot, i, FlowIndex->IsUse);
+		}
+
 		memset(FlowIndex->FlowHash, 0, sizeof(FlowRecord_t*) * (2 << 20) );
 		FlowIndex->FlowCntSnapshot = 0;
 
@@ -287,8 +292,25 @@ static void FlowIndexFree(FlowIndex_t* FlowIndexRoot)
 	// append the root FlowIndex into the alloc list
 	sync_lock(&s_FlowIndexFreeLock, 100);
 	{
-		FlowIndexRoot->FreeNext = s_FlowIndexFree;
-		s_FlowIndexFree			= FlowIndexRoot;
+		// check index is not already in free list
+		bool IsError = false;
+		FlowIndex_t* I = s_FlowIndexFree;
+		while (I)
+		{
+			if (I == FlowIndexRoot)
+			{
+				printf("***ERROR** double entry\n");
+				IsError = true;
+				break;
+			}	
+			I = I->FreeNext;
+		}
+
+		if (!IsError)
+		{
+			FlowIndexRoot->FreeNext = s_FlowIndexFree;
+			s_FlowIndexFree			= FlowIndexRoot;
+		}
 	}
 	sync_unlock(&s_FlowIndexFreeLock);
 }
@@ -310,7 +332,10 @@ static FlowIndex_t* FlowIndexAlloc(void)
 		}
 		sync_unlock(&s_FlowIndexFreeLock);
 	}
-	F->IsUse = true;
+	for (int i=0; i < s_FlowIndexSub; i++)
+	{
+		(F+i)->IsUse = true;
+	}
 
 	return F;
 }
@@ -959,7 +984,7 @@ void Flow_PacketQueue(PacketBuffer_t* Pkt)
 	{
 		// wait for space int he queue 
 		u32 Timeout = 0; 
-		while ((s_DecodeQueuePut  - s_DecodeQueueGet) > (s_DecodeQueueMax - 8))
+		while ((s_DecodeQueuePut  - s_DecodeQueueGet) > (s_DecodeQueueMax - s_DecodeCPUActive - 4))
 		{
 			ndelay(250);
 			//usleep(0);
@@ -1049,7 +1074,7 @@ void* Flow_Worker(void* User)
 			if (__sync_bool_compare_and_swap(&s_DecodeQueueGet, Get, Get + 1))
 			{
 // back pressure testing
-//u32 delay =  ((u64)rand() * 10000000ULL) / (u64)RAND_MAX; 
+//u32 delay =  ((u64)rand() * 100000000ULL) / (u64)RAND_MAX; 
 //ndelay(delay);
 				u64 TSC2 = rdtsc();
 
@@ -1117,10 +1142,8 @@ void* Flow_Worker(void* User)
 					// save total merged flow count 
 					s_FlowCntSnapshotLast = FlowIndex->FlowCntSnapshot;
 
-					// sanity check
-					assert(FlowIndexRoot->IsUse == true); 
-
 					u64 TSC3 = rdtsc();
+					//assert(FlowIndexRoot->IsUse == true);
 
 					// release the root index + cpu subs 
 					FlowIndexFree(FlowIndexRoot);
@@ -1186,11 +1209,12 @@ PacketBuffer_t* Flow_PacketAlloc(void)
 	B->IsUsed = true;
 
 	// reset stats
-	B->PktCnt		= 0;
-	B->ByteWire		= 0;
-	B->ByteCapture	= 0;
-	B->TSFirst		= 0;
-	B->TSLast		= 0;
+	B->PktCnt			= 0;
+	B->ByteWire			= 0;
+	B->ByteCapture		= 0;
+	B->TSFirst			= 0;
+	B->TSLast			= 0;
+	B->IsFlowIndexDump	= false;
 
 	return B;
 }
@@ -1277,6 +1301,10 @@ void Flow_Open(struct Output_t* Out, s32* CPUMap)
 	for (int i=0; i < s_FlowIndexMax; i += s_FlowIndexSub)
 	{
 		FlowIndex_t* FlowIndex = &s_FlowIndex[i];
+		for (int j=0; j < s_FlowIndexSub; j++)
+		{
+			(FlowIndex+j)->IsUse = true;
+		}
 		FlowIndexFree(FlowIndex);
 	}
 }
