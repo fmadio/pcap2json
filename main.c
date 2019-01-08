@@ -239,7 +239,7 @@ static bool ParseCommandLine(u8* argv[])
 	if (strcmp(argv[0], "--output-byteflush") == 0)
 	{
 		g_Output_ByteFlush = atof(argv[1]);
-		fprintf(stderr, "  Output Byte Flush: %lli ns\n", g_Output_ByteFlush);
+		fprintf(stderr, "  Output Byte Flush: %lli B\n", g_Output_ByteFlush);
 		cnt	+= 2;
 	}
 	if (strcmp(argv[0], "--output-buffercnt") == 0)
