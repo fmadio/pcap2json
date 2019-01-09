@@ -528,9 +528,8 @@ int main(int argc, u8* argv[])
 	// print cpu mapping
 	fprintf(stderr, "CPU Mapping\n");
 	fprintf(stderr, "  Core   %i %i\n", g_CPUCore[0], g_CPUCore[1]);
-	fprintf(stderr, "  Flow   %i %i %i %i\n", g_CPUFlow[0], g_CPUFlow[1], g_CPUFlow[2], g_CPUFlow[3]);
-	fprintf(stderr, "  Output %i %i %i %i\n",
-							g_CPUOutput[0], g_CPUOutput[1], g_CPUOutput[2], g_CPUOutput[3]);
+	fprintf(stderr, "  Flow   %i %i %i %i %i %i %i %I\n", g_CPUFlow[0], g_CPUFlow[1], g_CPUFlow[2], g_CPUFlow[3], g_CPUFlow[4], g_CPUFlow[5], g_CPUFlow[6], g_CPUFlow[7]);
+	fprintf(stderr, "  Output %i %i %i %i\n", g_CPUOutput[0], g_CPUOutput[1], g_CPUOutput[2], g_CPUOutput[3]);
 
 	// set cpu affinity
 	if (g_CPUCore[0] >= 0) 
