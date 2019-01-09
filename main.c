@@ -573,7 +573,7 @@ int main(int argc, u8* argv[])
 		break;
 
 	case PCAPHEADER_MAGIC_FMAD: 
-		fprintf(stderr, "FMAD Format\n");
+		fprintf(stderr, "FMAD Format Chunked\n");
 		TScale = 1; 
 		IsFMAD = true;
 		break;
