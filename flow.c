@@ -209,6 +209,10 @@ static struct Output_t*			s_Output			= NULL;				// output module
 static u64						s_PacketQueueCnt	= 0;
 static u64						s_PacketDecodeCnt	= 0;
 
+static u32						s_PacketSizeHistoBin = 32;				// size divide amount 
+static u32						s_PacketSizeHistoMax = 1024;			// max index (not in byte)
+static u32						s_PacketSizeHisto[16][1024];
+
 //---------------------------------------------------------------------------------------------
 // generate a 20bit hash index 
 static u32 HashIndex(u32* SHA1)
@@ -984,7 +988,7 @@ void Flow_PacketQueue(PacketBuffer_t* Pkt)
 	{
 		// wait for space int he queue 
 		u32 Timeout = 0; 
-		while ((s_DecodeQueuePut  - s_DecodeQueueGet) > (s_DecodeQueueMax - s_DecodeCPUActive - 4))
+		while ((s_DecodeQueuePut  - s_DecodeQueueGet) >= (s_DecodeQueueMax - s_DecodeCPUActive - 4))
 		{
 			ndelay(250);
 			//usleep(0);
@@ -1104,7 +1108,11 @@ void* Flow_Worker(void* User)
 					// process the packet
 					DecodePacket(CPUID, s_Output, PktHeader, FlowIndex);
 
-					// save the last timesamp
+					// update size histo
+					u32 SizeIndex = (PktHeader->LengthWire / s_PacketSizeHistoBin);
+					if (SizeIndex >= s_PacketSizeHistoMax) SizeIndex = s_PacketSizeHistoMax - 1;
+					s_PacketSizeHisto[CPUID][SizeIndex]++;
+
 				}
 
 				// output the snapshot  
@@ -1307,6 +1315,9 @@ void Flow_Open(struct Output_t* Out, s32* CPUMap)
 		}
 		FlowIndexFree(FlowIndex);
 	}
+
+	// reset histogram
+	memset(s_PacketSizeHisto, 0, sizeof(s_PacketSizeHisto));
 }
 
 //---------------------------------------------------------------------------------------------
@@ -1393,6 +1404,54 @@ void Flow_Stats(	bool IsReset,
 	if (pCPUOStall) pCPUOStall[0] 	= OStallTSC	* inverse(TotalTSC);
 	if (pCPUMerge)  pCPUMerge[0] 	= MergeTSC	* inverse(TotalTSC);
 	if (pCPUWrite)  pCPUWrite[0] 	= WriteTSC	* inverse(TotalTSC);
+}
+
+//---------------------------------------------------------------------------------------------
+// dump + reset the packet size histogram
+void Flow_PktSizeHisto(void)
+{
+	fprintf(stderr, "Packet Size Histogram:\n");	
+
+	// merge into single histogram
+	u32 TotalSamples = 0;
+	u32 SizeHisto[1024];
+	memset(SizeHisto, 0, sizeof(SizeHisto));
+	for (int c=0; c < s_DecodeCPUActive; c++)
+	{
+		for (int i=0; i < s_PacketSizeHistoMax; i++)
+		{
+			u32 Cnt = s_PacketSizeHisto[c][i];
+			SizeHisto[i] += Cnt; 
+			TotalSamples += Cnt; 
+		}
+	}
+	memset(s_PacketSizeHisto, 0, sizeof(s_PacketSizeHisto));
+
+	// find max per bin
+	u32 MaxCnt = 0;
+	for (int i=0; i < s_PacketSizeHistoMax; i++)
+	{
+		MaxCnt = (MaxCnt < SizeHisto[i]) ? SizeHisto[i] : MaxCnt;
+	}
+	float iMaxCnt = inverse(MaxCnt);	
+	float iTotal = inverse(TotalSamples);
+
+	// print status
+	float CDF = 0;
+	for (int i=0; i < s_PacketSizeHistoMax; i++)
+	{
+		u32 Size = i * s_PacketSizeHistoBin;
+		if (SizeHisto[i] == 0) continue;
+
+		CDF  += SizeHisto[i] * iTotal;
+
+		fprintf(stderr, "%5i : %.3f : %10i (%.3f) : %.3f : ", Size, CDF, SizeHisto[i], SizeHisto[i] * iTotal);
+		u32 Cnt = (SizeHisto[i] * 80 ) * iMaxCnt;
+		for (int j=0; j < Cnt; j++) fprintf(stderr, "*");
+
+		fprintf(stderr, "\n");
+	}
+	fprintf(stderr, "\n");
 }
 
 /* vim: set ts=4 sts=4 */

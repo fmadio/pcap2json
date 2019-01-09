@@ -87,9 +87,6 @@ u64				s_TotalByte			= 0;				// total bytes processed
 
 //---------------------------------------------------------------------------------------------
 
-static u32				s_PacketSizeHistoBin = 32;		// max index (not in byte)
-static u32				s_PacketSizeHistoMax = 1024;	// max index (not in byte)
-static u32				s_PacketSizeHisto[1024];
 
 static void* Push_Worker(void* _User);
 
@@ -491,27 +488,7 @@ static void ProfileDump(struct Output_t* Out)
 	fprintf(stderr, "\n");
 
 	// packet size histogram
-	fprintf(stderr, "Packet Size Histogram:\n");	
-
-	u32 MaxCnt = 0;
-	for (int i=0; i < s_PacketSizeHistoMax; i++)
-	{
-		MaxCnt = (MaxCnt < s_PacketSizeHisto[i]) ? s_PacketSizeHisto[i] : MaxCnt;
-	}
-	for (int i=0; i < s_PacketSizeHistoMax; i++)
-	{
-		u32 Size = i * s_PacketSizeHistoBin;
-		if (s_PacketSizeHisto[i] == 0) continue;
-
-		fprintf(stderr, "%5i : %10i :", Size, s_PacketSizeHisto[i]);
-		u32 Cnt = (s_PacketSizeHisto[i] * 80 ) / MaxCnt;
-		for (int j=0; j < Cnt; j++) fprintf(stderr, "*");
-
-		fprintf(stderr, "\n");
-	}
-	memset(s_PacketSizeHisto, 0, sizeof(s_PacketSizeHisto));
-	fprintf(stderr, "\n");
-
+	Flow_PktSizeHisto();
 	fflush(stdout);
 	fflush(stderr);
 }
@@ -772,11 +749,6 @@ int main(int argc, u8* argv[])
 				PktFMAD->Flag			= 0;
 				PktFMAD->LengthWire		= LengthWire;
 				PktFMAD->LengthCapture	= LengthCapture;
-
-				// update size histo
-				u32 SizeIndex = (LengthWire / s_PacketSizeHistoBin);
-				if (SizeIndex >= s_PacketSizeHistoMax) SizeIndex = s_PacketSizeHistoMax - 1;
-				s_PacketSizeHisto[SizeIndex]++;
 
 				// next in packet block
 				Offset += sizeof(PCAPPacket_t) + LengthCapture;

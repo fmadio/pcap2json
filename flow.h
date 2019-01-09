@@ -40,6 +40,7 @@ void 			Flow_Stats				(bool   IsReset,
 										 float* pCPUMerge,
 										 float* pCPUWrite
 										);
+void 			Flow_PktSizeHisto		(void);
 
 void 			Flow_PacketQueue		(PacketBuffer_t* Pkt);
 
