@@ -488,11 +488,11 @@ static void ProfileDump(struct Output_t* Out)
 
 	fprintf(stderr, "  Flow/Snap : %-12lli\n", FlowCntSnapshot);
 	fprintf(stderr, "  Pkts/Snap : %-12lli\n", PktCntSnapshot);
-	fprintf(stderr, "  Pkt/Flow  : %.3f\n", s_TotalPkt * inverse(FlowCntTotal));
 	fprintf(stderr, "\n");
 
-	fprintf(stderr, "Packets    : %-lli\n", s_TotalPkt);
 	fprintf(stderr, "Flows      : %-lli\n", FlowCntTotal);
+	fprintf(stderr, "Pkts       : %-lli\n", s_TotalPkt);
+	fprintf(stderr, "Pkts/Flow  : %.3f\n", s_TotalPkt * inverse(FlowCntTotal));
 	fprintf(stderr, "\n");
 
 	// packet size histogram
