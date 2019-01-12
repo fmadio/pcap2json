@@ -172,6 +172,7 @@ extern u8				g_DeviceName[128];
 static volatile bool			s_Exit = false;
 
 static u32						s_FlowCntSnapshotLast = 0;				// last total flows in the last snapshot
+static u64						s_PktCntSnapshotLast = 0;				// last total number of packets in the snapshot 
 
 static u32						s_FlowIndexMax		= 16;
 static u32						s_FlowIndexSub		= 0;				// number of sub slots, one per CPU worker 
@@ -180,6 +181,7 @@ static u32						s_FlowIndexFreeLock	= 0;				// lock to access
 static FlowIndex_t*				s_FlowIndexFree		= NULL;				// free list
 
 static u64						s_FlowCntTotal		= 0;				// total number of active flows
+static u64						s_PktCntTotal		= 0;				// total number of packets processed 
 static u64						s_FlowSampleTSLast	= 0;				// last time the flow was sampled 
 
 static u32						s_PacketBufferMax	= 1024;				// max number of inflight packets
@@ -419,11 +421,6 @@ static FlowRecord_t* FlowAdd(FlowIndex_t* FlowIndex, FlowRecord_t* FlowPkt, u32*
 		}
 	}
 
-	if (IsFlowNew)
-	{
-		s_FlowCntTotal++;
-	}
-
 	//u64 TSC1 = rdtsc();
 	//s_DecodeThreadTSCInsert[CPUID] += TSC1 - TSC0;
 
@@ -479,7 +476,6 @@ static void FlowInsert(u32 CPUID, FlowIndex_t* FlowIndex, FlowRecord_t* FlowPkt,
 			}
 			F->TCPAckNo = TCPAckNo;
 		}
-*/
 
 		// first packet
 		u32 TCPWindow = swap16(TCP->Window); 
@@ -490,6 +486,8 @@ static void FlowInsert(u32 CPUID, FlowIndex_t* FlowIndex, FlowRecord_t* FlowPkt,
 		}
 		F->TCPWindowMin = min32(F->TCPWindowMin, TCPWindow);
 		F->TCPWindowMax = max32(F->TCPWindowMax, TCPWindow);
+
+*/
 	}
 }
 
@@ -506,8 +504,12 @@ static u64 FlowDump(struct Output_t* Out, u64 TS, FlowRecord_t* Flow, u32 FlowID
 	// ES header for bulk upload
 	Output += sprintf(Output, "{\"index\":{\"_index\":\"%s\",\"_type\":\"flow_record\",\"_score\":null}}\n", g_CaptureName);
 
+	// as its multi threaded FormatTS can not be used
+	u8 TStr[128];
+	FormatTSStr(TStr, TS);
+
 	// actual payload
-	Output += sprintf(Output, "{\"timestamp\":%f,\"TS\":\"%s\",\"FlowCnt\":%lli,\"Device\":\"%s\"", TS/1e6, FormatTS(TS), FlowID, g_DeviceName);
+	Output += sprintf(Output, "{\"timestamp\":%f,\"TS\":\"%s\",\"FlowCnt\":%lli,\"Device\":\"%s\"", TS/1e6, TStr, FlowID, g_DeviceName);
 
 	// print flow info
 	Output += sprintf(Output, ",\"hash\":\"%08x%08x%08x%08x%08x\"",	Flow->SHA1[0],
@@ -1115,6 +1117,8 @@ void* Flow_Worker(void* User)
 
 				}
 
+				__sync_fetch_and_add(&s_PktCntTotal, PktBlock->PktCnt);
+
 				// output the snapshot  
 				if (g_IsJSONFlow & PktBlock->IsFlowIndexDump)
 				{
@@ -1141,14 +1145,21 @@ void* Flow_Worker(void* User)
 
 					// dump flows
 					u64 StallTSC = 0;
+					u64 TotalPkt = 0;
 					for (int i=0; i < FlowIndex->FlowCntSnapshot; i++)
 					{
 						FlowRecord_t* Flow = &FlowIndex->FlowList[i];	
 						StallTSC += FlowDump(s_Output, PktBlock->TSSnapshot, Flow, i);
+
+						TotalPkt += Flow->TotalPkt;
 					}
+
+					// add total number of flows output 
+					s_FlowCntTotal += FlowIndex->FlowCntSnapshot;
 
 					// save total merged flow count 
 					s_FlowCntSnapshotLast = FlowIndex->FlowCntSnapshot;
+					s_PktCntSnapshotLast  = TotalPkt; 
 
 					u64 TSC3 = rdtsc();
 					//assert(FlowIndexRoot->IsUse == true);
@@ -1266,6 +1277,7 @@ void Flow_Open(struct Output_t* Out, s32* CPUMap)
 
 	// create worker threads
 	u32 CPUCnt = 0;
+
 	pthread_create(&s_DecodeThread[ 0], NULL, Flow_Worker, (void*)NULL); CPUCnt++;
 	pthread_create(&s_DecodeThread[ 1], NULL, Flow_Worker, (void*)NULL); CPUCnt++;
 	pthread_create(&s_DecodeThread[ 2], NULL, Flow_Worker, (void*)NULL); CPUCnt++;
@@ -1354,7 +1366,8 @@ void Flow_Close(struct Output_t* Out, u64 LastTS)
 //---------------------------------------------------------------------------------------------
 
 void Flow_Stats(	bool IsReset, 
-					u32* pFlowCntSnapShot, 
+					u64* pFlowCntSnapShot, 
+					u64* pPktCntSnapShot, 
 					u64* pFlowCntTotal, 
 					float * pCPUDecode,
 					float * pCPUHash,
@@ -1364,6 +1377,8 @@ void Flow_Stats(	bool IsReset,
 					float * pCPUWrite
 ){
 	if (pFlowCntSnapShot)	pFlowCntSnapShot[0] = s_FlowCntSnapshotLast;
+	if (pPktCntSnapShot)	pPktCntSnapShot[0]	= s_PktCntSnapshotLast;
+
 	if (pFlowCntTotal)		pFlowCntTotal[0]	= s_FlowCntTotal;
 
 	u64 TotalTSC 	= 0;
@@ -1404,6 +1419,8 @@ void Flow_Stats(	bool IsReset,
 	if (pCPUOStall) pCPUOStall[0] 	= OStallTSC	* inverse(TotalTSC);
 	if (pCPUMerge)  pCPUMerge[0] 	= MergeTSC	* inverse(TotalTSC);
 	if (pCPUWrite)  pCPUWrite[0] 	= WriteTSC	* inverse(TotalTSC);
+
+	fprintf(stderr, "total packts: %lli\n", s_PktCntTotal);
 }
 
 //---------------------------------------------------------------------------------------------

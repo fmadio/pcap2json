@@ -379,6 +379,23 @@ static inline char* FormatTS(u64 ts)
 
 	return S;
 }
+static inline void FormatTSStr(u8* S, u64 ts)
+{
+	u64 usec = ts / 1000ULL;
+	u64 msec = usec / 1000ULL;
+	u64 sec = msec / 1000ULL;
+	u64 min = sec / 60ULL;
+	u64 hour = min / 60ULL;
+
+	u64 nsec = ts - usec*1000ULL;
+	usec = usec - msec*1000ULL;
+	msec = msec - sec*1000ULL;
+	sec = sec - min*60ULL;
+	min = min - hour*60ULL;
+
+	sprintf(S, "%02lli:%02lli:%02lli.%03lli.%03lli.%03lli", hour % 24, min, sec, msec,usec, nsec);
+}
+
 
 static inline void CycleCalibration(void)
 {

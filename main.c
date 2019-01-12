@@ -456,15 +456,19 @@ static void ProfileDump(struct Output_t* Out)
 	fprintf(stderr, "  Pending  : %.6f MB\n", OutputPendingByte / 1e6); 
 	fprintf(stderr, "\n");
 
-	u64 FlowCntTotal = 0;
-	float FlowCPUDecode = 0;
-	float FlowCPUHash = 0;
-	float FlowCPUOutput = 0;
-	float FlowCPUOStall = 0;
-	float FlowCPUMerge = 0;
-	float FlowCPUWrite = 0;
-	Flow_Stats(true, 
-				NULL, 
+	u64 FlowCntSnapshot		= 0;
+	u64 PktCntSnapshot 		= 0;
+	u64 FlowCntTotal 		= 0;
+	float FlowCPUDecode 	= 0;
+	float FlowCPUHash 		= 0;
+	float FlowCPUOutput 	= 0;
+	float FlowCPUOStall 	= 0;
+	float FlowCPUMerge 		= 0;
+	float FlowCPUWrite 		= 0;
+
+	Flow_Stats( true, 
+				&FlowCntSnapshot, 
+				&PktCntSnapshot, 
 				&FlowCntTotal, 
 				&FlowCPUDecode, 
 				&FlowCPUHash, 
@@ -474,17 +478,21 @@ static void ProfileDump(struct Output_t* Out)
 				&FlowCPUWrite);
 
 	fprintf(stderr, "Flow:\n");
-	fprintf(stderr, "  Process  : %.3f\n", FlowCPUDecode);
-	fprintf(stderr, "  Hash     : %.3f\n", FlowCPUHash);
-	fprintf(stderr, "  Output   : %.3f\n", FlowCPUOutput);
-	fprintf(stderr, "  Merge    : %.3f\n", FlowCPUMerge);
-	fprintf(stderr, "  Write    : %.3f\n", FlowCPUWrite);
-	fprintf(stderr, "  OStall   : %.3f\n", FlowCPUOStall);
+	fprintf(stderr, "  Process   : %.3f\n", FlowCPUDecode);
+	fprintf(stderr, "  Hash      : %.3f\n", FlowCPUHash);
+	fprintf(stderr, "  Output    : %.3f\n", FlowCPUOutput);
+	fprintf(stderr, "  Merge     : %.3f\n", FlowCPUMerge);
+	fprintf(stderr, "  Write     : %.3f\n", FlowCPUWrite);
+	fprintf(stderr, "  OStall    : %.3f\n", FlowCPUOStall);
+	fprintf(stderr, "\n");
+
+	fprintf(stderr, "  Flow/Snap : %-12lli\n", FlowCntSnapshot);
+	fprintf(stderr, "  Pkts/Snap : %-12lli\n", PktCntSnapshot);
+	fprintf(stderr, "  Pkt/Flow  : %.3f\n", s_TotalPkt * inverse(FlowCntTotal));
 	fprintf(stderr, "\n");
 
 	fprintf(stderr, "Packets    : %-lli\n", s_TotalPkt);
 	fprintf(stderr, "Flows      : %-lli\n", FlowCntTotal);
-	fprintf(stderr, "Pkt/Flow   : %.3f\n", s_TotalPkt * inverse(FlowCntTotal));
 	fprintf(stderr, "\n");
 
 	// packet size histogram
@@ -651,9 +659,9 @@ int main(int argc, u8* argv[])
 			u64 OutputPendingB;
 			Output_Stats(Out, 0,  &OutputWorkerCPU, NULL, NULL, &OutputWorkerCPURecv, NULL, NULL);
 
-			u32 FlowCntSnapshot;	
+			u64 FlowCntSnapshot;	
 			float FlowCPU;
-			Flow_Stats(false, &FlowCntSnapshot, NULL, &FlowCPU, NULL, NULL, NULL, NULL, NULL);
+			Flow_Stats(false, &FlowCntSnapshot, NULL, NULL, &FlowCPU, NULL, NULL, NULL, NULL, NULL);
 
 			fprintf(stderr, "[%s] In:%.3f GB %.2f Mpps %.2f Gbps PCAP: %6.2f Gbps | Out %.5f GB Flows/Snap: %6i FlowCPU:%.2f | ESPush:%6lli %6.2fK ESErr %4lli | OutCPU: %.2f (%.2f)\n", 
 
