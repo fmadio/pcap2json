@@ -1419,8 +1419,6 @@ void Flow_Stats(	bool IsReset,
 	if (pCPUOStall) pCPUOStall[0] 	= OStallTSC	* inverse(TotalTSC);
 	if (pCPUMerge)  pCPUMerge[0] 	= MergeTSC	* inverse(TotalTSC);
 	if (pCPUWrite)  pCPUWrite[0] 	= WriteTSC	* inverse(TotalTSC);
-
-	fprintf(stderr, "total packts: %lli\n", s_PktCntTotal);
 }
 
 //---------------------------------------------------------------------------------------------
