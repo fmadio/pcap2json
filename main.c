@@ -83,7 +83,11 @@ u8 				g_CaptureName[256];						// name of the capture / index to push to
 u8				g_DeviceName[128];						// name of the device this is sourced from
 
 u64				s_TotalPkt			= 0;				// total packets processed
-u64				s_TotalByte			= 0;				// total bytes processed
+u64				s_TotalByteCapture	= 0;				// total bytes captured 
+u64				s_TotalByteWire		= 0;				// total bytes on the wire incomming 
+
+u64				s_StreamCAT_BytePending = 0;			// number of bytes pending in stream cat
+float			s_StreamCAT_CPUActive 	= 0;			// stream_cat cpu active pct
 
 //---------------------------------------------------------------------------------------------
 
@@ -639,7 +643,7 @@ int main(int argc, u8* argv[])
 			u64 OutputByte = Output_TotalByteSent(Out);
 			u64 OutputLine = Output_TotalLine(Out);	
 
-			float bps = ((s_TotalByte - TotalByteLast) * 8.0) / (tsc2ns(TSC - LastTSC)/1e9); 
+			float bps = ((s_TotalByteWire - TotalByteLast) * 8.0) / (tsc2ns(TSC - LastTSC)/1e9); 
 			float lps = (OutputLine - OutputLineLast) / (tsc2ns(TSC - LastTSC)/1e9); 
 			float pps = (s_TotalPkt - TotalPktLast) / (tsc2ns(TSC - LastTSC)/1e9); 
 
@@ -652,7 +656,7 @@ int main(int argc, u8* argv[])
 			float SamplePCAPWallTime 	= (PacketTSLast - PacketTSLastSample) / 1e9;
 			float SampleDecodeTime 		= (DecodeTime - DecodeTimeLast) / 1e9; 
 
-			float PCAPbps = ((s_TotalByte - TotalByteLast) * 8.0) / SamplePCAPWallTime; 
+			float PCAPbps = ((s_TotalByteWire - TotalByteLast) * 8.0) / SamplePCAPWallTime; 
 
 			float OutputWorkerCPU;
 			float OutputWorkerCPURecv;
@@ -663,15 +667,18 @@ int main(int argc, u8* argv[])
 			float FlowCPU;
 			Flow_Stats(false, &FlowCntSnapshot, NULL, NULL, &FlowCPU, NULL, NULL, NULL, NULL, NULL);
 
-			fprintf(stderr, "[%s] In:%.3f GB %.2f Mpps %.2f Gbps PCAP: %6.2f Gbps | Out %.5f GB Flows/Snap: %6i FlowCPU:%.2f | ESPush:%6lli %6.2fK ESErr %4lli | OutCPU: %.2f (%.2f)\n", 
+			fprintf(stderr, "[%s] %.3f/%.3f GB %.2f Mpps %.2f Gbps | cat %6.f MB %.2f | Flows/Snap: %6i FlowCPU:%.2f | ESPush:%6lli %6.2fK ESErr %4lli | OutCPU: %.2f (%.2f)\n", 
 
 								FormatTS(PacketTSLast),
 
-								(float)s_TotalByte / kGB(1), 
+								s_TotalByteWire / (float)kGB(1), 
+								OutputByte / (float)kGB(1), 
 								pps / 1e6, 
 								bps / 1e9, 
-								PCAPbps / 1e9, 
-								OutputByte / 1e9, 
+
+								s_StreamCAT_BytePending / (float)kMB(1),
+								s_StreamCAT_CPUActive,
+
 								FlowCntSnapshot, 
 								FlowCPU,
 								Output_ESPushCnt(Out),
@@ -683,7 +690,7 @@ int main(int argc, u8* argv[])
 			fflush(stderr);
 
 			LastTSC 			= TSC;
-			TotalByteLast		= s_TotalByte;
+			TotalByteLast		= s_TotalByteWire;
 			TotalPktLast		= s_TotalPkt;
 		
 			OutputLineLast		= OutputLine;
@@ -793,6 +800,10 @@ int main(int argc, u8* argv[])
 			TSFirst		= Header.TSStart;
 			TSLast		= Header.TSEnd;
 			Offset		= Header.Length;
+
+
+			s_StreamCAT_BytePending = Header.BytePending;
+			s_StreamCAT_CPUActive   = Header.CPUActive / (float)0x10000;
 		}
 
 		// general stats on the packet block
@@ -819,8 +830,9 @@ int main(int argc, u8* argv[])
 
 		DecodeTimeTSC 	+= rdtsc() -  TSC0;
 
-		s_TotalPkt		+= PktCnt;
-		s_TotalByte		+= ByteWire; 
+		s_TotalPkt			+= PktCnt;
+		s_TotalByteCapture	+= ByteCapture; 
+		s_TotalByteWire		+= ByteWire; 
 
 		fProfile_Stop(0);
 	}
@@ -840,8 +852,9 @@ int main(int argc, u8* argv[])
 	u64 TS1 = clock_ns();
 	float dT = (TS1 - TS0) / 1e9;
 
-	float bps = (s_TotalByte * 8.0) / dT;
-	float pps = (s_TotalPkt * 8.0) / dT;
+	float Wirebps 		= (s_TotalByteWire * 8.0) / dT;
+	float Capturebps 	= (s_TotalByteCapture * 8.0) / dT;
+	float pps 			= (s_TotalPkt * 8.0) / dT;
 
 	float obps = (Output_TotalByteSent(Out) * 8.0) / dT;
 
@@ -851,7 +864,7 @@ int main(int argc, u8* argv[])
 	float PCAPWallTime = (PacketTSLast - PacketTSFirst) / 1e9;
 	printf("PCAPWall time: %.2f sec ProcessTime %.2f sec (%.3f)\n", PCAPWallTime, dT, dT / PCAPWallTime);
 
-	printf("Total Time: %.2f sec RawInput[%.3f Gbps %.f Pps] Output[%.3f Gbps] TotalLine:%lli %.f Line/Sec\n", dT, bps / 1e9, pps, obps / 1e9, TotalLine, lps); 
+	printf("Total Time: %.2f sec RawInput[Wire %.3f Gbps Capture %.3f Gbps %.f Mpps] Output[%.3f Gbps] TotalLine:%lli %.f Line/Sec\n", dT, Wirebps / 1e9, Capturebps / 1e9, pps/1e6, obps / 1e9, TotalLine, lps); 
 }
 
 /* vim: set ts=4 sts=4 */
