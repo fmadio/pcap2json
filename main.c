@@ -88,6 +88,8 @@ u64				s_TotalByteWire		= 0;				// total bytes on the wire incomming
 
 u64				s_StreamCAT_BytePending = 0;			// number of bytes pending in stream cat
 float			s_StreamCAT_CPUActive 	= 0;			// stream_cat cpu active pct
+float			s_StreamCAT_CPUFetch 	= 0;			// stream_cat cpu fetch from stroage utilization 
+float			s_StreamCAT_CPUSend 	= 0;			// stream_cat cpu send down pipe utilization 
 
 //---------------------------------------------------------------------------------------------
 
@@ -499,8 +501,15 @@ static void ProfileDump(struct Output_t* Out)
 	fprintf(stderr, "Pkts/Flow  : %.3f\n", s_TotalPkt * inverse(FlowCntTotal));
 	fprintf(stderr, "\n");
 
+	fprintf(stderr, "StreamCat:\n");
+	fprintf(stderr, "  Active   : %.3f\n", s_StreamCAT_CPUActive);
+	fprintf(stderr, "  Fetch    : %.3f\n", s_StreamCAT_CPUFetch);
+	fprintf(stderr, "  Send     : %.3f\n", s_StreamCAT_CPUSend);
+	fprintf(stderr, "  Pending  : %.2f MB\n", s_StreamCAT_BytePending / (float)kMB(1) );
+
 	// packet size histogram
 	Flow_PktSizeHisto();
+
 	fflush(stdout);
 	fflush(stderr);
 }
@@ -804,6 +813,8 @@ int main(int argc, u8* argv[])
 
 			s_StreamCAT_BytePending = Header.BytePending;
 			s_StreamCAT_CPUActive   = Header.CPUActive / (float)0x10000;
+			s_StreamCAT_CPUFetch    = Header.CPUFetch / (float)0x10000;
+			s_StreamCAT_CPUSend     = Header.CPUSend / (float)0x10000;
 		}
 
 		// general stats on the packet block
