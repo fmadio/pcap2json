@@ -200,10 +200,10 @@ static u64						s_DecodeThreadTSCOStall[128];			// cycles spent waiting for an F
 static u64						s_DecodeThreadTSCMerge[128];			// cycles spent merging multiple flow indexs 
 static u64						s_DecodeThreadTSCWrite[128];			// cycles spent serialzing the json output sprintf dominated 
 
-static volatile u32				s_DecodeQueuePut 	= 0;				// put/get processing queue
-static volatile u32				s_DecodeQueueGet 	= 0;
-static u32						s_DecodeQueueMax 	= 1024;
-static u32						s_DecodeQueueMsk 	= 1023;
+static volatile u64				s_DecodeQueuePut 	= 0;				// put/get processing queue
+static volatile u64				s_DecodeQueueGet 	= 0;
+static u64						s_DecodeQueueMax 	= 1024;
+static u64						s_DecodeQueueMsk 	= 1023;
 static volatile PacketBuffer_t*	s_DecodeQueue[1024];					// list of packets pending processing
 
 static struct Output_t*			s_Output			= NULL;				// output module
@@ -989,13 +989,16 @@ void Flow_PacketQueue(PacketBuffer_t* Pkt)
 	if (!g_IsFlowNULL)
 	{
 		// wait for space int he queue 
+		fProfile_Start(9, "DecodeQueueStall");
+
 		u32 Timeout = 0; 
 		while ((s_DecodeQueuePut  - s_DecodeQueueGet) >= (s_DecodeQueueMax - s_DecodeCPUActive - 4))
 		{
-			ndelay(250);
-			//usleep(0);
+			//ndelay(250);
+			usleep(0);
 			assert(Timeout++ < 1e9);
 		}
+		fProfile_Stop(9);
 
 		// add to processing queue
 		s_DecodeQueue[s_DecodeQueuePut & s_DecodeQueueMsk] 	= Pkt;
@@ -1003,7 +1006,11 @@ void Flow_PacketQueue(PacketBuffer_t* Pkt)
 		// allocate a new flow
 		if (s_FlowIndexQueue == NULL)
 		{
+			fProfile_Start(10, "DecodeQueueFlowAlloc");
+
 			s_FlowIndexQueue = FlowIndexAlloc();
+
+			fProfile_Stop(10);
 		}
 
 		// set the flow index
@@ -1114,7 +1121,6 @@ void* Flow_Worker(void* User)
 					u32 SizeIndex = (PktHeader->LengthWire / s_PacketSizeHistoBin);
 					if (SizeIndex >= s_PacketSizeHistoMax) SizeIndex = s_PacketSizeHistoMax - 1;
 					s_PacketSizeHisto[CPUID][SizeIndex]++;
-
 				}
 
 				__sync_fetch_and_add(&s_PktCntTotal, PktBlock->PktCnt);
@@ -1298,8 +1304,10 @@ void Flow_Open(struct Output_t* Out, s32* CPUMap)
 		pthread_setaffinity_np(s_DecodeThread[i], sizeof(cpu_set_t), &Thread0CPU);
 	}
 
-	s_FlowIndexMax = 4 * CPUCnt; 
+	s_FlowIndexMax = 6 * CPUCnt; 
 	s_FlowIndexSub = CPUCnt; 
+
+	u64 TotalMem = 0;
 
 	// allocate flow indexes
 	for (int i=0; i < s_FlowIndexMax; i++)
@@ -1307,7 +1315,7 @@ void Flow_Open(struct Output_t* Out, s32* CPUMap)
 		FlowIndex_t* FlowIndex = &s_FlowIndex[i];
 
 		// max out at 1M flows
-		FlowIndex->FlowMax	= 1024*1024;
+		FlowIndex->FlowMax	= 250e3;
 
 		// allocate and clear flow index
 		FlowIndex->FlowHash = (FlowRecord_t **)memalign(4096, sizeof(FlowRecord_t *) * (2 << 20) );
@@ -1316,6 +1324,10 @@ void Flow_Open(struct Output_t* Out, s32* CPUMap)
 		// allocate statically allocated flow list
 		FlowIndex->FlowList = (FlowRecord_t *)memalign (4096, sizeof(FlowRecord_t) * FlowIndex->FlowMax );
 		assert(FlowIndex->FlowList != NULL);
+
+		TotalMem += sizeof(FlowRecord_t *) * (2 << 20);
+		TotalMem += sizeof(FlowRecord_t) * FlowIndex->FlowMax;
+		//printf("mem: %.f MB\n", TotalMem / 1e6);
 	}
 	// push to free list
 	for (int i=0; i < s_FlowIndexMax; i += s_FlowIndexSub)

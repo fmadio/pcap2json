@@ -676,7 +676,7 @@ int main(int argc, u8* argv[])
 			float FlowCPU;
 			Flow_Stats(false, &FlowCntSnapshot, NULL, NULL, &FlowCPU, NULL, NULL, NULL, NULL, NULL);
 
-			fprintf(stderr, "[%s] %.3f/%.3f GB %.2f Mpps %.2f Gbps | cat %6.f MB %.2f | Flows/Snap: %6i FlowCPU:%.2f | ESPush:%6lli %6.2fK ESErr %4lli | OutCPU: %.2f (%.2f)\n", 
+			fprintf(stderr, "[%s] %.3f/%.3f GB %.2f Mpps %.2f Gbps | cat %6.f MB %.2f %.2f %.2f | Flows/Snap: %6i FlowCPU:%.2f | ESPush:%6lli %6.2fK ESErr %4lli | OutCPU: %.2f (%.2f)\n", 
 
 								FormatTS(PacketTSLast),
 
@@ -687,6 +687,8 @@ int main(int argc, u8* argv[])
 
 								s_StreamCAT_BytePending / (float)kMB(1),
 								s_StreamCAT_CPUActive,
+								s_StreamCAT_CPUFetch,
+								s_StreamCAT_CPUSend,
 
 								FlowCntSnapshot, 
 								FlowCPU,
