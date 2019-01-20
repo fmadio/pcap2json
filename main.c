@@ -518,6 +518,8 @@ static void ProfileDump(struct Output_t* Out)
 
 int main(int argc, u8* argv[])
 {
+	fprintf(stderr, "pcap2json https://www.github/fmadio/pcap2json build:%s %s\n", __DATE__, __TIME__);
+
 	// get the hosts name
 	gethostname(g_DeviceName, sizeof(g_DeviceName));	
 
