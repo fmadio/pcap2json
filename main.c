@@ -814,6 +814,15 @@ int main(int argc, u8* argv[])
 			Offset		= Header.Length;
 
 
+			if (g_Verbose)
+			{
+				fprintf(stderr, "packet chunk: PktCnt:%i TSFirst:%lli TSLast:%lli Length:%i\n", 
+						PktCnt,
+						TSFirst,
+						TSLast,
+						Offset);
+			}
+
 			s_StreamCAT_BytePending = Header.BytePending;
 			s_StreamCAT_CPUActive   = Header.CPUActive / (float)0x10000;
 			s_StreamCAT_CPUFetch    = Header.CPUFetch / (float)0x10000;
