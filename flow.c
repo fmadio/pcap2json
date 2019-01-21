@@ -166,6 +166,8 @@ extern bool				g_IsFlowNULL;
 extern u8 				g_CaptureName[256];
 extern u8				g_DeviceName[128];
 
+extern bool				g_Verbose;
+
 //---------------------------------------------------------------------------------------------
 // static
 static volatile bool			s_Exit = false;
