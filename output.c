@@ -71,6 +71,9 @@ typedef struct
 
 	u32					Lock;									// dont let LineAdd write to an outputing buffer
 
+	int					fd;										// file handle for output buffer map
+	u8*					BufferMap;
+
 } Buffer_t;
 
 typedef struct Output_t
@@ -151,6 +154,7 @@ Output_t* Output_Create(bool IsNULL,
 
 	for (int i=0; i < O->BufferMax; i++)
 	{
+		// init buffer
 		Buffer_t* B				= &O->BufferList[i];
 		B->BufferPos			= 0;
 		B->BufferMax 			= Output_ByteFlush; 
@@ -158,16 +162,36 @@ Output_t* Output_Create(bool IsNULL,
 		B->BufferLine			= 0;
 		B->BufferLineMax		= Output_LineFlush;
 
-		B->Buffer				= memalign(4096, B->BufferMax );
+		// map a file
+		u8 FileName[128];
+		sprintf(FileName, "/mnt/store0/protocol/pcap2json/output_%04i.bin", i);
+
+		// force file creation 
+		B->fd = open(FileName, O_CREAT | O_TRUNC | O_RDWR, S_IRWXU); 
+		if (B->fd <= 0)
+		{
+			printf("failed to create output file %s: %i %i\n", FileName, B->fd, errno); 
+			return NULL;
+		}
+
+		// new file so clear everything out 
+		ftruncate(B->fd,  B->BufferMax * 3); 
+
+		// shm mapping 
+		B->BufferMap = mmap64(0, B->BufferMax * 3, PROT_READ|PROT_WRITE, MAP_SHARED, B->fd, 0);
+		assert(B->BufferMap != NULL);
+
+		// slice up the output buffer
+		B->Buffer				= B->BufferMap + 0 * B->BufferMax;
 		assert(B->Buffer != NULL);
 		memset(B->Buffer, 0, B->BufferMax);
 
 		B->BufferCompressMax	= B->BufferMax; 
-		B->BufferCompress		= memalign(4096, B->BufferCompressMax ); 
+		B->BufferCompress		= B->BufferMap + 1 * B->BufferMax;
 		assert(B->BufferCompress != NULL);
 
 		B->BufferRecvMax		= B->BufferMax; 
-		B->BufferRecv			= memalign(4096, B->BufferRecvMax ); 
+		B->BufferRecv			= B->BufferMap + 2 * B->BufferMax;
 		assert(B->BufferRecv != NULL);
 	}
 

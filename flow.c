@@ -168,7 +168,6 @@ extern u8				g_DeviceName[128];
 
 //---------------------------------------------------------------------------------------------
 // static
-
 static volatile bool			s_Exit = false;
 
 static u32						s_FlowCntSnapshotLast = 0;				// last total flows in the last snapshot
@@ -1031,10 +1030,13 @@ void Flow_PacketQueue(PacketBuffer_t* Pkt)
 		if (s_FlowSampleTSLast  == 0)
 		{
 			s_FlowSampleTSLast  = (u64)(Pkt->TSLast / g_FlowSampleRate) * g_FlowSampleRate;
+//fprintf(stderr, "first sample: %lli : %lli\n", Pkt->TSLast, s_FlowSampleTSLast);
 		}
 
 		// time to dump the index
 		s64 dTS = Pkt->TSLast - s_FlowSampleTSLast;
+//fprintf(stderr, "next %lli %lli %lli\n", dTS, Pkt->TSLast, s_FlowSampleTSLast);
+
 		if (dTS > g_FlowSampleRate)
 		{
 			Pkt->IsFlowIndexDump	= true;

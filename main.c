@@ -567,7 +567,6 @@ int main(int argc, u8* argv[])
 	FILE* FileIn 	= stdin;
 	FILE* FileOut 	= stdout;
 
-
 	// read header
 	PCAPHeader_t HeaderMaster;
 	int rlen = fread(&HeaderMaster, 1, sizeof(HeaderMaster), FileIn);
