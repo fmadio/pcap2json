@@ -1187,8 +1187,8 @@ void* Flow_Worker(void* User)
 					u64 TSC4 						= rdtsc();
 					s_DecodeThreadTSCOutput[CPUID] += TSC4 - TSC0;
 					s_DecodeThreadTSCOStall[CPUID] += StallTSC;
-					s_DecodeThreadTSCMerge[CPUID]  += TSC2 - TSC1; 
-					s_DecodeThreadTSCWrite[CPUID]  += TSC3 - TSC2; 
+					s_DecodeThreadTSCMerge [CPUID] += TSC2 - TSC1; 
+					s_DecodeThreadTSCWrite [CPUID] += TSC3 - TSC2; 
 				}
 
 				// update pktblock count for the root index

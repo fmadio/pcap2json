@@ -712,7 +712,7 @@ u64 Output_LineAdd(Output_t* Out, u8* Buffer, u32 BufferLen)
 
 	// multiple CPU call this function, ensure its
 	// mutually exclusive output
-	sync_lock(&Out->BufferLock, 50); 
+	u64 SyncTopTSC = sync_lock(&Out->BufferLock, 50); 
 
 	// write to a text file
 	if (Out->FileTXT)
@@ -722,12 +722,13 @@ u64 Output_LineAdd(Output_t* Out, u8* Buffer, u32 BufferLen)
 	}
 
 	// push directly to ES
+	u64 SyncLocalTSC = 0;
 	if (Out->ESPush)
 	{
 		Buffer_t* B = &Out->BufferList[Out->BufferPut];
 
 		// ensure block is not currently being pushed 
-		sync_lock(&B->Lock, 100);
+		SyncLocalTSC = sync_lock(&B->Lock, 100);
 		{
 			memcpy(B->Buffer + B->BufferPos, Buffer, BufferLen);
 			B->BufferPos += BufferLen;
@@ -772,7 +773,7 @@ u64 Output_LineAdd(Output_t* Out, u8* Buffer, u32 BufferLen)
 
 	sync_unlock(&Out->BufferLock);
 
-	return TSC1 - TSC0;
+	return (TSC1 - TSC0) + SyncTopTSC + SyncLocalTSC;
 }
 
 //-------------------------------------------------------------------------------------------
