@@ -646,6 +646,8 @@ void BulkUpload(Output_t* Out, u32 BufferIndex, u32 CPUID)
 	//memset(B->Buffer, 0, B->BufferPos);
 	B->BufferLine 	= 0;
 	B->BufferPos 	= 0;
+
+	__asm__ volatile("sfence");
 	B->IsReady		= false;
 
 	// update counts
@@ -780,6 +782,8 @@ u64 Output_BufferAdd(Output_t* Out, u8* Buffer, u32 BufferLen, u32 LineCnt)
 		memcpy(B->Buffer, Buffer, BufferLen);
 		B->BufferPos 	= BufferLen;
 		B->BufferLine 	= LineCnt;
+
+		__asm__ volatile("sfence");
 		B->IsReady 		= true;
 
 	}
