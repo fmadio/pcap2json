@@ -39,7 +39,9 @@ void 			Flow_Stats				(bool   IsReset,
 										 float* pCPUOutput,
 										 float* pCPUOStall,
 										 float* pCPUMerge,
-										 float* pCPUWrite
+										 float* pCPUWrite,
+										 float* pCPUReset,
+										 float* pCPUWorker
 										);
 void 			Flow_PktSizeHisto		(void);
 

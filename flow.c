@@ -71,6 +71,19 @@
 // PCAPWall time: 16897678336.00 sec ProcessTime 13.11 sec (0.000)
 // Total Time: 13.11 sec RawInput[Wire 60.155 Gbps Capture 9.362 Gbps 53 Mpps] Output[0.454 Gbps] TotalLine:1365000 104084 Line/Sec
 //
+//
+// 2019/2/01
+//
+// changed flow hash index to use lazy state clear, helps alot to churn though low bandwidth large PCAPs
+//
+// [00:02:56.342.157.568] 39.904/0.306 GB 9.57 Mpps 86.55 Gbps | cat   9028 MB 1.00 0.50 0.28 | Flows/Snap:  44359 FlowCPU:0.61 | ESPush:     0 144.36K ESErr    0 | OutCPU: 0.00 (0.00) OutQueue:313.03MB
+// [00:02:56.677.250.816] 49.812/0.379 GB 9.35 Mpps 85.10 Gbps | cat   7306 MB 1.00 0.50 0.28 | Flows/Snap:  42340 FlowCPU:0.61 | ESPush:     0 145.37K ESErr    0 | OutCPU: 0.00 (0.00) OutQueue:388.46MB
+// [00:02:57.018.342.912] 59.894/0.449 GB 9.49 Mpps 86.59 Gbps | cat   5557 MB 1.00 0.49 0.28 | Flows/Snap:  44757 FlowCPU:0.61 | ESPush:     0 137.58K ESErr    0 | OutCPU: 0.00 (0.00) OutQueue:459.55MB
+// [00:02:57.349.965.824] 69.852/0.521 GB 9.50 Mpps 85.53 Gbps | cat   3814 MB 1.00 0.50 0.28 | Flows/Snap:  41777 FlowCPU:0.61 | ESPush:     0 143.19K ESErr    0 | OutCPU: 0.00 (0.00) OutQueue:533.33MB
+//
+// PCAPWall time: 16897678336.00 sec ProcessTime 12.65 sec (0.000)
+// Total Time: 12.65 sec RawInput[Wire 62.342 Gbps Capture 9.702 Gbps 55 Mpps] Output[0.471 Gbps] TotalLine:1365062 107874 Line/Sec
+//
 //---------------------------------------------------------------------------------------------
 
 #include <stdio.h>
@@ -157,7 +170,10 @@ typedef struct FlowIndex_t
 {
 	u64						FlowMax;			// maximum number of flows 
 	FlowRecord_t*			FlowList;			// list of statically allocated flows
-	FlowRecord_t**			FlowHash;			// flash hash index
+	u32*					FlowHash;			// flash hash index
+	u16*					FlowHashFrameID;	// way to clear the flow hash without touching memory 
+	u16						FrameID;			// current frame id
+
 	u32						FlowLock;			// mutex to modify 
 
 	u64						FlowCntSnapshot;	// number of flows in this snapshot
@@ -219,6 +235,8 @@ static u64						s_DecodeThreadTSCOutput[128];			// cycles spent in output logic
 static u64						s_DecodeThreadTSCOStall[128];			// cycles spent waiting for an FlowIndex alloc 
 static u64						s_DecodeThreadTSCMerge[128];			// cycles spent merging multiple flow indexs 
 static u64						s_DecodeThreadTSCWrite[128];			// cycles spent serialzing the json output sprintf dominated 
+static u64						s_DecodeThreadTSCReset[128];			// cycles spent reseting structures 
+static u64						s_DecodeThreadTSCWorker[128];			// cycles spent waiting for workers to complete 
 
 static volatile u64				s_DecodeQueuePut 	= 0;				// put/get processing queue
 static volatile u64				s_DecodeQueueGet 	= 0;
@@ -306,8 +324,17 @@ static void FlowIndexFree(FlowIndex_t* FlowIndexRoot)
 			printf("ERRROR: IndexFree: %p %i InUse:%i\n", FlowIndexRoot, i, FlowIndex->IsUse);
 		}
 
-		memset(FlowIndex->FlowHash, 0, sizeof(FlowRecord_t*) * (2 << 20) );
-		FlowIndex->FlowCntSnapshot = 0;
+		// as running memset(FlowIndex->FlowHash) is expensive
+		// just bump the counter to invalidate previous values
+		FlowIndex->FrameID++;
+		
+		// when the counter wraps force a full clear 
+		// ensures 100% there is no FrameID collisions with stale FlowHashFrameID values 
+		if (FlowIndex->FrameID == 0)
+		{
+			memset(FlowIndex->FlowHash, 0, sizeof(u32) * (2 << 20) );
+		}
+		FlowIndex->FlowCntSnapshot = 1;			// entry 0 is a sential
 
 		FlowIndex->PktBlockCnt 	= 0;
 		FlowIndex->PktBlockMax 	= 0;
@@ -378,7 +405,7 @@ static FlowRecord_t* FlowAdd(FlowIndex_t* FlowIndex, FlowRecord_t* FlowPkt, u32*
 	u32 Index = HashIndex(SHA1);
 
 	// first record ?
-	if (FlowIndex->FlowHash[ Index ] == NULL)
+	if (FlowIndex->FlowHashFrameID[ Index ] != FlowIndex->FrameID)
 	{
 		F = FlowAlloc(FlowIndex, FlowPkt);
 
@@ -391,13 +418,15 @@ static FlowRecord_t* FlowAdd(FlowIndex_t* FlowIndex, FlowRecord_t* FlowPkt, u32*
 		F->Next		= NULL;
 		F->Prev		= NULL;
 
-		FlowIndex->FlowHash[Index] = F;
+		FlowIndex->FlowHash[Index] = F - FlowIndex->FlowList;
+
+		FlowIndex->FlowHashFrameID[ Index ] = FlowIndex->FrameID;
 
 		IsFlowNew = true;
 	}
 	else
 	{
-		F = FlowIndex->FlowHash[ Index ];
+		F = FlowIndex->FlowList + FlowIndex->FlowHash[ Index ];
 
 		// iterate in search of the flow
 		FlowRecord_t* FPrev = NULL;
@@ -1219,10 +1248,12 @@ void* Flow_Worker(void* User)
 					FlowIndexFree(FlowIndexRoot);
 
 					u64 TSC4 						= rdtsc();
-					s_DecodeThreadTSCOutput[CPUID] += TSC4 - TSC0;
-					s_DecodeThreadTSCOStall[CPUID] += StallTSC;
-					s_DecodeThreadTSCMerge [CPUID] += TSC2 - TSC1; 
-					s_DecodeThreadTSCWrite [CPUID] += TSC3 - TSC2; 
+					s_DecodeThreadTSCOutput	[CPUID] += TSC4 - TSC0;
+					s_DecodeThreadTSCOStall	[CPUID] += StallTSC;
+					s_DecodeThreadTSCMerge 	[CPUID] += TSC2 - TSC1; 
+					s_DecodeThreadTSCWrite 	[CPUID] += TSC3 - TSC2; 
+					s_DecodeThreadTSCReset	[CPUID] += TSC4 - TSC3;
+					s_DecodeThreadTSCWorker	[CPUID] += TSC1 - TSC0;
 				}
 
 				// update pktblock count for the root index
@@ -1363,8 +1394,13 @@ void Flow_Open(struct Output_t* Out, s32* CPUMap)
 		FlowIndex->FlowMax	= 250e3;
 
 		// allocate and clear flow index
-		FlowIndex->FlowHash = (FlowRecord_t **)memalign(4096, sizeof(FlowRecord_t *) * (2 << 20) );
+		FlowIndex->FlowHash = (u32*)memalign(4096, sizeof(u32) * (2 << 20) );
 		assert(FlowIndex->FlowHash != NULL);
+
+		FlowIndex->FlowHashFrameID = (u16*)memalign(4096, sizeof(u16) * (2 << 20) );
+		assert(FlowIndex->FlowHashFrameID != NULL);
+
+		FlowIndex->FrameID = 1;
 
 		// allocate statically allocated flow list
 		FlowIndex->FlowList = (FlowRecord_t *)memalign (4096, sizeof(FlowRecord_t) * FlowIndex->FlowMax );
@@ -1442,7 +1478,9 @@ void Flow_Stats(	bool IsReset,
 					float * pCPUOutput,
 					float * pCPUOStall,
 					float * pCPUMerge,
-					float * pCPUWrite
+					float * pCPUWrite,
+					float * pCPUReset,
+					float * pCPUWorker
 ){
 	if (pFlowCntSnapShot)	pFlowCntSnapShot[0] = s_FlowCntSnapshotLast;
 	if (pPktCntSnapShot)	pPktCntSnapShot[0]	= s_PktCntSnapshotLast;
@@ -1456,6 +1494,9 @@ void Flow_Stats(	bool IsReset,
 	u64 OStallTSC	= 0;
 	u64 MergeTSC	= 0;
 	u64 WriteTSC	= 0;
+	u64 ResetTSC	= 0;
+	u64 WorkerTSC	= 0;
+
 	for (int i=0; i < s_DecodeCPUActive; i++)
 	{
 		TotalTSC 	+= s_DecodeThreadTSCTop		[i];
@@ -1465,6 +1506,8 @@ void Flow_Stats(	bool IsReset,
 		OStallTSC 	+= s_DecodeThreadTSCOStall	[i];
 		MergeTSC 	+= s_DecodeThreadTSCMerge	[i];
 		WriteTSC 	+= s_DecodeThreadTSCWrite	[i];
+		ResetTSC 	+= s_DecodeThreadTSCReset	[i];
+		WorkerTSC 	+= s_DecodeThreadTSCWorker	[i];
 	}
 
 	if (IsReset)
@@ -1478,6 +1521,8 @@ void Flow_Stats(	bool IsReset,
 			s_DecodeThreadTSCOStall[i]	= 0;
 			s_DecodeThreadTSCMerge[i]	= 0;
 			s_DecodeThreadTSCWrite[i]	= 0;
+			s_DecodeThreadTSCReset[i]	= 0;
+			s_DecodeThreadTSCWorker[i]	= 0;
 		}
 	}
 
@@ -1487,6 +1532,8 @@ void Flow_Stats(	bool IsReset,
 	if (pCPUOStall) pCPUOStall[0] 	= OStallTSC	* inverse(TotalTSC);
 	if (pCPUMerge)  pCPUMerge[0] 	= MergeTSC	* inverse(TotalTSC);
 	if (pCPUWrite)  pCPUWrite[0] 	= WriteTSC	* inverse(TotalTSC);
+	if (pCPUReset)  pCPUReset[0] 	= ResetTSC	* inverse(TotalTSC);
+	if (pCPUWorker)  pCPUWorker[0] 	= WorkerTSC	* inverse(TotalTSC);
 }
 
 //---------------------------------------------------------------------------------------------

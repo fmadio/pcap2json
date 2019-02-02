@@ -455,6 +455,8 @@ static void ProfileDump(struct Output_t* Out)
 	float FlowCPUOStall 	= 0;
 	float FlowCPUMerge 		= 0;
 	float FlowCPUWrite 		= 0;
+	float FlowCPUReset 		= 0;
+	float FlowCPUWorker 	= 0;
 
 	Flow_Stats( true, 
 				&FlowCntSnapshot, 
@@ -465,7 +467,9 @@ static void ProfileDump(struct Output_t* Out)
 				&FlowCPUOutput, 
 				&FlowCPUOStall,
 				&FlowCPUMerge,
-				&FlowCPUWrite);
+				&FlowCPUWrite,
+				&FlowCPUReset,
+				&FlowCPUWorker);
 
 	fprintf(stderr, "Flow:\n");
 	fprintf(stderr, "  Process   : %.3f\n", FlowCPUDecode);
@@ -474,6 +478,8 @@ static void ProfileDump(struct Output_t* Out)
 	fprintf(stderr, "  Merge     : %.3f\n", FlowCPUMerge);
 	fprintf(stderr, "  Write     : %.3f\n", FlowCPUWrite);
 	fprintf(stderr, "  OStall    : %.3f\n", FlowCPUOStall);
+	fprintf(stderr, "  Reset     : %.3f\n", FlowCPUReset);
+	fprintf(stderr, "  WrkStall  : %.3f\n", FlowCPUWorker);
 	fprintf(stderr, "\n");
 
 	fprintf(stderr, "  Flow/Snap : %-12lli\n", FlowCntSnapshot);
@@ -657,7 +663,7 @@ int main(int argc, u8* argv[])
 
 			u64 FlowCntSnapshot;	
 			float FlowCPU;
-			Flow_Stats(false, &FlowCntSnapshot, NULL, NULL, &FlowCPU, NULL, NULL, NULL, NULL, NULL);
+			Flow_Stats(false, &FlowCntSnapshot, NULL, NULL, &FlowCPU, NULL, NULL, NULL, NULL, NULL, NULL, NULL);
 
 			fprintf(stderr, "[%s] %.3f/%.3f GB %.2f Mpps %.2f Gbps | cat %6.f MB %.2f %.2f %.2f | Flows/Snap: %6i FlowCPU:%.2f | ESPush:%6lli %6.2fK ESErr %4lli | OutCPU: %.2f (%.2f) OutQueue:%.2fMB\n", 
 

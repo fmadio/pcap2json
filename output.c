@@ -122,22 +122,23 @@ extern bool 			g_Verbose;
 
 static volatile bool	s_Exit = false;
 
-static bool				s_IsESNULL = true;					// debug flag to remove the ES output stall
+static bool				s_IsESNULL = false;					// debug flag to remove the ES output stall
 
 //-------------------------------------------------------------------------------------------
 
 Output_t* Output_Create(bool IsNULL, 
 						bool IsSTDOUT, 
 						bool IsESOut, 
-						bool IsESNULL, 
 						bool IsCompress, 
+						bool IsESNULL, 
 						u32 Output_BufferCnt,
 						s32* CPUMap)
 {
 	fprintf(stderr, "OutputBuffer Config\n");
 	fprintf(stderr, "   IsNULL        : %i\n", IsNULL); 
-	fprintf(stderr, "   IsES          : %i\n", IsSTDOUT); 
-	fprintf(stderr, "   IsStdout      : %i\n", IsESOut); 
+	fprintf(stderr, "   IsStdOut      : %i\n", IsSTDOUT); 
+	fprintf(stderr, "   IsESNULL      : %i\n", IsESNULL); 
+	fprintf(stderr, "   IsESPush      : %i\n", IsESOut); 
 	fprintf(stderr, "   IsCompress    : %i\n", IsCompress); 
 
 	Output_t* O = memalign(4096, sizeof(Output_t));
