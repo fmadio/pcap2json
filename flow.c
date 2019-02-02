@@ -19,6 +19,7 @@
 // [11:54:56.768.221.696] Input:33.900 GB  17.09 Gbps PCAP: 273.26 Gbps | Output 0.29819 GB Flows/Snap:  43591 FlowCPU:0.619 | ESPush:       0  43.59K ESErr    0 | OutputCPU: 0.000
 // [11:54:56.831.990.784] Input:35.886 GB  17.05 Gbps PCAP: 267.44 Gbps | Output 0.31004 GB Flows/Snap:  43591 FlowCPU:0.616 | ESPush:       0  22.04K ESErr    0 | OutputCPU: 0.000
 //
+//
 // 2018/12/27
 // 
 // PCAP interface using packet blocks
@@ -28,6 +29,7 @@
 // [11:53:14.611.949.056] In:60.846 GB 2.55 Mpps 23.02 Gbps PCAP: 264.30 Gbps | Out 0.50738 GB Flows/Snap:  41926 FlowCPU:0.32 | ESPush:     0  41.92K ESErr    0 | OutCPU: 0.00 (0.00)
 //
 // PCAPWall time: 3.09 sec ProcessTime 37.40 sec (12.105)
+//
 //
 // 2018/12/28
 //
@@ -40,6 +42,7 @@
 //
 // PCAPWall time: 16900787200.00 sec ProcessTime 17.74 sec (0.000)
 // Total Time: 17.84 sec RawInput[44.211 Gbps 38906940 Pps] Output[0.469 Gbps] TotalLine:1909656 107021 Line/Sec
+//
 //
 // 2019/01/07
 //
@@ -54,6 +57,19 @@
 //
 // PCAPWall time: 16899884032.00 sec ProcessTime 15.72 sec (0.000)
 // Total Time: 15.72 sec RawInput[50.191 Gbps 44169856 Pps] Output[0.390 Gbps] TotalLine:1396322 88838 Line/Sec
+//
+//
+// 2019/2/01
+//
+// flow indexs now run up 6 entries wide, snapshot(0....5) all running lockless
+// removed OutputLine to a an OutputBuffer dramatically reducing the lock collisions
+//
+// [00:02:56.709.989.120] 50.771/0.384 GB 9.69 Mpps 88.15 Gbps | cat   7140 MB 1.00 0.50 0.27 | Flows/Snap:  42518 FlowCPU:0.60 | ESPush:     0 140.65K ESErr    0 | OutCPU: 0.00 (0.00)
+// [00:02:57.055.932.160] 61.032/0.461 GB 9.68 Mpps 88.14 Gbps | cat   5357 MB 1.00 0.51 0.27 | Flows/Snap:  44755 FlowCPU:0.60 | ESPush:     0 153.84K ESErr    0 | OutCPU: 0.00 (0.00)
+// [00:02:57.397.079.040] 71.246/0.533 GB 9.71 Mpps 87.74 Gbps | cat   3573 MB 1.00 0.50 0.28 | Flows/Snap:  40849 FlowCPU:0.60 | ESPush:     0 142.27K ESErr    0 | OutCPU: 0.00 (0.00)
+//
+// PCAPWall time: 16897678336.00 sec ProcessTime 13.11 sec (0.000)
+// Total Time: 13.11 sec RawInput[Wire 60.155 Gbps Capture 9.362 Gbps 53 Mpps] Output[0.454 Gbps] TotalLine:1365000 104084 Line/Sec
 //
 //---------------------------------------------------------------------------------------------
 
@@ -972,7 +988,7 @@ void DecodePacket(	u32 CPUID,
 		u8 JSONBuffer[16*1024];
 		u32 JSONBufferLen = FlowDump(JSONBuffer, PktHeader->TS, FlowPkt, 0);
 
-		Output_LineAdd(s_Output, JSONBuffer, JSONBufferLen, 1);
+		Output_BufferAdd(s_Output, JSONBuffer, JSONBufferLen, 1);
 	}
 	// update the flow records
 	if (g_IsJSONFlow)
@@ -1178,13 +1194,16 @@ void* Flow_Worker(void* User)
 						// flush to output 
 						if (JSONBufferOffset > FlowIndexRoot->JSONBufferMax - kKB(16))
 						{
-							StallTSC += Output_LineAdd(s_Output, JSONBuffer, JSONBufferOffset, JSONLineCnt);
+							StallTSC += Output_BufferAdd(s_Output, JSONBuffer, JSONBufferOffset, JSONLineCnt);
 
 							JSONBufferOffset 	= 0;
 							JSONLineCnt 		= 0;
 						}
 						TotalPkt += Flow->TotalPkt;
 					}
+
+					// flush remaining lines in the buffer 
+					StallTSC += Output_BufferAdd(s_Output, JSONBuffer, JSONBufferOffset, JSONLineCnt);
 
 					// add total number of flows output 
 					s_FlowCntTotal += FlowIndex->FlowCntSnapshot;

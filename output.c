@@ -704,8 +704,11 @@ u64 Output_ESPushCnt(Output_t* Out)
 
 //-------------------------------------------------------------------------------------------
 
-u64 Output_LineAdd(Output_t* Out, u8* Buffer, u32 BufferLen, u32 LineCnt)
+u64 Output_BufferAdd(Output_t* Out, u8* Buffer, u32 BufferLen, u32 LineCnt)
 {
+	// drop null buffers
+	if (BufferLen == 0) return 0;
+
 	u64 TSC0 = 0;
 	u64 TSC1 = 0;
 
@@ -729,42 +732,27 @@ u64 Output_LineAdd(Output_t* Out, u8* Buffer, u32 BufferLen, u32 LineCnt)
 		// ensure block is not currently being pushed 
 		SyncLocalTSC = sync_lock(&B->Lock, 100);
 		{
-			memcpy(B->Buffer + B->BufferPos, Buffer, BufferLen);
-			B->BufferPos += BufferLen;
-
-			B->BufferLine += 1;
-
-			// time to flush to ES?
-			bool IsFlush = false;
-
-			// flush every X lines
-			IsFlush |= (B->BufferLine > B->BufferLineMax);
-
-			// flush when near the end of the write buffer
-			IsFlush |= (B->BufferPos + kKB(16) > B->BufferMax);
-
-			// flush every X nanosec
 			u64 TS = clock_ns();
-			IsFlush |= ((TS - Out->FlushLastTS) > Out->FlushTimeout);
-			if (IsFlush)
+
+			memcpy(B->Buffer, Buffer, BufferLen);
+			B->BufferPos 	= BufferLen;
+			B->BufferLine 	= LineCnt;
+
+			// block until push has space to new queue entry 
+			// NOTE: there may be X buffers due to X workers in progress so add bit 
+			//       of extra padding in queuing behaviour
+			TSC0 = rdtsc();
+			while (((Out->BufferPut + Out->CPUActiveCnt + 4) & Out->BufferMask) == Out->BufferGet)
 			{
-				// block until push has completed
-				// NOTE: there may be X buffers due to X workers in progress so add bit 
-				//       of extra padding in queuing behaviour
-				TSC0 = rdtsc();
-				while (((Out->BufferPut + Out->CPUActiveCnt + 4) & Out->BufferMask) == Out->BufferGet)
-				{
-					usleep(0);
-				}
-				TSC1 = rdtsc();
-
-				// add so the workers can push it
-				//BulkUpload(Out, Out->BufferPut);
-				Out->BufferPut = (Out->BufferPut + 1) & Out->BufferMask;
-
-				// set last flush time
-				Out->FlushLastTS = TS;
+				usleep(0);
 			}
+			TSC1 = rdtsc();
+
+			// add so the workers can push it
+			Out->BufferPut = (Out->BufferPut + 1) & Out->BufferMask;
+
+			// set last flush time
+			Out->FlushLastTS = TS;
 		}
 		sync_unlock(&B->Lock);
 	}
