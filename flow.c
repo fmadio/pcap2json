@@ -149,6 +149,9 @@ typedef struct FlowIndex_t
 	u32						PktBlockMax;		// number of packet blocks in this index
 												// valid on root only
 
+	u32						JSONBufferMax;		// total size of output buffer	
+	u8*						JSONBuffer;			// small output buffer
+
 	volatile bool			IsUse;
 
 	struct FlowIndex_t*		FreeNext;			// next in free list
@@ -496,11 +499,9 @@ static void FlowInsert(u32 CPUID, FlowIndex_t* FlowIndex, FlowRecord_t* FlowPkt,
 // write a flow record out as a JSON file
 // this is designed for ES bulk data upload using the 
 // mappings.json file as the index 
-static u64 FlowDump(struct Output_t* Out, u64 TS, FlowRecord_t* Flow, u32 FlowID) 
+static u32 FlowDump(u8* OutputStr, u64 TS, FlowRecord_t* Flow, u32 FlowID) 
 {
-	u8 OutputStr[1024];
 	u8* Output 		= OutputStr;
-	u8* OutputStart = Output;
 
 	// ES header for bulk upload
 	Output += sprintf(Output, "{\"index\":{\"_index\":\"%s\",\"_type\":\"flow_record\",\"_score\":null}}\n", g_CaptureName);
@@ -675,9 +676,7 @@ static u64 FlowDump(struct Output_t* Out, u64 TS, FlowRecord_t* Flow, u32 FlowID
 
 	Output += sprintf(Output, "}\n");
 
-	u32 OutputLen = Output - OutputStart;
-
-	return Output_LineAdd(Out, OutputStart, OutputLen);
+	return Output - OutputStr;
 }
 
 //---------------------------------------------------------------------------------------------
@@ -970,7 +969,10 @@ void DecodePacket(	u32 CPUID,
 	// packet mode then print record as a packet 
 	if (g_IsJSONPacket)
 	{
-		FlowDump(Out, PktHeader->TS, FlowPkt, 0);
+		u8 JSONBuffer[16*1024];
+		u32 JSONBufferLen = FlowDump(JSONBuffer, PktHeader->TS, FlowPkt, 0);
+
+		Output_LineAdd(s_Output, JSONBuffer, JSONBufferLen);
 	}
 	// update the flow records
 	if (g_IsJSONFlow)
@@ -1163,11 +1165,20 @@ void* Flow_Worker(void* User)
 					// dump flows
 					u64 StallTSC = 0;
 					u64 TotalPkt = 0;
+
+					u8* JSONBuffer 			= FlowIndexRoot->JSONBuffer;
+					u32 JSONBufferOffset 	= 0;
 					for (int i=0; i < FlowIndex->FlowCntSnapshot; i++)
 					{
 						FlowRecord_t* Flow = &FlowIndex->FlowList[i];	
-						StallTSC += FlowDump(s_Output, PktBlock->TSSnapshot, Flow, i);
+						JSONBufferOffset += FlowDump(JSONBuffer + JSONBufferOffset, PktBlock->TSSnapshot, Flow, i);
 
+						// flush to output 
+						if (JSONBufferOffset > FlowIndexRoot->JSONBufferMax - kKB(16))
+						{
+							StallTSC += Output_LineAdd(s_Output, JSONBuffer, JSONBufferOffset);
+							JSONBufferOffset = 0;
+						}
 						TotalPkt += Flow->TotalPkt;
 					}
 
@@ -1340,6 +1351,17 @@ void Flow_Open(struct Output_t* Out, s32* CPUMap)
 		TotalMem += sizeof(FlowRecord_t) * FlowIndex->FlowMax;
 		//printf("mem: %.f MB\n", TotalMem / 1e6);
 	}
+
+	// allocate JSON output buffer on the index root 
+	for (int i=0; i < s_FlowIndexMax; i += s_FlowIndexSub)
+	{
+		FlowIndex_t* FlowIndex = &s_FlowIndex[i];
+
+		FlowIndex->JSONBufferMax	= kMB(1);
+		FlowIndex->JSONBuffer		= malloc(FlowIndex->JSONBufferMax);
+		assert(FlowIndex->JSONBuffer != NULL);
+	}
+
 	// push to free list
 	for (int i=0; i < s_FlowIndexMax; i += s_FlowIndexSub)
 	{
