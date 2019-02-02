@@ -118,15 +118,18 @@ static void* Output_Worker(void * user);
 
 //-------------------------------------------------------------------------------------------
 
-extern bool g_Verbose;
+extern bool 			g_Verbose;
 
-static volatile bool		s_Exit = false;
+static volatile bool	s_Exit = false;
+
+static bool				s_IsESNULL = true;					// debug flag to remove the ES output stall
 
 //-------------------------------------------------------------------------------------------
 
 Output_t* Output_Create(bool IsNULL, 
 						bool IsSTDOUT, 
 						bool IsESOut, 
+						bool IsESNULL, 
 						bool IsCompress, 
 						u32 Output_BufferCnt,
 						s32* CPUMap)
@@ -196,6 +199,9 @@ Output_t* Output_Create(bool IsNULL,
 	{
 		O->FileTXT		= fopen("/dev/null", "w");
 	}
+
+	// ER null target
+	s_IsESNULL = IsESNULL;
 
 	// direct ES push
 	O->ESHostCnt = 0;
@@ -301,6 +307,7 @@ static void Hexdump(u8* Desc, u8* Buffer, s32 Length)
 // directly push the json data to ES
 void BulkUpload(Output_t* Out, u32 BufferIndex, u32 CPUID)
 {
+
 	u8* IPAddress 	= Out->ESHostName[Out->ESHostPos]; 
 	u32 Port 		= Out->ESHostPort[Out->ESHostPos];	
 
@@ -378,240 +385,245 @@ void BulkUpload(Output_t* Out, u32 BufferIndex, u32 CPUID)
 	}
 
 	u64 TSC1 = rdtsc();
+	u64 TSC2 = TSC1;
 
-	int Sock = socket(AF_INET, SOCK_STREAM, 0);
-	assert(Sock > 0);
-	
-	// listen address 
-	struct sockaddr_in	BindAddr;					// bind address for acks
-	memset((char *) &BindAddr, 0, sizeof(BindAddr));
-
-	BindAddr.sin_family 		= AF_INET;
-	BindAddr.sin_port 			= htons(Port);
-	BindAddr.sin_addr.s_addr 	= inet_addr(IPAddress);
-
-	// retry connection a few times 
-	int ret = -1;
-	for (int r=0; r < 10; r++)
+	// not null es host
+	if (!s_IsESNULL)
 	{
-		//bind socket to port
-		ret = connect(Sock, (struct sockaddr*)&BindAddr, sizeof(BindAddr));
-		if (ret >= 0) break;
+		int Sock = socket(AF_INET, SOCK_STREAM, 0);
+		assert(Sock > 0);
+		
+		// listen address 
+		struct sockaddr_in	BindAddr;					// bind address for acks
+		memset((char *) &BindAddr, 0, sizeof(BindAddr));
 
-		fprintf(stderr, "Connection to [%s:%i] timed out... retry\n", IPAddress, Port);
+		BindAddr.sin_family 		= AF_INET;
+		BindAddr.sin_port 			= htons(Port);
+		BindAddr.sin_addr.s_addr 	= inet_addr(IPAddress);
 
-		// connection timed out
-		usleep(100e3);
-	}
-	if (ret < 0)
-	{
-		fprintf(stderr, "connect failed: %i %i : %s : %s:%i\n", ret, errno, strerror(errno), IPAddress, Port); 
-		return;
-	}
+		// retry connection a few times 
+		int ret = -1;
+		for (int r=0; r < 10; r++)
+		{
+			//bind socket to port
+			ret = connect(Sock, (struct sockaddr*)&BindAddr, sizeof(BindAddr));
+			if (ret >= 0) break;
 
-	// set timeout for connect 
-	{
-		int timeout = 10000;  // user timeout in milliseconds [ms]
-		ret = setsockopt (Sock, SOL_TCP, TCP_USER_TIMEOUT, (char*) &timeout, sizeof (timeout));
+			fprintf(stderr, "Connection to [%s:%i] timed out... retry\n", IPAddress, Port);
+
+			// connection timed out
+			usleep(100e3);
+		}
 		if (ret < 0)
 		{
-			fprintf(stderr, "TCP_USER_TIMEOUT failed: %i %i %s\n", ret, errno, strerror(errno));
+			fprintf(stderr, "connect failed: %i %i : %s : %s:%i\n", ret, errno, strerror(errno), IPAddress, Port); 
+			return;
 		}
-	}
-	// set timeout for read/write 
-	{
-		struct timeval timeout;      
-		timeout.tv_sec 	= 10;
-		timeout.tv_usec = 0;
 
-		ret = setsockopt (Sock, SOL_SOCKET, SO_RCVTIMEO, (char *)&timeout, sizeof(timeout));
-		if (ret < 0)
+		// set timeout for connect 
 		{
-			fprintf(stderr, "SO_RECVTIMEO failed: %i %i %s\n", ret, errno, strerror(errno));
-		}
-		ret = setsockopt (Sock, SOL_SOCKET, SO_SNDTIMEO, (char *)&timeout, sizeof(timeout));
-		if (ret < 0)
-		{
-			fprintf(stderr, "SO_SENDTIMEO failed: %i %i %s\n", ret, errno, strerror(errno));
-		}
-	}
-
-	// generate Headers for ES POST
-	u8 Header[16*1024];
-	u32 HeaderPos = 0;
-
-	u8 Footer[16*1024];
-	u32 FooterPos = 0;
-
-	// send trailing line feed
-	sprintf(Footer + FooterPos, "\r\n");
-	FooterPos += strlen(Footer + FooterPos);
-
-	// HTTP request
-	sprintf(Header + HeaderPos, "POST /_bulk HTTP/1.1\r\n"); 
-	HeaderPos += strlen(Header + HeaderPos);
-
-	sprintf(Header + HeaderPos, "Content-Type: application/x-ndjson\r\n");
-	HeaderPos += strlen(Header + HeaderPos);
-
-	sprintf(Header + HeaderPos, "Content-Length: %i\r\n", BulkLength);
-	HeaderPos += strlen(Header + HeaderPos);
-
-	if (Out->IsCompress)
-	{
-		sprintf(Header + HeaderPos, "Content-Encoding: gzip\r\n");
-		HeaderPos += strlen(Header + HeaderPos);
-	}
-
-	// no footer for compressed data 
-	sprintf(Header + HeaderPos, "\r\n");
-	HeaderPos += strlen(Header + HeaderPos);
-
-	// send header
-	int hlen = SendBuffer(Sock, Header, HeaderPos);
-	assert(hlen == HeaderPos);
-	Out->TotalByte[BufferIndex] += HeaderPos;
-
-	// send body
-	int blen = SendBuffer(Sock, Bulk, BulkLength);
-	assert(blen == BulkLength);
-	Out->TotalByte[BufferIndex] += BulkLength;
-
-	// send footer 
-	int flen = SendBuffer(Sock, Footer, FooterPos);
-	assert(flen == FooterPos);
-	Out->TotalByte[BufferIndex] += FooterPos;
-
-	// total cycles for sending
-	u64 TSC2 = rdtsc();
-	Out->WorkerTSCSend[CPUID] += TSC2 - TSC1;
-
-	//printf("hlen: %i\n", hlen);
-	//printf("blen: %i %i\n", blen, BulkLength);
-	//printf("flen: %i\n", flen);
-
-	// use the compress buffer for the response
-	u8* RecvBuffer 		= B->BufferRecv;
-	u32 RecvBufferMax 	= B->BufferRecvMax; 
-
-	// if thers nothing in the buffer, ensure printf still has asciiz
-	strcpy(RecvBuffer, "recv error");
-
-	// get ES response, use the compressed buffer as the recv 
-	int RecvBufferLen 	= 0;
-	int ExpectBufferLen = 0;
-	u32 TotalLength		= RecvBufferMax;
-	while (RecvBufferLen < TotalLength)
-	{
-		//printf("recv: %i %i\n", RecvBufferLen, TotalLength);
-		int rlen = recv(Sock, RecvBuffer + RecvBufferLen, TotalLength - RecvBufferLen, 0);
-		if (rlen <= 0) break;
-
-		// if content length has been parsed yet
-		if (TotalLength == RecvBufferMax)
-		{
-			// attempt parse the HTTP reply to get content length 
-			u8* ContentLengthStr = strstr(RecvBuffer, "content-length:");
-			if (ContentLengthStr != NULL)
+			int timeout = 10000;  // user timeout in milliseconds [ms]
+			ret = setsockopt (Sock, SOL_TCP, TCP_USER_TIMEOUT, (char*) &timeout, sizeof (timeout));
+			if (ret < 0)
 			{
-				u32 LengthStrPos = 0;
-				u8 LengthStr[8];
-				ContentLengthStr += 16; 
-				for (int i=0; i < 8; i++)
-				{
-					u32 c = *ContentLengthStr++;
-					if (c == '\n') break;
-					if (c == '\r') break;
-					LengthStr[LengthStrPos++] = c; 
-				}
-				LengthStr[LengthStrPos++] = 0; 
-
-				u32 ContentLength = atoi(LengthStr);
-				TotalLength = ContentLength  + (ContentLengthStr - RecvBuffer) + 3;
-				//printf("[%i] content length (%s) %i : %i\n", BufferIndex, LengthStr, ContentLength, TotalLength);
+				fprintf(stderr, "TCP_USER_TIMEOUT failed: %i %i %s\n", ret, errno, strerror(errno));
 			}
 		}
-		RecvBufferLen += rlen;
-		//printf("rlen: %i\n", rlen);
-	}
-	//printf("[%i] RecvLen: %i TotalLengh:%i \n", BufferIndex, RecvBufferLen, TotalLength);
-
-	// asciiz it
-	if (RecvBufferLen > 0) RecvBuffer[RecvBufferLen] = 0;
-
-	// parse response for error field
-	u32 JSONStrCnt = 0;
-	u32 JSONStrPos = 0;
-	u8  JSONStr[32][256];
-
-	u32 RecvPos = 0;
-
-	// skip HTTP Header, and find start of JSON data
-	for (; RecvPos < RecvBufferLen; RecvPos++)
-	{
-		if (RecvBuffer[RecvPos] == '{') break;
-	}
-	RecvPos++;			// ignore first { encapsulation
-
-	// parse partial JSON 
-	// skip leading {
-	for (; RecvPos < RecvBufferLen; RecvPos++)
-	{
-		u32 c = RecvBuffer[RecvPos];
-		if (c == '\"') continue;				// fields are well defined
-		if (c == ',')
+		// set timeout for read/write 
 		{
-			JSONStr[JSONStrCnt][JSONStrPos] = 0; 
-			JSONStrCnt++;
-			JSONStrPos = 0;
+			struct timeval timeout;      
+			timeout.tv_sec 	= 10;
+			timeout.tv_usec = 0;
 
-			// only care about first few fields 
-			if (JSONStrCnt > 16) break;
-		}
-		else
-		{
-			if (JSONStrPos < 256)
-				JSONStr[JSONStrCnt][JSONStrPos++] = c; 
-		}
-	}
-	JSONStr[JSONStrCnt][JSONStrPos] = 0; 
-	JSONStrCnt++;
-
-	u8* TookStr 	= JSONStr[0];
-	u8* ErrorStr 	= JSONStr[1];
-
-	// verbose logging
-	//printf("%s:%i Raw:%8i Pak:%8i(x%5.2f) Lines:%10i [%-16s] [%s]\n", IPAddress, Port, RawLength, BulkLength, RawLength * inverse(BulkLength), B->BufferLine, TookStr, ErrorStr);
-	//fflush(stdout);
-
-	// check for errors
-	if (strcmp(ErrorStr, "errors:false") != 0)
-	{
-		printf("ERROR: %i %i SendLen:%i\n", RecvBufferLen, strlen(RecvBuffer), BulkLength );
-		for (int i=0; i < 8; i++)
-		{
-			printf("ERROR:  %i [%s]\n", i, JSONStr[i]);
+			ret = setsockopt (Sock, SOL_SOCKET, SO_RCVTIMEO, (char *)&timeout, sizeof(timeout));
+			if (ret < 0)
+			{
+				fprintf(stderr, "SO_RECVTIMEO failed: %i %i %s\n", ret, errno, strerror(errno));
+			}
+			ret = setsockopt (Sock, SOL_SOCKET, SO_SNDTIMEO, (char *)&timeout, sizeof(timeout));
+			if (ret < 0)
+			{
+				fprintf(stderr, "SO_SENDTIMEO failed: %i %i %s\n", ret, errno, strerror(errno));
+			}
 		}
 
-		// print full error response
-		if (g_Verbose)
-			printf("%s\n\n", RecvBuffer);
+		// generate Headers for ES POST
+		u8 Header[16*1024];
+		u32 HeaderPos = 0;
 
-		// update error count
-		// NOTE: should really be an atomic update
-		Out->ESPushError[CPUID]++;
+		u8 Footer[16*1024];
+		u32 FooterPos = 0;
 
-		// print hexdump of send buffer
-		if (g_Verbose)
+		// send trailing line feed
+		sprintf(Footer + FooterPos, "\r\n");
+		FooterPos += strlen(Footer + FooterPos);
+
+		// HTTP request
+		sprintf(Header + HeaderPos, "POST /_bulk HTTP/1.1\r\n"); 
+		HeaderPos += strlen(Header + HeaderPos);
+
+		sprintf(Header + HeaderPos, "Content-Type: application/x-ndjson\r\n");
+		HeaderPos += strlen(Header + HeaderPos);
+
+		sprintf(Header + HeaderPos, "Content-Length: %i\r\n", BulkLength);
+		HeaderPos += strlen(Header + HeaderPos);
+
+		if (Out->IsCompress)
 		{
-			Hexdump("Header", 	Header, 	HeaderPos);
-			Hexdump("Raw",		B->Buffer, 	B->BufferPos);
-			Hexdump("Footer",   Footer, 	FooterPos);
-		}	
-	}
+			sprintf(Header + HeaderPos, "Content-Encoding: gzip\r\n");
+			HeaderPos += strlen(Header + HeaderPos);
+		}
 
-	// shutdown the socket	
-	close(Sock);
+		// no footer for compressed data 
+		sprintf(Header + HeaderPos, "\r\n");
+		HeaderPos += strlen(Header + HeaderPos);
+
+		// send header
+		int hlen = SendBuffer(Sock, Header, HeaderPos);
+		assert(hlen == HeaderPos);
+		Out->TotalByte[BufferIndex] += HeaderPos;
+
+		// send body
+		int blen = SendBuffer(Sock, Bulk, BulkLength);
+		assert(blen == BulkLength);
+		Out->TotalByte[BufferIndex] += BulkLength;
+
+		// send footer 
+		int flen = SendBuffer(Sock, Footer, FooterPos);
+		assert(flen == FooterPos);
+		Out->TotalByte[BufferIndex] += FooterPos;
+
+		// total cycles for sending
+		TSC2 = rdtsc();
+		Out->WorkerTSCSend[CPUID] += TSC2 - TSC1;
+
+		//printf("hlen: %i\n", hlen);
+		//printf("blen: %i %i\n", blen, BulkLength);
+		//printf("flen: %i\n", flen);
+
+		// use the compress buffer for the response
+		u8* RecvBuffer 		= B->BufferRecv;
+		u32 RecvBufferMax 	= B->BufferRecvMax; 
+
+		// if thers nothing in the buffer, ensure printf still has asciiz
+		strcpy(RecvBuffer, "recv error");
+
+		// get ES response, use the compressed buffer as the recv 
+		int RecvBufferLen 	= 0;
+		int ExpectBufferLen = 0;
+		u32 TotalLength		= RecvBufferMax;
+		while (RecvBufferLen < TotalLength)
+		{
+			//printf("recv: %i %i\n", RecvBufferLen, TotalLength);
+			int rlen = recv(Sock, RecvBuffer + RecvBufferLen, TotalLength - RecvBufferLen, 0);
+			if (rlen <= 0) break;
+
+			// if content length has been parsed yet
+			if (TotalLength == RecvBufferMax)
+			{
+				// attempt parse the HTTP reply to get content length 
+				u8* ContentLengthStr = strstr(RecvBuffer, "content-length:");
+				if (ContentLengthStr != NULL)
+				{
+					u32 LengthStrPos = 0;
+					u8 LengthStr[8];
+					ContentLengthStr += 16; 
+					for (int i=0; i < 8; i++)
+					{
+						u32 c = *ContentLengthStr++;
+						if (c == '\n') break;
+						if (c == '\r') break;
+						LengthStr[LengthStrPos++] = c; 
+					}
+					LengthStr[LengthStrPos++] = 0; 
+
+					u32 ContentLength = atoi(LengthStr);
+					TotalLength = ContentLength  + (ContentLengthStr - RecvBuffer) + 3;
+					//printf("[%i] content length (%s) %i : %i\n", BufferIndex, LengthStr, ContentLength, TotalLength);
+				}
+			}
+			RecvBufferLen += rlen;
+			//printf("rlen: %i\n", rlen);
+		}
+		//printf("[%i] RecvLen: %i TotalLengh:%i \n", BufferIndex, RecvBufferLen, TotalLength);
+
+		// asciiz it
+		if (RecvBufferLen > 0) RecvBuffer[RecvBufferLen] = 0;
+
+		// parse response for error field
+		u32 JSONStrCnt = 0;
+		u32 JSONStrPos = 0;
+		u8  JSONStr[32][256];
+
+		u32 RecvPos = 0;
+
+		// skip HTTP Header, and find start of JSON data
+		for (; RecvPos < RecvBufferLen; RecvPos++)
+		{
+			if (RecvBuffer[RecvPos] == '{') break;
+		}
+		RecvPos++;			// ignore first { encapsulation
+
+		// parse partial JSON 
+		// skip leading {
+		for (; RecvPos < RecvBufferLen; RecvPos++)
+		{
+			u32 c = RecvBuffer[RecvPos];
+			if (c == '\"') continue;				// fields are well defined
+			if (c == ',')
+			{
+				JSONStr[JSONStrCnt][JSONStrPos] = 0; 
+				JSONStrCnt++;
+				JSONStrPos = 0;
+
+				// only care about first few fields 
+				if (JSONStrCnt > 16) break;
+			}
+			else
+			{
+				if (JSONStrPos < 256)
+					JSONStr[JSONStrCnt][JSONStrPos++] = c; 
+			}
+		}
+		JSONStr[JSONStrCnt][JSONStrPos] = 0; 
+		JSONStrCnt++;
+
+		u8* TookStr 	= JSONStr[0];
+		u8* ErrorStr 	= JSONStr[1];
+
+		// verbose logging
+		//printf("%s:%i Raw:%8i Pak:%8i(x%5.2f) Lines:%10i [%-16s] [%s]\n", IPAddress, Port, RawLength, BulkLength, RawLength * inverse(BulkLength), B->BufferLine, TookStr, ErrorStr);
+		//fflush(stdout);
+
+		// check for errors
+		if (strcmp(ErrorStr, "errors:false") != 0)
+		{
+			printf("ERROR: %i %i SendLen:%i\n", RecvBufferLen, strlen(RecvBuffer), BulkLength );
+			for (int i=0; i < 8; i++)
+			{
+				printf("ERROR:  %i [%s]\n", i, JSONStr[i]);
+			}
+
+			// print full error response
+			if (g_Verbose)
+				printf("%s\n\n", RecvBuffer);
+
+			// update error count
+			// NOTE: should really be an atomic update
+			Out->ESPushError[CPUID]++;
+
+			// print hexdump of send buffer
+			if (g_Verbose)
+			{
+				Hexdump("Header", 	Header, 	HeaderPos);
+				Hexdump("Raw",		B->Buffer, 	B->BufferPos);
+				Hexdump("Footer",   Footer, 	FooterPos);
+			}	
+		}
+
+		// shutdown the socket	
+		close(Sock);
+	}
 
 	u64 TSC3 = rdtsc();
 	Out->WorkerTSCRecv[CPUID] += TSC3 - TSC2;

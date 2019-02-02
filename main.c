@@ -75,6 +75,7 @@ u32				g_Output_BufferCnt	= 64;				// number of output buffers
 u32				g_ESHostCnt 		= 0;				// number of active ES Hosts
 ESHost_t		g_ESHost[128];							// list fo ES Hosts to output to
 bool			g_ESCompress		= false;			// elastic push enable compression 
+bool			g_ESNULL			= false;			// ues ES NULL Host 
 
 u8 				g_CaptureName[256];						// name of the capture / index to push to
 u8				g_DeviceName[128];						// name of the device this is sourced from
@@ -131,6 +132,7 @@ static void help(void)
 	fprintf(stderr, "Elastic Stack options\n");
 	fprintf(stderr, " --es-host <hostname:port>      : Sets the ES Hostname\n");
 	fprintf(stderr, " --es-compress                  : enables gzip compressed POST\n");
+	fprintf(stderr, " --es-null                      : use ES Null target for perf testing\n");
 }
 
 //---------------------------------------------------------------------------------------------
@@ -282,6 +284,12 @@ static bool ParseCommandLine(u8* argv[])
 	{
 		g_ESCompress = true;
 		fprintf(stderr, "  ES Compression Enabled\n");
+		cnt	+= 1;
+	}
+	if (strcmp(argv[0], "--es-null") == 0)
+	{
+		g_ESNULL = true;
+		fprintf(stderr, "  ES NULL Target\n");
 		cnt	+= 1;
 	}
 
@@ -593,6 +601,7 @@ int main(int argc, u8* argv[])
 											g_Output_STDOUT, 
 											g_Output_ESPush, 
 											g_ESCompress, 
+											g_ESNULL, 
 											g_Output_BufferCnt,
 											g_CPUOutput); 
 	for (int i=0; i < g_ESHostCnt; i++)
