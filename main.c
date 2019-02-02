@@ -799,6 +799,22 @@ int main(int argc, u8* argv[])
 				break;
 			}
 
+			if (g_Verbose)
+			{
+				fprintf(stderr, "packet chunk0: PktCnt:%i TSFirst:%lli TSLast:%lli Length:%i Wire:%i Capture:%i\n", 
+						Header.PktCnt,
+						Header.TSStart,
+						Header.TSEnd,	
+						Header.Length,
+						Header.BytesWire,
+						Header.BytesCapture
+						);
+			}
+
+			// sanity checks
+			assert(Header.Length < 1024*1024);
+			assert(Header.PktCnt < 1e6);
+
 			rlen = fread(PktBlock->Buffer, 1, Header.Length, FileIn);
 			if (rlen != Header.Length)
 			{
@@ -813,10 +829,9 @@ int main(int argc, u8* argv[])
 			TSLast		= Header.TSEnd;
 			Offset		= Header.Length;
 
-
 			if (g_Verbose)
 			{
-				fprintf(stderr, "packet chunk: PktCnt:%i TSFirst:%lli TSLast:%lli Length:%i\n", 
+				fprintf(stderr, "packet chunk1: PktCnt:%i TSFirst:%lli TSLast:%lli Length:%i\n", 
 						PktCnt,
 						TSFirst,
 						TSLast,

@@ -972,7 +972,7 @@ void DecodePacket(	u32 CPUID,
 		u8 JSONBuffer[16*1024];
 		u32 JSONBufferLen = FlowDump(JSONBuffer, PktHeader->TS, FlowPkt, 0);
 
-		Output_LineAdd(s_Output, JSONBuffer, JSONBufferLen);
+		Output_LineAdd(s_Output, JSONBuffer, JSONBufferLen, 1);
 	}
 	// update the flow records
 	if (g_IsJSONFlow)
@@ -1168,16 +1168,20 @@ void* Flow_Worker(void* User)
 
 					u8* JSONBuffer 			= FlowIndexRoot->JSONBuffer;
 					u32 JSONBufferOffset 	= 0;
+					u32 JSONLineCnt			= 0;
 					for (int i=0; i < FlowIndex->FlowCntSnapshot; i++)
 					{
 						FlowRecord_t* Flow = &FlowIndex->FlowList[i];	
 						JSONBufferOffset += FlowDump(JSONBuffer + JSONBufferOffset, PktBlock->TSSnapshot, Flow, i);
+						JSONLineCnt++;
 
 						// flush to output 
 						if (JSONBufferOffset > FlowIndexRoot->JSONBufferMax - kKB(16))
 						{
-							StallTSC += Output_LineAdd(s_Output, JSONBuffer, JSONBufferOffset);
-							JSONBufferOffset = 0;
+							StallTSC += Output_LineAdd(s_Output, JSONBuffer, JSONBufferOffset, JSONLineCnt);
+
+							JSONBufferOffset 	= 0;
+							JSONLineCnt 		= 0;
 						}
 						TotalPkt += Flow->TotalPkt;
 					}

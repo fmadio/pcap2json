@@ -592,11 +592,9 @@ void BulkUpload(Output_t* Out, u32 BufferIndex, u32 CPUID)
 	u8* TookStr 	= JSONStr[0];
 	u8* ErrorStr 	= JSONStr[1];
 
-	/*
 	// verbose logging
-	printf("%s:%i Raw:%8i Pak:%8i(x%5.2f) Lines:%10i [%-16s] [%s]\n", IPAddress, Port, RawLength, BulkLength, RawLength * inverse(BulkLength), B->BufferLine, TookStr, ErrorStr);
-	fflush(stdout);
-	*/
+	//printf("%s:%i Raw:%8i Pak:%8i(x%5.2f) Lines:%10i [%-16s] [%s]\n", IPAddress, Port, RawLength, BulkLength, RawLength * inverse(BulkLength), B->BufferLine, TookStr, ErrorStr);
+	//fflush(stdout);
 
 	// check for errors
 	if (strcmp(ErrorStr, "errors:false") != 0)
@@ -629,6 +627,7 @@ void BulkUpload(Output_t* Out, u32 BufferIndex, u32 CPUID)
 
 	u64 TSC3 = rdtsc();
 	Out->WorkerTSCRecv[CPUID] += TSC3 - TSC2;
+
 
 	// reset buffer
 	B->BufferLine 	= 0;
@@ -705,7 +704,7 @@ u64 Output_ESPushCnt(Output_t* Out)
 
 //-------------------------------------------------------------------------------------------
 
-u64 Output_LineAdd(Output_t* Out, u8* Buffer, u32 BufferLen)
+u64 Output_LineAdd(Output_t* Out, u8* Buffer, u32 BufferLen, u32 LineCnt)
 {
 	u64 TSC0 = 0;
 	u64 TSC1 = 0;
@@ -769,7 +768,7 @@ u64 Output_LineAdd(Output_t* Out, u8* Buffer, u32 BufferLen)
 		}
 		sync_unlock(&B->Lock);
 	}
-	Out->TotalLine++;
+	Out->TotalLine += LineCnt;
 
 	sync_unlock(&Out->BufferLock);
 
