@@ -1459,9 +1459,10 @@ void Flow_Close(struct Output_t* Out, u64 LastTS)
 	printf("QueueCnt : %lli\n", s_PacketQueueCnt);	
 	printf("DecodeCnt: %lli\n", s_PacketDecodeCnt);	
 
+	printf("Flow Join\n");
 	for (int i=0; i < s_DecodeCPUActive; i++)
 	{
-		printf("Flow Worker Join %i\n", i);
+		printf("  Worker %i\n", i);
 		pthread_join(s_DecodeThread[i], NULL);
 	}
 	printf("Flow Close\n");

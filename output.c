@@ -22,6 +22,11 @@
 // 2018/10/25 : interop17 dataset (100GB) : 78min
 // 2018/10/27 : interop17 dataset (100GB) : 22min : 8 worker (default compress)
 // 2018/10/27 : interop17 dataset (100GB) : 25min : 8 worker (no compress)
+
+//
+// 2019/02/02 : 
+// sudo stream_cat --chunked --pktslice 72 --cpu 13 interop17_20190202_0902 | ./pcap2json  --config /mnt/store0/etc/pcap2json.config | wc -l
+// total lines 2730178 
 //
 //---------------------------------------------------------------------------------------------
 
@@ -69,6 +74,7 @@ typedef struct
 	u32					BufferRecvMax;							// maximum recv size
 
 	u32					Lock;									// dont let LineAdd write to an outputing buffer
+	volatile bool		IsReady;								// buffer ready for processing	
 
 	int					fd;										// file handle for output buffer map
 	u8*					BufferMap;
@@ -84,11 +90,14 @@ typedef struct Output_t
 	u32					BufferMax;
 	u32					BufferLock;								// mutual exclusion lock
 	Buffer_t			BufferList[1024];						// buffer list 
-	u64					TotalByte[1024];						// total amount of bytes sent by each buffer^ 
-	u64					TotalLine;								// total number of lines output
+
+	u64					TotalByte;								// total number of bytes down the wire
 
 	u64					ByteQueued;								// bytes pushed onto the queue
 	u64					ByteComplete;							// bytes sucessfully pushed 
+
+	u64					LineQueued;								// lines queued
+	u64					LineComplete;							// lines completed 
 
 	FILE*				FileTXT;								// output text file	
 
@@ -157,6 +166,7 @@ Output_t* Output_Create(bool IsNULL,
 		B->BufferMax 			= kMB(1); 
 
 		B->BufferLine			= 0;
+		B->IsReady				= false;
 
 		// map a file
 		u8 FileName[128];
@@ -308,7 +318,6 @@ static void Hexdump(u8* Desc, u8* Buffer, s32 Length)
 // directly push the json data to ES
 void BulkUpload(Output_t* Out, u32 BufferIndex, u32 CPUID)
 {
-
 	u8* IPAddress 	= Out->ESHostName[Out->ESHostPos]; 
 	u32 Port 		= Out->ESHostPort[Out->ESHostPos];	
 
@@ -322,6 +331,7 @@ void BulkUpload(Output_t* Out, u32 BufferIndex, u32 CPUID)
 	u8* Bulk			= B->Buffer;
 	u32 BulkLength		= B->BufferPos;
 	u32 RawLength	 	= B->BufferPos;
+	u32 RawLine			= B->BufferLine;
 
 // force an ES error
 //Bulk[RawLength/2] = '{';
@@ -482,17 +492,17 @@ void BulkUpload(Output_t* Out, u32 BufferIndex, u32 CPUID)
 		// send header
 		int hlen = SendBuffer(Sock, Header, HeaderPos);
 		assert(hlen == HeaderPos);
-		Out->TotalByte[BufferIndex] += HeaderPos;
 
 		// send body
 		int blen = SendBuffer(Sock, Bulk, BulkLength);
 		assert(blen == BulkLength);
-		Out->TotalByte[BufferIndex] += BulkLength;
 
 		// send footer 
 		int flen = SendBuffer(Sock, Footer, FooterPos);
 		assert(flen == FooterPos);
-		Out->TotalByte[BufferIndex] += FooterPos;
+
+		// update stats
+		__sync_fetch_and_add(&Out->TotalByte, HeaderPos + BulkLength + FooterPos);
 
 		// total cycles for sending
 		TSC2 = rdtsc();
@@ -631,9 +641,12 @@ void BulkUpload(Output_t* Out, u32 BufferIndex, u32 CPUID)
 
 
 	// reset buffer
+
+	// no need to reset the buffer 
+	//memset(B->Buffer, 0, B->BufferPos);
 	B->BufferLine 	= 0;
 	B->BufferPos 	= 0;
-	memset(B->Buffer, 0, B->BufferMax);
+	B->IsReady		= false;
 
 	// update counts
 	Out->ESPushTotal[CPUID] += 1;
@@ -643,6 +656,9 @@ void BulkUpload(Output_t* Out, u32 BufferIndex, u32 CPUID)
 
 	// update completed bytes
 	__sync_fetch_and_add(&Out->ByteComplete, RawLength);
+
+	// udpate total lines
+	__sync_fetch_and_add(&Out->LineComplete, RawLine);
 }
 
 //-------------------------------------------------------------------------------------------
@@ -656,30 +672,33 @@ void Output_Close(Output_t* Out)
 	}
 	s_Exit = true;
 
+	printf("Output Join\n");
 	for (int i=0; i < Out->CPUActiveCnt; i++)
 	{
+		printf("  Worker %i\n", i);
 		pthread_join(Out->PushThread[i], NULL);
 	}
 	printf("Output Close\n");
+
+	printf("  Total Byte Queue   : %lli\n", Out->ByteQueued);
+	printf("  Total Byte Complete: %lli\n", Out->ByteComplete);
+
+	printf("  Total Line Queue   : %lli\n", Out->LineQueued);
+	printf("  Total Line Complete: %lli\n", Out->LineComplete);
 }
 
 //-------------------------------------------------------------------------------------------
 
 u64 Output_TotalByteSent(Output_t* Out)
 {
-	u64 Byte = 0;
-	for (int i=0; i < Out->BufferMax; i++)
-	{
-		Byte += Out->TotalByte[i];
-	}
-	return Byte;
+	return Out->TotalByte;
 }
 
 //-------------------------------------------------------------------------------------------
 
 u64 Output_TotalLine(Output_t* Out)
 {
-	return Out->TotalLine;
+	return Out->LineComplete;
 }
 
 //-------------------------------------------------------------------------------------------
@@ -716,53 +735,60 @@ u64 Output_BufferAdd(Output_t* Out, u8* Buffer, u32 BufferLen, u32 LineCnt)
 	u64 TSC0 = 0;
 	u64 TSC1 = 0;
 
-	// multiple CPU call this function, ensure its
-	// mutually exclusive output
-	u64 SyncTopTSC = sync_lock(&Out->BufferLock, 50); 
-
 	// write to a text file
 	if (Out->FileTXT)
 	{
-		Out->TotalByte[0] += strlen(Buffer);
 		fprintf(Out->FileTXT, Buffer);
 	}
 
 	// push directly to ES
-	u64 SyncLocalTSC = 0;
+	u64 SyncTopTSC 		= 0; 
+	u64 SyncLocalTSC 	= 0;
 	if (Out->ESPush)
 	{
-		Buffer_t* B = &Out->BufferList[Out->BufferPut];
 
-		// ensure block is not currently being pushed 
-		SyncLocalTSC = sync_lock(&B->Lock, 100);
+		// block until push has space to new queue entry 
+		// NOTE: there may be X buffers due to X workers in progress so add bit 
+		//       of extra padding in queuing behaviour
+		TSC0 = rdtsc();
+		while (((Out->BufferPut + Out->CPUActiveCnt + 8) & Out->BufferMask) == Out->BufferGet)
 		{
-			u64 TS = clock_ns();
-
-			memcpy(B->Buffer, Buffer, BufferLen);
-			B->BufferPos 	= BufferLen;
-			B->BufferLine 	= LineCnt;
-
-			// block until push has space to new queue entry 
-			// NOTE: there may be X buffers due to X workers in progress so add bit 
-			//       of extra padding in queuing behaviour
-			TSC0 = rdtsc();
-			while (((Out->BufferPut + Out->CPUActiveCnt + 4) & Out->BufferMask) == Out->BufferGet)
-			{
-				usleep(0);
-			}
-			TSC1 = rdtsc();
-
-			// add so the workers can push it
-			Out->BufferPut = (Out->BufferPut + 1) & Out->BufferMask;
+			//usleep(0);
+			ndelay(100);
 		}
-		sync_unlock(&B->Lock);
+		TSC1 = rdtsc();
+
+		// acquire a buffer 
+		// should directly use __sync_ ops for this
+		u64 SyncTopTSC 	= sync_lock(&Out->BufferLock, 50); 
+
+		Buffer_t* B 	= &Out->BufferList[Out->BufferPut];
+		Out->BufferPut 	= (Out->BufferPut + 1) & Out->BufferMask;
+
+		sync_unlock(&Out->BufferLock);
+
+		// wait for buffer to be fully freeed
+		// as the above flow control is not fully thread safe
+		// need to stall here on the individual buffer also
+		while (true)
+		{
+			if (B->IsReady == false) break;
+			usleep(0);
+		}
+
+		// fill the buffer + complete it 
+		memcpy(B->Buffer, Buffer, BufferLen);
+		B->BufferPos 	= BufferLen;
+		B->BufferLine 	= LineCnt;
+		B->IsReady 		= true;
+
 	}
-	Out->TotalLine += LineCnt;
+
+	// update total line stats
+	__sync_fetch_and_add(&Out->LineQueued, LineCnt);
 
 	// total bytes queued
-	Out->ByteQueued += BufferLen;
-
-	sync_unlock(&Out->BufferLock);
+	__sync_fetch_and_add(&Out->ByteQueued, BufferLen);
 
 	return (TSC1 - TSC0) + SyncTopTSC + SyncLocalTSC;
 }
@@ -789,22 +815,25 @@ static void* Output_Worker(void * user)
 			// attempt to get the next one
 			Buffer_t* B = &Out->BufferList[ Get ];
 
-			// lock the buffer so LineAdd doesnt attempt to write
-			// into it while the buffer is being pushed
-			sync_lock(&B->Lock, 50); 
+			// wait operations on the buffer to complete
+			while (!B->IsReady)
 			{
-				// fetch and process the next block 
-				if (__sync_bool_compare_and_swap(&Out->BufferGet, Get, (Get + 1) & Out->BufferMask))
-				{
-					u64 TSC2 = rdtsc(); 
+				if (s_Exit) break;
 
-					BulkUpload(Out, Get, CPUID);	
-
-					u64 TSC3 = rdtsc(); 
-					Out->WorkerTSCTop[CPUID] += TSC3 - TSC2;
-				}
+				usleep(0);
 			}
-			sync_unlock(&B->Lock);
+
+			// thread safe fetch the next buffer 
+			// fetch and process the next block 
+			if (__sync_bool_compare_and_swap(&Out->BufferGet, Get, (Get + 1) & Out->BufferMask))
+			{
+				u64 TSC2 = rdtsc(); 
+
+				BulkUpload(Out, Get, CPUID);	
+
+				u64 TSC3 = rdtsc(); 
+				Out->WorkerTSCTop[CPUID] += TSC3 - TSC2;
+			}
 		}
 
 		u64 TSC1 = rdtsc(); 
