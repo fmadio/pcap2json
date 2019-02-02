@@ -87,6 +87,9 @@ typedef struct Output_t
 	u64					TotalByte[1024];						// total amount of bytes sent by each buffer^ 
 	u64					TotalLine;								// total number of lines output
 
+	u64					ByteQueued;								// bytes pushed onto the queue
+	u64					ByteComplete;							// bytes sucessfully pushed 
+
 	FILE*				FileTXT;								// output text file	
 
 	bool				ESPush;									// enable direct ES push
@@ -624,6 +627,9 @@ void BulkUpload(Output_t* Out, u32 BufferIndex, u32 CPUID)
 
 	// update completion count
 	__sync_fetch_and_add(&Out->BufferFin, 1);
+
+	// update completed bytes
+	__sync_fetch_and_add(&Out->ByteComplete, RawLength);
 }
 
 //-------------------------------------------------------------------------------------------
@@ -740,6 +746,9 @@ u64 Output_BufferAdd(Output_t* Out, u8* Buffer, u32 BufferLen, u32 LineCnt)
 	}
 	Out->TotalLine += LineCnt;
 
+	// total bytes queued
+	Out->ByteQueued += BufferLen;
+
 	sync_unlock(&Out->BufferLock);
 
 	return (TSC1 - TSC0) + SyncTopTSC + SyncLocalTSC;
@@ -836,8 +845,6 @@ void Output_Stats(	Output_t* Out,
 	if (pTotalCycle)	pTotalCycle[0]	= Total;
 
 	// how much output data is pending
-	u32 BufferPending = Out->BufferPut - Out->BufferFin;
-	u32 BufferPendingB = BufferPending  * Out->BufferMax;
-
-	if (pPendingB) pPendingB[0] = BufferPendingB;
+	u64 BytePending = Out->ByteQueued - Out->ByteComplete;
+	if (pPendingB) pPendingB[0] = BytePending;
 }

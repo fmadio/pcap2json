@@ -70,9 +70,6 @@ bool			g_IsFlowNULL		= false;			// benchmarking NULL flow rate
 bool			g_Output_NULL		= false;			// benchmarking mode output to /dev/null 
 bool			g_Output_STDOUT		= true;				// by default output to stdout 
 bool			g_Output_ESPush		= false;			// direct ES HTTP Push 
-u32				g_Output_LineFlush 	= 100e3;			// by default flush every 100e3 lines
-u64				g_Output_TimeFlush 	= 1e9;				// by default flush every 1sec of activity 
-u64				g_Output_ByteFlush 	= kMB(1);			// maximum buffer size per output upload 
 u32				g_Output_BufferCnt	= 64;				// number of output buffers
 
 u32				g_ESHostCnt 		= 0;				// number of active ES Hosts
@@ -125,9 +122,6 @@ static void help(void)
 	fprintf(stderr, "Output Mode\n");
 	fprintf(stderr, " --output-stdout                : writes output to STDOUT\n");
 	fprintf(stderr, " --output-espush                : writes output directly to ES HTTP POST \n");
-	fprintf(stderr, " --output-byteflush <bytes>     : max number of bytes per output push\n");
-	fprintf(stderr, " --output-lineflush <line cnt>  : number of lines before flushing output (default 100e3)\n");
-	fprintf(stderr, " --output-timeflush <time ns>   : maximum amount of time since last flush (default 1e9)\n");
 	fprintf(stderr, " --output-buffercnt <pow2 cnt>  : number of output buffers (default is 64)\n");
 
 	fprintf(stderr, "\n");
@@ -226,24 +220,6 @@ static bool ParseCommandLine(u8* argv[])
 		g_Output_ESPush = true;
 		fprintf(stderr, "  Output to ES HTTP Push\n");
 		cnt	+= 1;
-	}
-	if (strcmp(argv[0], "--output-lineflush") == 0)
-	{
-		g_Output_LineFlush = atof(argv[1]);
-		fprintf(stderr, "  Output Line Flush: %i\n", g_Output_LineFlush);
-		cnt	+= 2;
-	}
-	if (strcmp(argv[0], "--output-timeflush") == 0)
-	{
-		g_Output_TimeFlush = atof(argv[1]);
-		fprintf(stderr, "  Output Time Flush: %lli ns\n", g_Output_TimeFlush);
-		cnt	+= 2;
-	}
-	if (strcmp(argv[0], "--output-byteflush") == 0)
-	{
-		g_Output_ByteFlush = atof(argv[1]);
-		fprintf(stderr, "  Output Byte Flush: %lli B\n", g_Output_ByteFlush);
-		cnt	+= 2;
 	}
 	if (strcmp(argv[0], "--output-buffercnt") == 0)
 	{
@@ -618,9 +594,6 @@ int main(int argc, u8* argv[])
 											g_Output_ESPush, 
 											g_ESCompress, 
 											g_Output_BufferCnt,
-											g_Output_LineFlush,
-											g_Output_TimeFlush,
-											g_Output_ByteFlush,
 											g_CPUOutput); 
 	for (int i=0; i < g_ESHostCnt; i++)
 	{
@@ -630,16 +603,16 @@ int main(int argc, u8* argv[])
 	// init flow state
 	Flow_Open(Out, g_CPUFlow);
 
-	u64 PacketTSFirst = 0;
-	u64 PacketTSLast  = 0;
-	u64 TotalByteLast = 0;
-	u64 TotalPktLast = 0;
+	u64 PacketTSFirst 	= 0;
+	u64 PacketTSLast  	= 0;
+	u64 TotalByteLast 	= 0;
+	u64 TotalPktLast 	= 0;
 
-	u64 OutputLineLast = 0;
+	u64 OutputLineLast 	= 0;
 
 	u64 PacketTSLastSample = 0;
-	u64 DecodeTimeLast = 0;
-	u64 DecodeTimeTSC = 0;
+	u64 DecodeTimeLast 	= 0;
+	u64 DecodeTimeTSC 	= 0;
 
 	while (!feof(FileIn))
 	{
@@ -671,13 +644,13 @@ int main(int argc, u8* argv[])
 			float OutputWorkerCPU;
 			float OutputWorkerCPURecv;
 			u64 OutputPendingB;
-			Output_Stats(Out, 0,  &OutputWorkerCPU, NULL, NULL, &OutputWorkerCPURecv, NULL, NULL);
+			Output_Stats(Out, 0,  &OutputWorkerCPU, NULL, NULL, &OutputWorkerCPURecv, NULL, &OutputPendingB);
 
 			u64 FlowCntSnapshot;	
 			float FlowCPU;
 			Flow_Stats(false, &FlowCntSnapshot, NULL, NULL, &FlowCPU, NULL, NULL, NULL, NULL, NULL);
 
-			fprintf(stderr, "[%s] %.3f/%.3f GB %.2f Mpps %.2f Gbps | cat %6.f MB %.2f %.2f %.2f | Flows/Snap: %6i FlowCPU:%.2f | ESPush:%6lli %6.2fK ESErr %4lli | OutCPU: %.2f (%.2f)\n", 
+			fprintf(stderr, "[%s] %.3f/%.3f GB %.2f Mpps %.2f Gbps | cat %6.f MB %.2f %.2f %.2f | Flows/Snap: %6i FlowCPU:%.2f | ESPush:%6lli %6.2fK ESErr %4lli | OutCPU: %.2f (%.2f) OutQueue:%.2fMB\n", 
 
 								FormatTS(PacketTSLast),
 
@@ -697,7 +670,8 @@ int main(int argc, u8* argv[])
 								lps/1e3,
 								Output_ESErrorCnt(Out),
 								OutputWorkerCPU,
-								OutputWorkerCPURecv
+								OutputWorkerCPURecv,
+								OutputPendingB / (float)kMB(1) 
 							);
 			fflush(stderr);
 
