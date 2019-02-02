@@ -61,7 +61,6 @@ typedef struct
 	u32					BufferPos;								// current output pos
 	u32					BufferMax;								// max buffer pos
 	u32					BufferLine;								// total line count
-	u32					BufferLineMax;							// maximum line count 
 
 	u8*					BufferCompress;							// compressed output buffer 
 	u32					BufferCompressMax;
@@ -87,9 +86,6 @@ typedef struct Output_t
 	Buffer_t			BufferList[1024];						// buffer list 
 	u64					TotalByte[1024];						// total amount of bytes sent by each buffer^ 
 	u64					TotalLine;								// total number of lines output
-
-	u64					FlushTimeout;							// flush atleast this nsec
-	u64					FlushLastTS;							// time of last flush
 
 	FILE*				FileTXT;								// output text file	
 
@@ -129,10 +125,7 @@ Output_t* Output_Create(bool IsNULL,
 						bool IsSTDOUT, 
 						bool IsESOut, 
 						bool IsCompress, 
-						u32 Output_BufferCnt, 
-						u32 Output_LineFlush, 
-						u64 Output_TimeFlush, 
-						u64 Output_ByteFlush, 
+						u32 Output_BufferCnt,
 						s32* CPUMap)
 {
 	fprintf(stderr, "OutputBuffer Config\n");
@@ -140,9 +133,6 @@ Output_t* Output_Create(bool IsNULL,
 	fprintf(stderr, "   IsES          : %i\n", IsSTDOUT); 
 	fprintf(stderr, "   IsStdout      : %i\n", IsESOut); 
 	fprintf(stderr, "   IsCompress    : %i\n", IsCompress); 
-	fprintf(stderr, "   ByteFlush     : %lli\n", Output_ByteFlush);
-	fprintf(stderr, "   LineFlush     : %lli\n", Output_LineFlush);
-	fprintf(stderr, "   TimeFlush     : %lli\n", Output_TimeFlush);
 
 	Output_t* O = memalign(4096, sizeof(Output_t));
 	memset(O, 0, sizeof(Output_t));	
@@ -157,10 +147,9 @@ Output_t* Output_Create(bool IsNULL,
 		// init buffer
 		Buffer_t* B				= &O->BufferList[i];
 		B->BufferPos			= 0;
-		B->BufferMax 			= Output_ByteFlush; 
+		B->BufferMax 			= kMB(1); 
 
 		B->BufferLine			= 0;
-		B->BufferLineMax		= Output_LineFlush;
 
 		// map a file
 		u8 FileName[128];
@@ -194,10 +183,6 @@ Output_t* Output_Create(bool IsNULL,
 		B->BufferRecv			= B->BufferMap + 2 * B->BufferMax;
 		assert(B->BufferRecv != NULL);
 	}
-
-	// timeout for flushing
-	O->FlushLastTS			= 0;
-	O->FlushTimeout			= Output_TimeFlush;
 
 	// enable stdout writing 
 	if (IsSTDOUT)
@@ -750,9 +735,6 @@ u64 Output_BufferAdd(Output_t* Out, u8* Buffer, u32 BufferLen, u32 LineCnt)
 
 			// add so the workers can push it
 			Out->BufferPut = (Out->BufferPut + 1) & Out->BufferMask;
-
-			// set last flush time
-			Out->FlushLastTS = TS;
 		}
 		sync_unlock(&B->Lock);
 	}
