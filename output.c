@@ -137,6 +137,8 @@ extern bool 			g_Verbose;
 
 static volatile bool	s_Exit = false;
 
+static u32				s_MergeMax		= 64;				// merge up to 64 x 1MB buffers for 1 bulk upload
+
 static bool				s_IsESNULL = false;					// debug flag to remove the ES output stall
 
 //-------------------------------------------------------------------------------------------
@@ -341,6 +343,7 @@ void BulkUpload(Output_t* Out, u32 BufferIndex, u32 BufferCnt, u32 CPUID)
 
 		RawLength		+= B->BufferPos;
 		RawLine			+= B->BufferLine;
+		//assert(B->IsReady == true);
 	}
 
 	// no compression for now
@@ -516,9 +519,9 @@ void BulkUpload(Output_t* Out, u32 BufferIndex, u32 BufferCnt, u32 CPUID)
 			int blen = SendBuffer(Sock, B->Buffer, B->BufferPos);
 			if (blen != B->BufferPos)
 			{
-				printf("ERROR: Send %i %i\n", blen, B->BufferPos, i, BufferCnt);
+				printf("ERROR: Send %i %i %i %i %i\n", blen, B->BufferPos, Send0, i, BufferCnt);
 			}
-			assert(blen == B->BufferPos);
+			//assert(blen == B->BufferPos);
 		}
 
 		// send footer 
@@ -664,6 +667,7 @@ void BulkUpload(Output_t* Out, u32 BufferIndex, u32 BufferCnt, u32 CPUID)
 	Out->WorkerTSCRecv[CPUID] += TSC3 - TSC2;
 
 	// release the buffers
+	u32 CheckSize = 0;
 	for (int i=0; i < BufferCnt; i++)
 	{
 		Buffer_t* B		= &Out->BufferList[ (BufferIndex + i) & Out->BufferMask ];	
@@ -783,7 +787,7 @@ u64 Output_BufferAdd(Output_t* Out, u8* Buffer, u32 BufferLen, u32 LineCnt)
 		// NOTE: there may be X buffers due to X workers in progress so add bit 
 		//       of extra padding in queuing behaviour
 		TSC0 = rdtsc();
-		while ((Out->BufferPut - Out->BufferFin) > (Out->BufferMax - Out->CPUActiveCnt - 8))
+		while ((Out->BufferPut - Out->BufferFin) > (Out->BufferMax - Out->CPUActiveCnt - s_MergeMax))
 		{
 			//usleep(0);
 			ndelay(100);
@@ -852,7 +856,7 @@ static void* Output_Worker(void * user)
 			Get 			= BufferBase; 
 
 			// merge up to a 64MB bulk upload size 
-			for (int b=0; b < 64; b++)	
+			for (int b=0; b < s_MergeMax; b++)	
 			{
 				// reached end of chain 
 				if (Get == Out->BufferPut) break;
@@ -863,7 +867,7 @@ static void* Output_Worker(void * user)
 				// buffer not ready exit the chain 
 				if (!B->IsReady) break;
 
-				// next buffer
+				// add this buffer + go to next buffer
 				Get++;
 			}
 
