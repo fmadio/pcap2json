@@ -89,7 +89,9 @@ typedef struct Output_t
 	u32					BufferMask;
 	u32					BufferMax;
 	u32					BufferLock;								// mutual exclusion lock
-	Buffer_t			BufferList[1024];						// buffer list 
+	Buffer_t			BufferList[16*1024];					// buffer list 
+
+	u32					MergeLock;								// mutal exclusion to merge multiple output blocks
 
 	u64					TotalByte;								// total number of bytes down the wire
 
@@ -97,7 +99,11 @@ typedef struct Output_t
 	u64					ByteComplete;							// bytes sucessfully pushed 
 
 	u64					LineQueued;								// lines queued
-	u64					LineComplete;							// lines completed 
+	u64					LineComplete;							// lines completed
+
+	u64					ESPushByte;								// stats on bytes pushed
+	u64					ESPushCnt;								// stats number of unique pushes 
+																// these get reset by Output_stats 
 
 	FILE*				FileTXT;								// output text file	
 
@@ -269,6 +275,8 @@ static int SendBuffer(int Sock, u8* Buffer, u32 BufferLength)
 			return -1;
 		}
 		Pos += slen;
+
+		if (s_Exit) break;
 	}
 	return BufferLength;
 }
@@ -316,7 +324,7 @@ static void Hexdump(u8* Desc, u8* Buffer, s32 Length)
 
 //-------------------------------------------------------------------------------------------
 // directly push the json data to ES
-void BulkUpload(Output_t* Out, u32 BufferIndex, u32 CPUID)
+void BulkUpload(Output_t* Out, u32 BufferIndex, u32 BufferCnt, u32 CPUID)
 {
 	u8* IPAddress 	= Out->ESHostName[Out->ESHostPos]; 
 	u32 Port 		= Out->ESHostPort[Out->ESHostPos];	
@@ -325,13 +333,18 @@ void BulkUpload(Output_t* Out, u32 BufferIndex, u32 CPUID)
 	Out->ESHostPos	= (Out->ESHostPos + 1) % Out->ESHostCnt;
 
 	// output buffer
-	Buffer_t* B		= &Out->BufferList[ BufferIndex ];	
+	u32 RawLength	 	= 0; 
+	u32 RawLine			= 0;
+	for (int i=0; i < BufferCnt; i++)
+	{
+		Buffer_t* B		= &Out->BufferList[ (BufferIndex + i) & Out->BufferMask];	
 
-	// raw json block to be uploaded
-	u8* Bulk			= B->Buffer;
-	u32 BulkLength		= B->BufferPos;
-	u32 RawLength	 	= B->BufferPos;
-	u32 RawLine			= B->BufferLine;
+		RawLength		+= B->BufferPos;
+		RawLine			+= B->BufferLine;
+	}
+
+	// no compression for now
+	u32 BulkLength		= RawLength; 
 
 // force an ES error
 //Bulk[RawLength/2] = '{';
@@ -340,6 +353,7 @@ void BulkUpload(Output_t* Out, u32 BufferIndex, u32 CPUID)
 	// NOTE* happens on timeout flushe just after a real flush 
 	if (RawLength == 0) return;
 
+	/*
 	// compress the raw data
 	if (Out->IsCompress)
 	{
@@ -394,6 +408,7 @@ void BulkUpload(Output_t* Out, u32 BufferIndex, u32 CPUID)
 
 		Out->WorkerTSCCompress[CPUID] += rdtsc() - TSC;
 	}
+	*/
 
 	u64 TSC1 = rdtsc();
 	u64 TSC2 = TSC1;
@@ -493,9 +508,18 @@ void BulkUpload(Output_t* Out, u32 BufferIndex, u32 CPUID)
 		int hlen = SendBuffer(Sock, Header, HeaderPos);
 		assert(hlen == HeaderPos);
 
-		// send body
-		int blen = SendBuffer(Sock, Bulk, BulkLength);
-		assert(blen == BulkLength);
+		// send body for all blocks
+		for (int i=0; i < BufferCnt; i++)
+		{
+			Buffer_t* B = &Out->BufferList[ (BufferIndex + i) & Out->BufferMask];	
+
+			int blen = SendBuffer(Sock, B->Buffer, B->BufferPos);
+			if (blen != B->BufferPos)
+			{
+				printf("ERROR: Send %i %i\n", blen, B->BufferPos, i, BufferCnt);
+			}
+			assert(blen == B->BufferPos);
+		}
 
 		// send footer 
 		int flen = SendBuffer(Sock, Footer, FooterPos);
@@ -513,8 +537,8 @@ void BulkUpload(Output_t* Out, u32 BufferIndex, u32 CPUID)
 		//printf("flen: %i\n", flen);
 
 		// use the compress buffer for the response
-		u8* RecvBuffer 		= B->BufferRecv;
-		u32 RecvBufferMax 	= B->BufferRecvMax; 
+		u8* RecvBuffer 		= Out->BufferList[ BufferIndex & Out->BufferMask ].BufferRecv;
+		u32 RecvBufferMax 	= 16*1024; //Out->BufferList[ BufferIndex & Out->BufferMask ].BufferRecvMax;
 
 		// if thers nothing in the buffer, ensure printf still has asciiz
 		strcpy(RecvBuffer, "recv error");
@@ -627,7 +651,7 @@ void BulkUpload(Output_t* Out, u32 BufferIndex, u32 CPUID)
 			if (g_Verbose)
 			{
 				Hexdump("Header", 	Header, 	HeaderPos);
-				Hexdump("Raw",		B->Buffer, 	B->BufferPos);
+				//Hexdump("Raw",		B->Buffer, 	B->BufferPos);
 				Hexdump("Footer",   Footer, 	FooterPos);
 			}	
 		}
@@ -639,28 +663,35 @@ void BulkUpload(Output_t* Out, u32 BufferIndex, u32 CPUID)
 	u64 TSC3 = rdtsc();
 	Out->WorkerTSCRecv[CPUID] += TSC3 - TSC2;
 
+	// release the buffers
+	for (int i=0; i < BufferCnt; i++)
+	{
+		Buffer_t* B		= &Out->BufferList[ (BufferIndex + i) & Out->BufferMask ];	
 
-	// reset buffer
+		// no need to reset the buffer 
+		//memset(B->Buffer, 0, B->BufferPos);
+		B->BufferLine 	= 0;
+		B->BufferPos 	= 0;
 
-	// no need to reset the buffer 
-	//memset(B->Buffer, 0, B->BufferPos);
-	B->BufferLine 	= 0;
-	B->BufferPos 	= 0;
-
-	__asm__ volatile("sfence");
-	B->IsReady		= false;
+		__asm__ volatile("sfence");
+		B->IsReady		= false;
+	}
 
 	// update counts
 	Out->ESPushTotal[CPUID] += 1;
 
 	// update completion count
-	__sync_fetch_and_add(&Out->BufferFin, 1);
+	__sync_fetch_and_add(&Out->BufferFin, BufferCnt);
 
 	// update completed bytes
 	__sync_fetch_and_add(&Out->ByteComplete, RawLength);
 
 	// udpate total lines
 	__sync_fetch_and_add(&Out->LineComplete, RawLine);
+
+	// total bulk uploads
+	__sync_fetch_and_add(&Out->ESPushByte, RawLength);
+	__sync_fetch_and_add(&Out->ESPushCnt,  1);
 }
 
 //-------------------------------------------------------------------------------------------
@@ -748,12 +779,11 @@ u64 Output_BufferAdd(Output_t* Out, u8* Buffer, u32 BufferLen, u32 LineCnt)
 	u64 SyncLocalTSC 	= 0;
 	if (Out->ESPush)
 	{
-
 		// block until push has space to new queue entry 
 		// NOTE: there may be X buffers due to X workers in progress so add bit 
 		//       of extra padding in queuing behaviour
 		TSC0 = rdtsc();
-		while (((Out->BufferPut + Out->CPUActiveCnt + 8) & Out->BufferMask) == Out->BufferGet)
+		while ((Out->BufferPut - Out->BufferFin) > (Out->BufferMax - Out->CPUActiveCnt - 8))
 		{
 			//usleep(0);
 			ndelay(100);
@@ -764,8 +794,8 @@ u64 Output_BufferAdd(Output_t* Out, u8* Buffer, u32 BufferLen, u32 LineCnt)
 		// should directly use __sync_ ops for this
 		u64 SyncTopTSC 	= sync_lock(&Out->BufferLock, 50); 
 
-		Buffer_t* B 	= &Out->BufferList[Out->BufferPut];
-		Out->BufferPut 	= (Out->BufferPut + 1) & Out->BufferMask;
+		Buffer_t* B 	= &Out->BufferList[Out->BufferPut & Out->BufferMask];
+		Out->BufferPut 	+= 1; 
 
 		sync_unlock(&Out->BufferLock);
 
@@ -785,7 +815,6 @@ u64 Output_BufferAdd(Output_t* Out, u8* Buffer, u32 BufferLen, u32 LineCnt)
 
 		__asm__ volatile("sfence");
 		B->IsReady 		= true;
-
 	}
 
 	// update total line stats
@@ -816,24 +845,44 @@ static void* Output_Worker(void * user)
 		}
 		else
 		{
-			// attempt to get the next one
-			Buffer_t* B = &Out->BufferList[ Get ];
+			// attempt to merge as many output blocks as possible
+			sync_lock(&Out->MergeLock, 50); 
 
-			// wait operations on the buffer to complete
-			while (!B->IsReady)
+			u32 BufferBase 	= Out->BufferGet;
+			Get 			= BufferBase; 
+
+			// merge up to a 64MB bulk upload size 
+			for (int b=0; b < 64; b++)	
 			{
-				if (s_Exit) break;
+				// reached end of chain 
+				if (Get == Out->BufferPut) break;
 
-				usleep(0);
+				// attempt to get the next one
+				Buffer_t* B = &Out->BufferList[ Get & Out->BufferMask ];
+
+				// buffer not ready exit the chain 
+				if (!B->IsReady) break;
+
+				// next buffer
+				Get++;
 			}
 
-			// thread safe fetch the next buffer 
-			// fetch and process the next block 
-			if (__sync_bool_compare_and_swap(&Out->BufferGet, Get, (Get + 1) & Out->BufferMask))
-			{
-				u64 TSC2 = rdtsc(); 
+			// update new get ptr
+			Out->BufferGet = Get;
 
-				BulkUpload(Out, Get, CPUID);	
+			sync_unlock(&Out->MergeLock);
+
+			// total number of output buffers
+			u32 BufferCnt = Get - BufferBase;
+			if (BufferCnt > 0)
+			{
+				//if (BufferCnt > 1) printf("merge: %i\n", BufferCnt);
+
+				// bulk upload
+				u64 TSC2 = rdtsc();
+
+				// output multiple blocks
+				BulkUpload(Out, BufferBase, BufferCnt, CPUID);
 
 				u64 TSC3 = rdtsc(); 
 				Out->WorkerTSCTop[CPUID] += TSC3 - TSC2;
@@ -856,7 +905,8 @@ void Output_Stats(	Output_t* Out,
 					float* pSend,
 					float* pRecv,
 					u64*   pTotalCycle,
-					u64*   pPendingB)
+					u64*   pPendingB,
+					u64*   pPushSizeB)
 {
 	u64 Total 	= 0;
 	u64 Top 	= 0;
@@ -871,7 +921,7 @@ void Output_Stats(	Output_t* Out,
 		Comp 	+= Out->WorkerTSCCompress[i];
 		Send 	+= Out->WorkerTSCSend[i];
 		Recv 	+= Out->WorkerTSCRecv[i];
-	}	
+	}
 
 	if (IsReset)
 	{
@@ -884,6 +934,7 @@ void Output_Stats(	Output_t* Out,
 			Out->WorkerTSCRecv[i]		= 0;
 		}
 	}
+
 	if (pTop) 			pTop[0] 		= Top  * inverse(Total);
 	if (pCompress) 		pCompress[0] 	= Comp * inverse(Total);
 	if (pSend) 			pSend[0] 		= Send * inverse(Total);
@@ -893,4 +944,13 @@ void Output_Stats(	Output_t* Out,
 	// how much output data is pending
 	u64 BytePending = Out->ByteQueued - Out->ByteComplete;
 	if (pPendingB) pPendingB[0] = BytePending;
+
+	// average upload size
+	float AvgUpload = Out->ESPushByte * inverse(Out->ESPushCnt);
+	if (pPushSizeB) pPushSizeB[0] = AvgUpload;
+	if (IsReset)
+	{
+		Out->ESPushByte = 0;
+		Out->ESPushCnt 	= 0;
+	}
 }
