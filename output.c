@@ -519,7 +519,7 @@ void BulkUpload(Output_t* Out, u32 BufferIndex, u32 BufferCnt, u32 CPUID)
 			int blen = SendBuffer(Sock, B->Buffer, B->BufferPos);
 			if (blen != B->BufferPos)
 			{
-				printf("ERROR: Send %i %i %i %i %i\n", blen, B->BufferPos, Send0, i, BufferCnt);
+				printf("ERROR: Send %i %i : %i %i\n", blen, B->BufferPos, i, BufferCnt);
 			}
 			//assert(blen == B->BufferPos);
 		}
@@ -667,7 +667,6 @@ void BulkUpload(Output_t* Out, u32 BufferIndex, u32 BufferCnt, u32 CPUID)
 	Out->WorkerTSCRecv[CPUID] += TSC3 - TSC2;
 
 	// release the buffers
-	u32 CheckSize = 0;
 	for (int i=0; i < BufferCnt; i++)
 	{
 		Buffer_t* B		= &Out->BufferList[ (BufferIndex + i) & Out->BufferMask ];	
