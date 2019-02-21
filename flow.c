@@ -235,6 +235,7 @@ static u64						s_DecodeThreadTSCOutput[128];			// cycles spent in output logic
 static u64						s_DecodeThreadTSCOStall[128];			// cycles spent waiting for an FlowIndex alloc 
 static u64						s_DecodeThreadTSCMerge[128];			// cycles spent merging multiple flow indexs 
 static u64						s_DecodeThreadTSCWrite[128];			// cycles spent serialzing the json output sprintf dominated 
+static u64						s_DecodeThreadTSCOut[128];				// cycles spent on output buffer adding 
 static u64						s_DecodeThreadTSCReset[128];			// cycles spent reseting structures 
 static u64						s_DecodeThreadTSCWorker[128];			// cycles spent waiting for workers to complete 
 
@@ -1231,6 +1232,8 @@ void* Flow_Worker(void* User)
 						TotalPkt += Flow->TotalPkt;
 					}
 
+					u64 TSC3 = rdtsc();
+
 					// flush remaining lines in the buffer 
 					StallTSC += Output_BufferAdd(s_Output, JSONBuffer, JSONBufferOffset, JSONLineCnt);
 
@@ -1241,18 +1244,19 @@ void* Flow_Worker(void* User)
 					s_FlowCntSnapshotLast = FlowIndex->FlowCntSnapshot;
 					s_PktCntSnapshotLast  = TotalPkt; 
 
-					u64 TSC3 = rdtsc();
+					u64 TSC4 = rdtsc();
 					//assert(FlowIndexRoot->IsUse == true);
 
 					// release the root index + cpu subs 
 					FlowIndexFree(FlowIndexRoot);
 
-					u64 TSC4 						= rdtsc();
+					u64 TSC5 						= rdtsc();
 					s_DecodeThreadTSCOutput	[CPUID] += TSC4 - TSC0;
 					s_DecodeThreadTSCOStall	[CPUID] += StallTSC;
 					s_DecodeThreadTSCMerge 	[CPUID] += TSC2 - TSC1; 
 					s_DecodeThreadTSCWrite 	[CPUID] += TSC3 - TSC2; 
-					s_DecodeThreadTSCReset	[CPUID] += TSC4 - TSC3;
+					s_DecodeThreadTSCOut	[CPUID] += TSC4 - TSC3;
+					s_DecodeThreadTSCReset	[CPUID] += TSC5 - TSC4;
 					s_DecodeThreadTSCWorker	[CPUID] += TSC1 - TSC0;
 				}
 
@@ -1495,6 +1499,7 @@ void Flow_Stats(	bool IsReset,
 	u64 OStallTSC	= 0;
 	u64 MergeTSC	= 0;
 	u64 WriteTSC	= 0;
+	u64 OutTSC		= 0;
 	u64 ResetTSC	= 0;
 	u64 WorkerTSC	= 0;
 
@@ -1507,6 +1512,7 @@ void Flow_Stats(	bool IsReset,
 		OStallTSC 	+= s_DecodeThreadTSCOStall	[i];
 		MergeTSC 	+= s_DecodeThreadTSCMerge	[i];
 		WriteTSC 	+= s_DecodeThreadTSCWrite	[i];
+		OutTSC	 	+= s_DecodeThreadTSCOut		[i];
 		ResetTSC 	+= s_DecodeThreadTSCReset	[i];
 		WorkerTSC 	+= s_DecodeThreadTSCWorker	[i];
 	}
@@ -1522,6 +1528,7 @@ void Flow_Stats(	bool IsReset,
 			s_DecodeThreadTSCOStall[i]	= 0;
 			s_DecodeThreadTSCMerge[i]	= 0;
 			s_DecodeThreadTSCWrite[i]	= 0;
+			s_DecodeThreadTSCOut[i]		= 0;
 			s_DecodeThreadTSCReset[i]	= 0;
 			s_DecodeThreadTSCWorker[i]	= 0;
 		}

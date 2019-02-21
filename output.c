@@ -135,11 +135,9 @@ static void* Output_Worker(void * user);
 
 extern bool 			g_Verbose;
 
-static volatile bool	s_Exit = false;
-
+static volatile bool	s_Exit 			= false;
 static u32				s_MergeMax		= 64;				// merge up to 64 x 1MB buffers for 1 bulk upload
-
-static bool				s_IsESNULL = false;					// debug flag to remove the ES output stall
+static bool				s_IsESNULL 		= false;					// debug flag to remove the ES output stall
 
 //-------------------------------------------------------------------------------------------
 
