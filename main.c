@@ -885,7 +885,7 @@ int main(int argc, u8* argv[])
 
 	float Wirebps 		= (s_TotalByteWire * 8.0) / dT;
 	float Capturebps 	= (s_TotalByteCapture * 8.0) / dT;
-	float pps 			= (s_TotalPkt * 8.0) / dT;
+	float pps 			= s_TotalPkt / dT;
 
 	float obps = (Output_TotalByteSent(Out) * 8.0) / dT;
 
@@ -895,7 +895,15 @@ int main(int argc, u8* argv[])
 	float PCAPWallTime = (PacketTSLast - PacketTSFirst) / 1e9;
 	printf("PCAPWall time: %.2f sec ProcessTime %.2f sec (%.3f)\n", PCAPWallTime, dT, dT / PCAPWallTime);
 
-	printf("Total Time: %.2f sec RawInput[Wire %.3f Gbps Capture %.3f Gbps %.f Mpps] Output[%.3f Gbps] TotalLine:%lli %.f Line/Sec\n", dT, Wirebps / 1e9, Capturebps / 1e9, pps/1e6, obps / 1e9, TotalLine, lps); 
+	printf("Total Time: %.2f sec RawInput[Wire %.3f Gbps Capture %.3f Gbps %.3f Mpps] Output[%.3f Gbps] TotalLine:%lli %.f Line/Sec\n", 
+			dT, 
+			Wirebps / 1e9, 
+			Capturebps / 1e9, 
+			pps/1e6, 
+
+			obps / 1e9, 
+			TotalLine, 
+			lps); 
 }
 
 /* vim: set ts=4 sts=4 */
