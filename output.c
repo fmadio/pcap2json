@@ -140,6 +140,57 @@ static u32				s_MergeMax		= 64;				// merge up to 64 x 1MB buffers for 1 bulk up
 static bool				s_IsESNULL 		= false;					// debug flag to remove the ES output stall
 
 //-------------------------------------------------------------------------------------------
+// poormans mini linter
+static bool JSONLint(u8* Buffer, u32 Length)
+{
+	u32 QuoteCnt = 0;
+	u32 BraceIn = 0;
+	u32 BraceOut = 0;
+	u32 InString = 0;
+	bool IsError = false;
+
+	if (Buffer[0] != '{') IsError = true;
+
+	for (int i=0; i < Length; i++)
+	{
+		if (Buffer[i] == '"')
+		{
+			QuoteCnt++;
+			InString ^= 1;
+		}
+
+		if ((Buffer[i] == '{') || (Buffer[i] == ','))
+		{
+			if (InString)
+			{
+				//printf("%i %i\n", i, InString);
+				IsError = true;
+			}
+		}
+
+		if (Buffer[i] == '{') BraceIn++; 
+		if (Buffer[i] == '}') BraceOut++; 
+
+		/*
+		if (B->Buffer[i] == '{')
+		{
+			if (InString) IsError = true;
+		}
+		if (B->Buffer[i] == '}')
+		{
+			if (InString) IsError = true;
+		}
+		*/
+	}
+
+	if ((QuoteCnt &1) || (IsError) || (BraceIn != BraceOut) )
+	{
+		return false;
+	}
+	return true;
+}
+
+//-------------------------------------------------------------------------------------------
 
 Output_t* Output_Create(bool IsNULL, 
 						bool IsSTDOUT, 
@@ -548,7 +599,7 @@ void BulkUpload(Output_t* Out, u32 BufferIndex, u32 BufferCnt, u32 CPUID)
 		int RecvBufferLen 	= 0;
 		int ExpectBufferLen = 0;
 		u32 TotalLength		= RecvBufferMax;
-		while (RecvBufferLen < TotalLength)
+		while (RecvBufferLen < RecvBufferMax)
 		{
 			//printf("recv: %i %i\n", RecvBufferLen, TotalLength);
 			int rlen = recv(Sock, RecvBuffer + RecvBufferLen, TotalLength - RecvBufferLen, 0);
@@ -781,24 +832,40 @@ u64 Output_BufferAdd(Output_t* Out, u8* Buffer, u32 BufferLen, u32 LineCnt)
 	if (Out->ESPush)
 	{
 		// block until push has space to new queue entry 
-		// NOTE: there may be X buffers due to X workers in progress so add bit 
-		//       of extra padding in queuing behaviour
 		TSC0 = rdtsc();
-		while ((Out->BufferPut - Out->BufferFin) > (Out->BufferMax - Out->CPUActiveCnt - s_MergeMax))
+		Buffer_t* B 	= NULL; 
+		while (true)
 		{
+			// acquire a buffer 
+			u64 SyncTopTSC 	= sync_lock(&Out->BufferLock, 50); 
+
+			u64 Put 		= Out->BufferPut;
+
+			// check theres space at head
+			bool IsStall 	= false;
+			if ((Put - Out->BufferFin) > (Out->BufferMax - Out->CPUActiveCnt - s_MergeMax))
+			{
+				IsStall = true;
+			}
+			else
+			{
+				// theres space so allocate
+				Out->BufferPut 	+= 1; 
+			}
+			sync_unlock(&Out->BufferLock);
+
+			// got an entry then exit
+			if (!IsStall)
+			{
+				B = &Out->BufferList[Put & Out->BufferMask];
+				break;
+			}
 			//usleep(0);
 			ndelay(100);
 		}
 		TSC1 = rdtsc();
 
-		// acquire a buffer 
-		// should directly use __sync_ ops for this
-		u64 SyncTopTSC 	= sync_lock(&Out->BufferLock, 50); 
 
-		Buffer_t* B 	= &Out->BufferList[Out->BufferPut & Out->BufferMask];
-		Out->BufferPut 	+= 1; 
-
-		sync_unlock(&Out->BufferLock);
 
 		// wait for buffer to be fully freeed
 		// as the above flow control is not fully thread safe
