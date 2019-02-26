@@ -169,7 +169,20 @@ static bool JSONLint(u8* Buffer, u32 Length)
 		}
 
 		if (Buffer[i] == '{') BraceIn++; 
-		if (Buffer[i] == '}') BraceOut++; 
+		if (Buffer[i] == '}')
+		{
+			BraceOut++; 
+
+			// check for bulk requests terminiated by newline 
+			if (BraceIn == BraceOut)
+			{
+				if (Buffer[i+1] != '\n')
+				{
+					printf("no newline\n");
+					IsError = true;	
+				}
+			}
+		}
 
 		/*
 		if (B->Buffer[i] == '{')
@@ -571,6 +584,7 @@ void BulkUpload(Output_t* Out, u32 BufferIndex, u32 BufferCnt, u32 CPUID)
 				printf("ERROR: Send %i %i : %i %i\n", blen, B->BufferPos, i, BufferCnt);
 			}
 			//assert(blen == B->BufferPos);
+			//assert(JSONLint(B->Buffer, B->BufferPos));
 		}
 
 		// send footer 
