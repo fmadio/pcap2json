@@ -101,8 +101,11 @@ Please see the config.\* files for other examples. This these are specified usin
 
 Using FMADIO 20Gv2 Packet Capture system uses 12 CPUs
 
+100K Flows @ 64B per packet ~5.1Mpps
+
 ![Alt text](http://fmad.io/pcap2json/20190301_pcap2json_perf64.JPG "pcap to json 64B packet rate")
 
+100K Flows @ 1500B per packet 15.48Gbps 
 
 ![Alt text](http://fmad.io/pcap2json/20190301_pcap2json_perf1500.JPG "pcap to json 1500B packet rate")
 
