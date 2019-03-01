@@ -99,16 +99,10 @@ Please see the config.\* files for other examples. This these are specified usin
 
 # Performance numbers 
 
-100GB Interop PCAP (5 min wall time)
+Using FMADIO 20Gv2 Packet Capture system uses 12 CPUs
 
-(config.packet)       : 22min  : ~ 50,000 ES inserts / seccond<br>
-Full packe Meta data, compressed JSON 1 ES instance
-
-(config.flow.100msec) : 10min : ~  6,000 ES inserts / seccond<br>
-100 msec sampled flow data, compressed JSON, 1 ES Instance
-
-(config.flow.1sec)    : 8.5min : ~  4,238 ES inserts / seccond<br>
-1sec sampled flow data, compressed JSON, 1 ES Instance
+![Alt text](http://fmad.io/pcap2json/20190301_pcap2json_perf64.JPG "pcap to json 64B packet rate")
 
 
+![Alt text](http://fmad.io/pcap2json/20190301_pcap2json_perf1500.JPG "pcap to json 1500B packet rate")
 
