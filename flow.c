@@ -526,7 +526,7 @@ static void FlowInsert(u32 CPUID, FlowIndex_t* FlowIndex, FlowRecord_t* FlowPkt,
 			}
 			F->TCPAckNo = TCPAckNo;
 		}
-
+*/
 		// first packet
 		u32 TCPWindow = swap16(TCP->Window); 
 		if (F->TotalPkt == 1)
@@ -536,8 +536,6 @@ static void FlowInsert(u32 CPUID, FlowIndex_t* FlowIndex, FlowRecord_t* FlowPkt,
 		}
 		F->TCPWindowMin = min32(F->TCPWindowMin, TCPWindow);
 		F->TCPWindowMax = max32(F->TCPWindowMax, TCPWindow);
-
-*/
 	}
 }
 
@@ -1270,7 +1268,6 @@ static void FlowMerge(FlowIndex_t* IndexOut, FlowIndex_t* IndexRoot, u32 IndexCn
 				F->TCPACKCnt	+= Flow->TCPACKCnt; 
 
 				// Need work out tcp retransmit
-
 				F->TCPWindowMin = min32(F->TCPWindowMin, Flow->TCPWindowMin);
 				F->TCPWindowMax = max32(F->TCPWindowMax, Flow->TCPWindowMax);
 			}
@@ -1857,7 +1854,7 @@ void Flow_PacketFree(PacketBuffer_t* B)
 
 //---------------------------------------------------------------------------------------------
 // allocate memory and house keeping
-void Flow_Open(struct Output_t* Out, s32* CPUMap)
+void Flow_Open(struct Output_t* Out, s32* CPUMap, u32 FlowIndexDepth)
 {
 	s_Output = Out;
 	assert(s_Output != NULL);
@@ -1901,7 +1898,7 @@ void Flow_Open(struct Output_t* Out, s32* CPUMap)
 		pthread_setaffinity_np(s_DecodeThread[i], sizeof(cpu_set_t), &Thread0CPU);
 	}
 
-	s_FlowIndexMax = 6 * CPUCnt; 
+	s_FlowIndexMax = FlowIndexDepth * CPUCnt; 
 	s_FlowIndexSub = CPUCnt; 
 
 	u64 TotalMem = 0;
