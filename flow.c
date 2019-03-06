@@ -1908,7 +1908,7 @@ void Flow_Open(struct Output_t* Out, s32* CPUMap, u32 FlowIndexDepth)
 	{
 		FlowIndex_t* FlowIndex = &s_FlowIndex[i];
 
-		// max out at 1M flows
+		// max out at 250K flows
 		FlowIndex->FlowMax	= 250e3;
 
 		// allocate and clear flow index
