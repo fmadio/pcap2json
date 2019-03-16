@@ -110,7 +110,7 @@ static void help(void)
 	fprintf(stderr, "cat /tmp/test.pcap | pcap2json > test.json\n");
 	fprintf(stderr, "\n");
 	fprintf(stderr, "Command Line Arguments:\n");
-	fprintf(stderr, " --capture-name <name>          : capture name to use for ES Index data\n");
+	fprintf(stderr, " --index-name <name>          : capture name to use for ES Index data\n");
 	fprintf(stderr, " --verbose                      : verbose output\n");
 	fprintf(stderr, " --config <confrig file>        : read from config file\n");
 	fprintf(stderr, "\n");
@@ -195,7 +195,7 @@ static bool ParseCommandLine(u8* argv[])
 		cnt	+= 1;
 	}
 	// capture name 
-	if (strcmp(argv[0], "--capture-name") == 0)
+	if (strcmp(argv[0], "--index-name") == 0)
 	{
 		strncpy(g_CaptureName, argv[1], sizeof(g_CaptureName));	
 		fprintf(stderr, "  Capture Name[%s]\n", g_CaptureName);
