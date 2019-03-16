@@ -212,7 +212,7 @@ static u64						s_PktCntSnapshotLast = 0;				// last total number of packets in 
 
 static u32						s_FlowIndexMax		= 16;
 static u32						s_FlowIndexSub		= 0;				// number of sub slots, one per CPU worker 
-static FlowIndex_t				s_FlowIndex[128];
+static FlowIndex_t				s_FlowIndex[1024];
 static u32						s_FlowIndexFreeLock	= 0;				// lock to access
 static FlowIndex_t*				s_FlowIndexFree		= NULL;				// free list
 
@@ -226,7 +226,7 @@ static volatile PacketBuffer_t*	s_PacketBuffer		= NULL;				// linked list of fre
 static u32						s_PacketBufferLock	= 0;
 
 static u32						s_DecodeCPUActive 	= 0;				// total number of active decode threads
-static pthread_t   				s_DecodeThread[16];						// worker decode thread list
+static pthread_t   				s_DecodeThread[128];						// worker decode thread list
 static u64						s_DecodeThreadTSCTop[128];				// total cycles
 static u64						s_DecodeThreadTSCDecode[128];			// total cycles for decoding
 static u64						s_DecodeThreadTSCInsert[128];			// cycles spend in hash table lookup 
@@ -252,7 +252,7 @@ static u64						s_PacketDecodeCnt	= 0;
 
 static u32						s_PacketSizeHistoBin = 32;				// size divide amount 
 static u32						s_PacketSizeHistoMax = 1024;			// max index (not in byte)
-static u32						s_PacketSizeHisto[16][1024];
+static u32						s_PacketSizeHisto[128][1024];
 
 //---------------------------------------------------------------------------------------------
 // generate a 20bit hash index 
