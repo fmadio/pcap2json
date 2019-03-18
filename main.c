@@ -328,6 +328,15 @@ static bool ParseCommandLine(u8* argv[])
 		cnt	+= 2;
 	}
 
+	// allow custom device name
+	if (strcmp(argv[0], "--device-name") == 0)
+	{
+		u8* Name = argv[1];
+		strncpy(g_DeviceName, Name, sizeof(g_DeviceName));
+		fprintf(stderr, "  Device Name [%s]\n", Name);
+		cnt     += 2;
+	}
+
 	if (strcmp(argv[0], "--help") == 0)
 	{
 		help();
