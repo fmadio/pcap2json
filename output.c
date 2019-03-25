@@ -136,8 +136,8 @@ static void* Output_Worker(void * user);
 extern bool 			g_Verbose;
 
 static volatile bool	s_Exit 			= false;
-static u32				s_MergeMax		= 64;				// merge up to 64 x 1MB buffers for 1 bulk upload
-static bool				s_IsESNULL 		= false;					// debug flag to remove the ES output stall
+static u32				s_MergeMax		= 64;					// merge up to 64 x 1MB buffers for 1 bulk upload
+static bool				s_IsESNULL 		= false;				// debug flag to remove the ES output stall
 
 //-------------------------------------------------------------------------------------------
 // poormans mini linter
@@ -211,6 +211,7 @@ Output_t* Output_Create(bool IsNULL,
 						bool IsCompress, 
 						bool IsESNULL, 
 						u32 Output_BufferCnt,
+						u8* QueuePath,
 						s32* CPUMap)
 {
 	fprintf(stderr, "OutputBuffer Config\n");
@@ -219,6 +220,7 @@ Output_t* Output_Create(bool IsNULL,
 	fprintf(stderr, "   IsESNULL      : %i\n", IsESNULL); 
 	fprintf(stderr, "   IsESPush      : %i\n", IsESOut); 
 	fprintf(stderr, "   IsCompress    : %i\n", IsCompress); 
+	fprintf(stderr, "   QueuePath     : %s\n", QueuePath); 
 
 	Output_t* O = memalign(4096, sizeof(Output_t));
 	memset(O, 0, sizeof(Output_t));	
@@ -227,6 +229,8 @@ Output_t* Output_Create(bool IsNULL,
 	O->BufferGet		= 0;
 	O->BufferMax		= Output_BufferCnt;
 	O->BufferMask		= O->BufferMax - 1;
+
+	u64 MemoryAlloc		= 0;	
 
 	for (int i=0; i < O->BufferMax; i++)
 	{
@@ -238,24 +242,36 @@ Output_t* Output_Create(bool IsNULL,
 		B->BufferLine			= 0;
 		B->IsReady				= false;
 
-		// map a file
-		u8 FileName[128];
-		sprintf(FileName, "/mnt/store0/protocol/pcap2json/output_%04i.bin", i);
-
-		// force file creation 
-		B->fd = open(FileName, O_CREAT | O_TRUNC | O_RDWR, S_IRWXU); 
-		if (B->fd <= 0)
+		// file backed queue
+		if (QueuePath != NULL)
 		{
-			printf("failed to create output file %s: %i %i\n", FileName, B->fd, errno); 
-			return NULL;
+			// map a file
+			u8 FileName[128];
+			sprintf(FileName, "%s/output_%04i.bin", QueuePath, i);
+
+			// force file creation 
+			B->fd = open(FileName, O_CREAT | O_TRUNC | O_RDWR, S_IRWXU); 
+			if (B->fd <= 0)
+			{
+				printf("failed to create output file %s: %i %i\n", FileName, B->fd, errno); 
+				return NULL;
+			}
+
+			// new file so clear everything out 
+			ftruncate(B->fd,  B->BufferMax * 3); 
+
+			// shm mapping 
+			B->BufferMap = mmap64(0, B->BufferMax * 3, PROT_READ|PROT_WRITE, MAP_SHARED, B->fd, 0);
+			assert(B->BufferMap != NULL);
 		}
+		// RAM backed
+		else
+		{
+			B->BufferMap = malloc( B->BufferMax * 3);
+			assert(B->BufferMap != NULL);
 
-		// new file so clear everything out 
-		ftruncate(B->fd,  B->BufferMax * 3); 
-
-		// shm mapping 
-		B->BufferMap = mmap64(0, B->BufferMax * 3, PROT_READ|PROT_WRITE, MAP_SHARED, B->fd, 0);
-		assert(B->BufferMap != NULL);
+			MemoryAlloc	+= B->BufferMax * 3;
+		}
 
 		// slice up the output buffer
 		B->Buffer				= B->BufferMap + 0 * B->BufferMax;
@@ -311,6 +327,7 @@ Output_t* Output_Create(bool IsNULL,
 		CPU_SET (CPU, &Thread0CPU);
 		pthread_setaffinity_np(O->PushThread[i], sizeof(cpu_set_t), &Thread0CPU);
 	}
+	fprintf(stderr, "   MemoryAlloc   : %i MB\n", (u32)(MemoryAlloc / kMB(1)) );	
 
 	return O;
 }

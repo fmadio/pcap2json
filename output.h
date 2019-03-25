@@ -3,7 +3,15 @@
 
 struct Output_t;
 
-struct Output_t* 	Output_Create		(bool IsNULL, bool IsSTDOUT, bool IsESOut, bool IsESNULL, bool IsCompress, u32 Output_BufferCnt, s32* Output_CPUMap);
+struct Output_t* 	Output_Create		(	bool IsNULL, 
+											bool IsSTDOUT, 
+											bool IsESOut, 
+											bool IsCompress, 
+											bool IsESNULL, 
+											u32 Output_BufferCnt, 
+											u8* QueuePath,
+											s32* Output_CPUMap);
+
 u64 				Output_BufferAdd	(struct Output_t* Out, u8* Buffer, u32 BufferLen, u32 LineCnt);
 void 				Output_Close		(struct Output_t* Out);
 u64 				Output_TotalByteSent(struct Output_t* Out);

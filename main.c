@@ -78,6 +78,7 @@ u32				g_ESHostCnt 		= 0;				// number of active ES Hosts
 ESHost_t		g_ESHost[128];							// list fo ES Hosts to output to
 bool			g_ESCompress		= false;			// elastic push enable compression 
 bool			g_ESNULL			= false;			// ues ES NULL Host 
+u8*				g_ESQueuePath		= NULL;				// if using file backed ES Queue
 
 u8 				g_CaptureName[256];						// name of the capture / index to push to
 u8				g_DeviceName[128];						// name of the device this is sourced from
@@ -136,6 +137,7 @@ static void help(void)
 	fprintf(stderr, " --es-host <hostname:port>      : Sets the ES Hostname\n");
 	fprintf(stderr, " --es-compress                  : enables gzip compressed POST\n");
 	fprintf(stderr, " --es-null                      : use ES Null target for perf testing\n");
+	fprintf(stderr, " --es-queue-path                : ES Output queue is file backed\n");
 }
 
 //---------------------------------------------------------------------------------------------
@@ -295,6 +297,12 @@ static bool ParseCommandLine(u8* argv[])
 		fprintf(stderr, "  ES NULL Target\n");
 		cnt	+= 1;
 	}
+	if (strcmp(argv[0], "--es-queue-path") == 0)
+	{
+		g_ESQueuePath = strdup(argv[1]);
+		fprintf(stderr, "  ES Queue Path [%s]\n", g_ESQueuePath);
+		cnt	+= 2;
+	}
 
 	// flow specific
 	if (strcmp(argv[0], "--flow-samplerate") == 0)
@@ -370,50 +378,67 @@ static bool ParseConfigFile(u8* ConfigFile)
 	u32 LineListPos = 0;
 	u8* LineList[256];
 	u8  LineBuffer[256];
+	bool IsComment = false;
 	while (!feof(F))
 	{
 		u32 c = fgetc(F);
-		switch (c)
+
+		// wait for comment to complete
+		if (IsComment)
 		{
-		case '\n':
-		case ' ':
+			if (c == '\n')
 			{
-				// remove any trailing whitespace
-				// easy to copy the cmdline args + paste it into a config file
-				for (int k=LinePos-1;  k > 0; k--)
-				{
-					if (LineBuffer[k] == ' ') LineBuffer[k] = 0;
-					else break;
-				}
-				LineBuffer[LinePos++] = 0;		// asciiz
-
-				if (LinePos > 1)
-				{
-					LineList[LineListPos] = strdup(LineBuffer);
-					LineListPos += 1;
-				}
-
-				LinePos		=  0;
+				IsComment = false;
 			}
-			break;
-
-		// argument encased in "" 
-		case '"':
+		}
+		else
+		{
+			switch (c)
 			{
-				// consume line buffer until matching "
-				while (!feof(F))
+			case '\n':
+			case ' ':
 				{
-					c = fgetc(F);
-					if (c == '"') break;
+					// remove any trailing whitespace
+					// easy to copy the cmdline args + paste it into a config file
+					for (int k=LinePos-1;  k > 0; k--)
+					{
+						if (LineBuffer[k] == ' ') LineBuffer[k] = 0;
+						else break;
+					}
+					LineBuffer[LinePos++] = 0;		// asciiz
 
-					LineBuffer[LinePos++] = c;
+					if (LinePos > 1)
+					{
+						LineList[LineListPos] = strdup(LineBuffer);
+						LineListPos += 1;
+					}
+					LinePos		=  0;
 				}
-			}
-			break;
+				break;
 
-		default:
-			LineBuffer[LinePos++] = c;
-			break;
+			// argument encased in "" 
+			case '"':
+				{
+					// consume line buffer until matching "
+					while (!feof(F))
+					{
+						c = fgetc(F);
+						if (c == '"') break;
+
+						LineBuffer[LinePos++] = c;
+					}
+				}
+				break;
+
+			// comments
+			case '#':
+				IsComment = true;
+				break;
+
+			default:
+				LineBuffer[LinePos++] = c;
+				break;
+			}
 		}
 	}
 	fclose(F);
@@ -422,11 +447,6 @@ static bool ParseConfigFile(u8* ConfigFile)
 	for (int j=0; j < LineListPos; j++)
 	{
 		fprintf(stderr, "[%s]\n", LineList[j]);	
-		if (LineList[j][0] == '#')
-		{
-			//fprintf(stderr, "   comment skipping\n");
-			continue;
-		}
 
 		u32 inc = ParseCommandLine(&LineList[j]);
 		if (inc == 0) return false;
@@ -632,6 +652,7 @@ int main(int argc, u8* argv[])
 											g_ESCompress, 
 											g_ESNULL, 
 											g_Output_BufferCnt,
+											g_ESQueuePath,
 											g_CPUOutput); 
 	for (int i=0; i < g_ESHostCnt; i++)
 	{
