@@ -323,11 +323,10 @@ static bool ParseCommandLine(u8* argv[])
 	// maximum flow count 
 	if (strcmp(argv[0], "--flow-max") == 0)
 	{
-		g_FlowMax = atoi(argv[1]);
+		g_FlowMax = atof(argv[1]);
 		fprintf(stderr, "  Flow Maximum Count:%lli\n", g_FlowMax);
 		cnt	+= 2;
 	}
-
 
 	// flow null 
 	if (strcmp(argv[0], "--flow-null") == 0)
