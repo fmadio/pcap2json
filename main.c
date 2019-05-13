@@ -68,6 +68,7 @@ s64				g_FlowSampleRate	= 100e6;			// default to flow sample rate of 100msec
 bool			g_IsFlowNULL		= false;			// benchmarking NULL flow rate 
 u32				g_FlowIndexDepth	= 6;				// number of parallel flow index structures to allocate
 														// ideally should == flow CPU count
+u64				g_FlowMax			= 250e3;			// maximum number of flows per snapshot
 
 bool			g_Output_NULL		= false;			// benchmarking mode output to /dev/null 
 bool			g_Output_STDOUT		= true;				// by default output to stdout 
@@ -132,6 +133,7 @@ static void help(void)
 	fprintf(stderr, "Flow specific options\n");
 	fprintf(stderr, " --flow-samplerate <nanos>      : scientific notation flow sample rate. default 100e6 (100msec)\n");
 	fprintf(stderr, " --flow-index-depth <number>    : number of root flow index to allocate defulat 6\n");
+	fprintf(stderr, " --flow-max <number>            : maximum number of flows (default 250e3)6\n");
 
 	fprintf(stderr, "Elastic Stack options\n");
 	fprintf(stderr, " --es-host <hostname:port>      : Sets the ES Hostname\n");
@@ -318,6 +320,14 @@ static bool ParseCommandLine(u8* argv[])
 		fprintf(stderr, "  Flow Index Depth:%i\n", g_FlowIndexDepth);
 		cnt	+= 2;
 	}
+	// maximum flow count 
+	if (strcmp(argv[0], "--flow-max") == 0)
+	{
+		g_FlowMax = atoi(argv[1]);
+		fprintf(stderr, "  Flow Maximum Count:%lli\n", g_FlowMax);
+		cnt	+= 2;
+	}
+
 
 	// flow null 
 	if (strcmp(argv[0], "--flow-null") == 0)
@@ -660,7 +670,7 @@ int main(int argc, u8* argv[])
 	}
 
 	// init flow state
-	Flow_Open(Out, g_CPUFlow, g_FlowIndexDepth);
+	Flow_Open(Out, g_CPUFlow, g_FlowIndexDepth, g_FlowMax);
 
 	u64 PacketTSFirst 	= 0;
 	u64 PacketTSLast  	= 0;

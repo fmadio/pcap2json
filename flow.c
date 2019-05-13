@@ -1854,7 +1854,7 @@ void Flow_PacketFree(PacketBuffer_t* B)
 
 //---------------------------------------------------------------------------------------------
 // allocate memory and house keeping
-void Flow_Open(struct Output_t* Out, s32* CPUMap, u32 FlowIndexDepth)
+void Flow_Open(struct Output_t* Out, s32* CPUMap, u32 FlowIndexDepth, u64 FlowMax)
 {
 	s_Output = Out;
 	assert(s_Output != NULL);
@@ -1909,7 +1909,7 @@ void Flow_Open(struct Output_t* Out, s32* CPUMap, u32 FlowIndexDepth)
 		FlowIndex_t* FlowIndex = &s_FlowIndex[i];
 
 		// max out at 250K flows
-		FlowIndex->FlowMax	= 250e3;
+		FlowIndex->FlowMax	= FlowMax;
 
 		// allocate and clear flow index
 		FlowIndex->FlowHash = (u32*)memalign(4096, sizeof(u32) * (2 << 20) );
