@@ -40,7 +40,7 @@ void fProfile_Dump(u32 Index)
 	double oot = 1.0 / g_ProfileTotal[Index];
 	for (int i=0; i < 16; i++)
 	{
-		printf("    [%2i] %016llx %20lli : (%.4f) : %s\n", 
+		fprintf(stderr, "    [%2i] %016llx %20lli : (%.4f) : %s\n", 
 				i,
 				g_ProfileTotal[i],
 				g_ProfileTotal[i],
