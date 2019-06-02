@@ -198,6 +198,8 @@ extern bool				g_IsJSONFlow;
 extern  s64				g_FlowSampleRate;
 extern bool				g_IsFlowNULL;
 
+extern bool				g_Output_ESPush;
+
 extern u8 				g_CaptureName[256];
 extern u8				g_DeviceName[128];
 
@@ -623,7 +625,12 @@ static u32 FlowTemplate(void)
 	s_FlowTemplate = malloc(16*1024);
 
 	u8* Output = s_FlowTemplate;
-	Output += sprintf(Output, "{\"index\":{\"_index\":\"%s\",\"_type\":\"flow_record\",\"_score\":null}}\n", g_CaptureName);
+
+	// only ouput ES header if in ES push mode
+	if (g_Output_ESPush)
+	{
+		Output += sprintf(Output, "{\"index\":{\"_index\":\"%s\",\"_type\":\"flow_record\",\"_score\":null}}\n", g_CaptureName);
+	}	
 
 	// actual payload
 	Output += sprintf(Output, "{");
