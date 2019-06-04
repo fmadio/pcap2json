@@ -69,6 +69,8 @@ bool			g_IsFlowNULL		= false;			// benchmarking NULL flow rate
 u32				g_FlowIndexDepth	= 6;				// number of parallel flow index structures to allocate
 														// ideally should == flow CPU count
 u64				g_FlowMax			= 250e3;			// maximum number of flows per snapshot
+bool			g_FlowTopNEnable	= false;			// enable or disable output the top N flows
+u32				g_FlowTopNMax		= 1000;				// number of top flow to output
 
 bool			g_Output_NULL		= false;			// benchmarking mode output to /dev/null 
 bool			g_Output_STDOUT		= true;				// by default output to stdout 
@@ -133,7 +135,8 @@ static void help(void)
 	fprintf(stderr, "Flow specific options\n");
 	fprintf(stderr, " --flow-samplerate <nanos>      : scientific notation flow sample rate. default 100e6 (100msec)\n");
 	fprintf(stderr, " --flow-index-depth <number>    : number of root flow index to allocate defulat 6\n");
-	fprintf(stderr, " --flow-max <number>            : maximum number of flows (default 250e3)6\n");
+	fprintf(stderr, " --flow-max   <number>          : maximum number of flows (default 250e3)6\n");
+	fprintf(stderr, " --flow-top-n <number>          : only output the top N flows\n"); 
 
 	fprintf(stderr, "Elastic Stack options\n");
 	fprintf(stderr, " --es-host <hostname:port>      : Sets the ES Hostname\n");
@@ -327,7 +330,14 @@ static bool ParseCommandLine(u8* argv[])
 		fprintf(stderr, "  Flow Maximum Count:%lli\n", g_FlowMax);
 		cnt	+= 2;
 	}
-
+	// output top-N talkers 
+	if (strcmp(argv[0], "--flow-top-n") == 0)
+	{
+		g_FlowTopNEnable	= true;
+		g_FlowTopNMax 		= atof(argv[1]);
+		fprintf(stderr, "  Flow Top-N max:%i\n", g_FlowMax);
+		cnt	+= 2;
+	}
 	// flow null 
 	if (strcmp(argv[0], "--flow-null") == 0)
 	{

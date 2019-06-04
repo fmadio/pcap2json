@@ -6,6 +6,9 @@
 // 
 // guts of the flow calcuation. generats a SHA1 of the MAC/IP/Proto/Port
 // and maps packets into this
+// source upload:
+// fmadio@fmadio40v2-194:/mnt/store1/tmp$ lz4 -d -c interop17_hotstage_20170609_133953.717.953.280.pcap.lz4  | sudo stream_upload --time-compress 100 --slice 192 --name interop17
+//
 //
 // on the interop timecompressed(x100) + (192B sliced) data following performance is seen
 //
@@ -160,6 +163,8 @@ typedef struct FlowRecord_t
 
 	TCPHeader_t				TCPHeader;			// copy of the TCP Header
 
+	u8						SortDone;			// for top talkers, if this entry has been consumed
+
 	struct FlowRecord_t*	Next;				// next flow record
 	struct FlowRecord_t*	Prev;				// previous flow record
 
@@ -198,6 +203,9 @@ extern bool				g_IsJSONFlow;
 extern  s64				g_FlowSampleRate;
 extern bool				g_IsFlowNULL;
 
+extern bool				g_FlowTopNEnable;
+extern u32				g_FlowTopNMax;
+
 extern bool				g_Output_ESPush;
 
 extern u8 				g_CaptureName[256];
@@ -211,6 +219,8 @@ static volatile bool			s_Exit = false;
 
 static u32						s_FlowCntSnapshotLast = 0;				// last total flows in the last snapshot
 static u64						s_PktCntSnapshotLast = 0;				// last total number of packets in the snapshot 
+
+static u64						s_FlowMax			= 0;				// total max flows per snapshot. via commandline
 
 static u32						s_FlowIndexMax		= 16;
 static u32						s_FlowIndexSub		= 0;				// number of sub slots, one per CPU worker 
@@ -303,6 +313,8 @@ static FlowRecord_t* FlowAlloc(FlowIndex_t* FlowIndex, FlowRecord_t* F)
 	assert(FlowIndex->FlowCntSnapshot < FlowIndex->FlowMax);
 
 	FlowRecord_t* Flow = &FlowIndex->FlowList[ FlowIndex->FlowCntSnapshot++ ]; 
+
+	// this resets the TotalPkt/Byte counters  
 	memset(Flow, 0, sizeof(FlowRecord_t) );
 
 	// copy flow values, leaving the counters reset at zero 
@@ -1283,6 +1295,63 @@ static void FlowMerge(FlowIndex_t* IndexOut, FlowIndex_t* IndexRoot, u32 IndexCn
 }
 
 //---------------------------------------------------------------------------------------------
+// sort the flow list, and output the top N by total bytes 
+static u32 FlowTopN(u32* SortList, FlowIndex_t* FlowIndex, u32 FlowMax)
+{
+	u64	MinByte 	= (u64)-1;
+	u64	MaxByte 	= (u64)0;
+
+	// reset sorted output
+	u32 SortListPos = 0;
+
+	// number of outputed flows
+	u32 OutputCnt = 0;
+
+	// reset sort flag
+	for (int i=0; i < FlowIndex->FlowCntSnapshot; i++)
+	{
+		FlowIndex->FlowList[i].SortDone = false;	
+	}
+
+	// find the top count
+	for (int f=0; f < FlowMax; f++)
+	{
+		u32 Index = (u32)-1;
+		MaxByte = 0;	
+		for (int i=0; i < FlowIndex->FlowCntSnapshot; i++)
+		{
+			FlowRecord_t* F = &FlowIndex->FlowList[i];
+
+			// NOTE: careful of unique flows with exactly the same TotalByte value
+			//       why need a SortDone flag
+			if ((F->TotalByte > MaxByte) && (F->TotalByte <= MinByte) && (!F->SortDone) )
+			{
+				Index = i;
+				MaxByte = F->TotalByte;
+			}
+		}
+		//printf("[%4i] max %lli Min: %lli Index:%i\n", FlowSort->FlowCntSnapshot, MaxByte, MinByte, Index);
+
+		// no more flows found
+		if (Index == (u32)-1) break;
+
+		assert(MaxByte < 10e9);
+
+		SortList[SortListPos++] = Index;	
+
+		// reached top flow count
+		if (SortListPos >= FlowMax) break;
+
+		// consume
+		FlowIndex->FlowList[Index].SortDone = true;
+
+		// find the next largest flow 
+		MinByte = MaxByte;	
+	}
+	return SortListPos;
+}
+
+//---------------------------------------------------------------------------------------------
 //
 // parse a packet and generate a flow record 
 //
@@ -1642,6 +1711,9 @@ void* Flow_Worker(void* User)
 
 	FlowIndex_t* FlowIndexLast = NULL;
 
+	u32 SortListCnt = 0;
+	u32* SortList 	= malloc(sizeof(u32) * s_FlowMax); 
+
 	fprintf(stderr, "Start decoder thread: %i\n", CPUID);
 	while (!s_Exit)
 	{
@@ -1676,6 +1748,9 @@ void* Flow_Worker(void* User)
 
 				// assigned index to add the packet to
 				FlowIndex_t* FlowIndex = FlowIndexRoot + CPUID; 
+
+				// find spare FlowIndex for sorted output
+				FlowIndex_t* FlowSort = FlowIndexRoot + ((CPUID + 1) % s_DecodeCPUActive);
 
 				// process all packets in this block 
 				u32 Offset = 0;
@@ -1724,6 +1799,21 @@ void* Flow_Worker(void* User)
 					// merge flows
 					FlowMerge(FlowIndex, FlowIndexRoot, s_FlowIndexSub);
 
+					// if top talkers is enabled, reduce the flow list
+					if (g_FlowTopNEnable)
+					{
+						SortListCnt = FlowTopN(SortList, FlowIndex, g_FlowTopNMax);
+					}
+					// use a linear map / no sorting 
+					else
+					{
+						SortListCnt = FlowIndex->FlowCntSnapshot;
+						for (int i=0; i < FlowIndex->FlowCntSnapshot; i++)
+						{
+							SortList[i] = i;
+						}
+					}
+
 					u64 TSC2 = rdtsc();
 
 					// dump flows
@@ -1733,9 +1823,10 @@ void* Flow_Worker(void* User)
 					u8* JSONBuffer 			= FlowIndexRoot->JSONBuffer;
 					u32 JSONBufferOffset 	= 0;
 					u32 JSONLineCnt			= 0;
-					for (int i=0; i < FlowIndex->FlowCntSnapshot; i++)
+					for (int i=0; i < SortListCnt; i++)
 					{
-						FlowRecord_t* Flow = &FlowIndex->FlowList[i];	
+						FlowRecord_t* Flow = &FlowIndex->FlowList[ SortList[i] ];	
+
 						JSONBufferOffset += FlowDump(JSONBuffer + JSONBufferOffset, PktBlock->TSSnapshot, Flow, i);
 						JSONLineCnt++;
 
@@ -1748,6 +1839,9 @@ void* Flow_Worker(void* User)
 							JSONLineCnt 		= 0;
 						}
 						TotalPkt += Flow->TotalPkt;
+
+//						Flow->TotalPkt 	= 0;
+//						Flow->TotalByte = 0;
 					}
 
 					u64 TSC3 = rdtsc();
@@ -1863,8 +1957,10 @@ void Flow_PacketFree(PacketBuffer_t* B)
 // allocate memory and house keeping
 void Flow_Open(struct Output_t* Out, s32* CPUMap, u32 FlowIndexDepth, u64 FlowMax)
 {
-	s_Output = Out;
-	assert(s_Output != NULL);
+	assert(Out != NULL);
+
+	s_Output 	= Out;
+	s_FlowMax	= FlowMax;
 
 	// allocate packet buffers
 	for (int i=0; i < s_PacketBufferMax; i++)
