@@ -1075,7 +1075,40 @@ static u32 FlowDump(u8* OutputStr, u64 TS, FlowRecord_t* Flow, u32 FlowID)
 			break;
 		}
 		FlowTemplate_WriteString(OutputStr, FLOW_TEMPLATE_IPV4_PROTO, 	IPProto);
-		if (Flow->IPDSCP != 0) FlowTemplate_WriteU64   (OutputStr, FLOW_TEMPLATE_IPV4_DSCP, 	Flow->IPDSCP);
+
+		u8 DSCPStr[128];
+		switch (Flow->IPDSCP)
+		{
+		case 0x2e: strcpy(DSCPStr, "EF"); break;
+
+		// from wiki https://en.wikipedia.org/wiki/Differentiated_services
+		case 0x0a: strcpy(DSCPStr, "AF11"); break;
+		case 0x0c: strcpy(DSCPStr, "AF12"); break;
+		case 0x0e: strcpy(DSCPStr, "AF13"); break;
+		case 0x12: strcpy(DSCPStr, "AF21"); break;
+		case 0x14: strcpy(DSCPStr, "AF22"); break;
+		case 0x16: strcpy(DSCPStr, "AF23"); break;
+		case 0x1a: strcpy(DSCPStr, "AF31"); break;
+		case 0x1c: strcpy(DSCPStr, "AF32"); break;
+		case 0x1e: strcpy(DSCPStr, "AF33"); break;
+		case 0x22: strcpy(DSCPStr, "AF41"); break;
+		case 0x24: strcpy(DSCPStr, "AF42"); break;
+		case 0x26: strcpy(DSCPStr, "AF43"); break;
+
+		// from https://www.cisco.com/c/en/us/td/docs/switches/datacenter/nexus1000/sw/4_0/qos/configuration/guide/nexus1000v_qos/qos_6dscp_val.pdf
+		case 0x08: strcpy(DSCPStr, "CS1"); break;
+		case 0x10: strcpy(DSCPStr, "CS2"); break;
+		case 0x18: strcpy(DSCPStr, "CS3"); break;
+		case 0x20: strcpy(DSCPStr, "CS4"); break;
+		case 0x28: strcpy(DSCPStr, "CS5"); break;
+		case 0x30: strcpy(DSCPStr, "CS6"); break;
+		case 0x38: strcpy(DSCPStr, "CS7"); break;
+		default:
+			sprintf(DSCPStr, "%02x", Flow->IPDSCP);	
+			break;
+		}
+
+		if (Flow->IPDSCP != 0) FlowTemplate_WriteString   (OutputStr, FLOW_TEMPLATE_IPV4_DSCP, 	DSCPStr);
 
 		// per protocol info
 		switch (Flow->IPProto)
