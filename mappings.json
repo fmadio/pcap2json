@@ -80,7 +80,21 @@
                  		"type" : "long"
 					}
 				}
-              }
+              },
+      		  "2" : 
+			  {
+				"properties" : 
+				{
+					"Label":
+					{
+                 		"type" : "long"
+					},
+					"TC":
+					{
+                 		"type" : "long"
+					}
+				}
+
             }
           },
           "VLAN" : 
@@ -112,6 +126,11 @@
 						  	"ignore_above" :32 
 					  	}
 				 	 }
+				}
+				,
+				"DSCP" :
+				{
+                	"type" : "long"
 				}
 				,	
 				"Dst" : 

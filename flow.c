@@ -135,11 +135,12 @@ typedef struct FlowRecord_t
 	u8						IPDst[4];			// source IP
 
 	u8						IPProto;			// IP protocol
+	u8						IPDSCP;				// IP DSCP flag
 
 	u16						PortSrc;			// tcp/udp port source
 	u16						PortDst;			// tcp/udp port source
 
-	u8						pad[17];			// SHA1 calcuated on the first 64B
+	u8						pad[16];			// SHA1 calcuated on the first 64B
 
 	//----------------------------------------------------------------------------
 	// anything above the line is used for unique per flow hash
@@ -605,23 +606,24 @@ static u32	s_FlowTemplate_Length	[1024];
 #define FLOW_TEMPLATE_IPV4_SRC				16
 #define FLOW_TEMPLATE_IPV4_DST				17
 #define FLOW_TEMPLATE_IPV4_PROTO			18
+#define FLOW_TEMPLATE_IPV4_DSCP				19
 
-#define FLOW_TEMPLATE_UDP_PORT_SRC			19
-#define FLOW_TEMPLATE_UDP_PORT_DST			20
+#define FLOW_TEMPLATE_UDP_PORT_SRC			20
+#define FLOW_TEMPLATE_UDP_PORT_DST			21
 
-#define FLOW_TEMPLATE_TCP_PORT_SRC			21
-#define FLOW_TEMPLATE_TCP_PORT_DST			22
-#define FLOW_TEMPLATE_TCP_FIN				23
-#define FLOW_TEMPLATE_TCP_SYN				24
-#define FLOW_TEMPLATE_TCP_RST				25
-#define FLOW_TEMPLATE_TCP_PSH				26
-#define FLOW_TEMPLATE_TCP_ACK				27
-#define FLOW_TEMPLATE_TCP_WIN_MIN			28
-#define FLOW_TEMPLATE_TCP_WIN_MAX			29
+#define FLOW_TEMPLATE_TCP_PORT_SRC			22
+#define FLOW_TEMPLATE_TCP_PORT_DST			23
+#define FLOW_TEMPLATE_TCP_FIN				24
+#define FLOW_TEMPLATE_TCP_SYN				25
+#define FLOW_TEMPLATE_TCP_RST				26
+#define FLOW_TEMPLATE_TCP_PSH				27
+#define FLOW_TEMPLATE_TCP_ACK				28
+#define FLOW_TEMPLATE_TCP_WIN_MIN			29
+#define FLOW_TEMPLATE_TCP_WIN_MAX			30
 
-#define FLOW_TEMPLATE_TOTAL_PKT				30
-#define FLOW_TEMPLATE_TOTAL_BYTE			31
-#define FLOW_TEMPLATE_TOTAL_BIT				32
+#define FLOW_TEMPLATE_TOTAL_PKT				31
+#define FLOW_TEMPLATE_TOTAL_BYTE			32
+#define FLOW_TEMPLATE_TOTAL_BIT				33
 
 //---------------------------------------------------------------------------------------------
 // create JSON field with a default value of NULL 
@@ -708,6 +710,7 @@ static u32 FlowTemplate(void)
 		Output += FlowTemplate_Write(s_FlowTemplate, Output, FLOW_TEMPLATE_IPV4_SRC, 		"IPv4.Src", 	20);
 		Output += FlowTemplate_Write(s_FlowTemplate, Output, FLOW_TEMPLATE_IPV4_DST, 		"IPv4.Dst", 	20);
 		Output += FlowTemplate_Write(s_FlowTemplate, Output, FLOW_TEMPLATE_IPV4_PROTO, 		"IPv4.Proto", 	8);
+		Output += FlowTemplate_Write(s_FlowTemplate, Output, FLOW_TEMPLATE_IPV4_DSCP, 		"IPv4.DSCP", 	8);
 
 		// UDP 
 		{
@@ -1071,7 +1074,8 @@ static u32 FlowDump(u8* OutputStr, u64 TS, FlowRecord_t* Flow, u32 FlowID)
 			sprintf(IPProto, "%02x", Flow->IPProto);
 			break;
 		}
-		FlowTemplate_WriteString(OutputStr, FLOW_TEMPLATE_IPV4_PROTO, IPProto);
+		FlowTemplate_WriteString(OutputStr, FLOW_TEMPLATE_IPV4_PROTO, 	IPProto);
+		if (Flow->IPDSCP != 0) FlowTemplate_WriteU64   (OutputStr, FLOW_TEMPLATE_IPV4_DSCP, 	Flow->IPDSCP);
 
 		// per protocol info
 		switch (Flow->IPProto)
@@ -1520,7 +1524,8 @@ void DecodePacket(	u32 CPUID,
 		FlowPkt->IPDst[2] = IP4->Dst.IP[2];	
 		FlowPkt->IPDst[3] = IP4->Dst.IP[3];	
 
-		FlowPkt->IPProto = IP4->Proto;
+		FlowPkt->IPProto 	= IP4->Proto;
+		FlowPkt->IPDSCP		= (IP4->Service >> 2);
 
 		// IPv4 protocol decoders 
 		u32 IPOffset = (IP4->Version & 0x0f)*4; 
