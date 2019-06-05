@@ -953,9 +953,9 @@ int main(int argc, u8* argv[])
 	float lps = TotalLine / dT;
 
 	float PCAPWallTime = (PacketTSLast - PacketTSFirst) / 1e9;
-	printf("PCAPWall time: %.2f sec ProcessTime %.2f sec (%.3f)\n", PCAPWallTime, dT, dT / PCAPWallTime);
+	fprintf(stderr, "PCAPWall time: %.2f sec ProcessTime %.2f sec (%.3f)\n", PCAPWallTime, dT, dT / PCAPWallTime);
 
-	printf("Total Time: %.2f sec RawInput[Wire %.3f Gbps Capture %.3f Gbps %.3f Mpps] Output[%.3f Gbps] TotalLine:%lli %.f Line/Sec\n", 
+	fprintf(stderr, "Total Time: %.2f sec RawInput[Wire %.3f Gbps Capture %.3f Gbps %.3f Mpps] Output[%.3f Gbps] TotalLine:%lli %.f Line/Sec\n", 
 			dT, 
 			Wirebps / 1e9, 
 			Capturebps / 1e9, 

@@ -788,19 +788,19 @@ void Output_Close(Output_t* Out)
 	}
 	s_Exit = true;
 
-	printf("Output Join\n");
+	fprintf(stderr, "Output Join\n");
 	for (int i=0; i < Out->CPUActiveCnt; i++)
 	{
-		printf("  Worker %i\n", i);
+		fprintf(stderr, "  Worker %i\n", i);
 		pthread_join(Out->PushThread[i], NULL);
 	}
-	printf("Output Close\n");
+	fprintf(stderr, "Output Close\n");
 
-	printf("  Total Byte Queue   : %lli\n", Out->ByteQueued);
-	printf("  Total Byte Complete: %lli\n", Out->ByteComplete);
+	fprintf(stderr, "  Total Byte Queue   : %lli\n", Out->ByteQueued);
+	fprintf(stderr, "  Total Byte Complete: %lli\n", Out->ByteComplete);
 
-	printf("  Total Line Queue   : %lli\n", Out->LineQueued);
-	printf("  Total Line Complete: %lli\n", Out->LineComplete);
+	fprintf(stderr, "  Total Line Queue   : %lli\n", Out->LineQueued);
+	fprintf(stderr, "  Total Line Complete: %lli\n", Out->LineComplete);
 }
 
 //-------------------------------------------------------------------------------------------

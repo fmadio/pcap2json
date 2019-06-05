@@ -120,8 +120,16 @@ typedef struct FlowRecord_t
 	u8						EtherDst[6];		// ethernet dst mac
 
 	u16						VLAN[4];			// vlan tags
-	u16						MPLS[4];			// MPLS tags
-	u16						MPLStc[4];			// MPLS traffic class 
+
+
+	u16						MPLS1;				// MPLS 1 tags
+	u16						MPLStc1;			// MPLS 1 traffic class 
+
+	u16						MPLS2;				// MPLS 1 tags
+	u16						MPLStc2;			// MPLS 1 traffic class 
+
+	u16						MPLS3;				// MPLS 2 tags
+	u16						MPLStc3;			// MPLS 2 traffic class 
 
 	u8						IPSrc[4];			// source IP
 	u8						IPDst[4];			// source IP
@@ -132,6 +140,10 @@ typedef struct FlowRecord_t
 	u16						PortDst;			// tcp/udp port source
 
 	u8						pad[17];			// SHA1 calcuated on the first 64B
+
+	//----------------------------------------------------------------------------
+	// anything above the line is used for unique per flow hash
+
 
 	u16						TCPACKCnt;			// TCP ACK count within the time period	
 	u16						TCPFINCnt;			// TCP FIN count within the time period	
@@ -150,6 +162,12 @@ typedef struct FlowRecord_t
 	u16						TCPLength;			// tcp payload length
 	u8						TCPIsSACK;			// if this packet is SACK
 	u32						TCPWindowScale;		// tcp window scaling factor
+
+	u16						MPLS0;				// MPLS 0 tags
+	u16						MPLStc0;			// MPLS 0 traffic class 
+												// NOTE: request the outer MPLS tag
+												//       not be included in the hash calculation
+												// 		 see https://github.com/fmadio/pcap2json/issues/15 
 
 	//-------------------------------------------------------------------------------
 	
@@ -581,26 +599,29 @@ static u32	s_FlowTemplate_Length	[1024];
 #define FLOW_TEMPLATE_MPLS1_LABEL			12
 #define FLOW_TEMPLATE_MPLS1_TC				13	
 
-#define FLOW_TEMPLATE_IPV4_SRC				14
-#define FLOW_TEMPLATE_IPV4_DST				15
-#define FLOW_TEMPLATE_IPV4_PROTO			16
+#define FLOW_TEMPLATE_MPLS2_LABEL			14
+#define FLOW_TEMPLATE_MPLS2_TC				15	
 
-#define FLOW_TEMPLATE_UDP_PORT_SRC			17
-#define FLOW_TEMPLATE_UDP_PORT_DST			18
+#define FLOW_TEMPLATE_IPV4_SRC				16
+#define FLOW_TEMPLATE_IPV4_DST				17
+#define FLOW_TEMPLATE_IPV4_PROTO			18
 
-#define FLOW_TEMPLATE_TCP_PORT_SRC			19
-#define FLOW_TEMPLATE_TCP_PORT_DST			20
-#define FLOW_TEMPLATE_TCP_FIN				21
-#define FLOW_TEMPLATE_TCP_SYN				22
-#define FLOW_TEMPLATE_TCP_RST				23
-#define FLOW_TEMPLATE_TCP_PSH				24
-#define FLOW_TEMPLATE_TCP_ACK				25
-#define FLOW_TEMPLATE_TCP_WIN_MIN			26
-#define FLOW_TEMPLATE_TCP_WIN_MAX			27
+#define FLOW_TEMPLATE_UDP_PORT_SRC			19
+#define FLOW_TEMPLATE_UDP_PORT_DST			20
 
-#define FLOW_TEMPLATE_TOTAL_PKT				28
-#define FLOW_TEMPLATE_TOTAL_BYTE			29
-#define FLOW_TEMPLATE_TOTAL_BIT				30
+#define FLOW_TEMPLATE_TCP_PORT_SRC			21
+#define FLOW_TEMPLATE_TCP_PORT_DST			22
+#define FLOW_TEMPLATE_TCP_FIN				23
+#define FLOW_TEMPLATE_TCP_SYN				24
+#define FLOW_TEMPLATE_TCP_RST				25
+#define FLOW_TEMPLATE_TCP_PSH				26
+#define FLOW_TEMPLATE_TCP_ACK				27
+#define FLOW_TEMPLATE_TCP_WIN_MIN			28
+#define FLOW_TEMPLATE_TCP_WIN_MAX			29
+
+#define FLOW_TEMPLATE_TOTAL_PKT				30
+#define FLOW_TEMPLATE_TOTAL_BYTE			31
+#define FLOW_TEMPLATE_TOTAL_BIT				32
 
 //---------------------------------------------------------------------------------------------
 // create JSON field with a default value of NULL 
@@ -677,6 +698,9 @@ static u32 FlowTemplate(void)
 
 	Output += FlowTemplate_Write(s_FlowTemplate, Output, FLOW_TEMPLATE_MPLS1_LABEL, 	"MPLS.1.Label", 8);
 	Output += FlowTemplate_Write(s_FlowTemplate, Output, FLOW_TEMPLATE_MPLS1_TC, 		"MPLS.1.TC", 	4);
+
+	Output += FlowTemplate_Write(s_FlowTemplate, Output, FLOW_TEMPLATE_MPLS2_LABEL, 	"MPLS.2.Label", 8);
+	Output += FlowTemplate_Write(s_FlowTemplate, Output, FLOW_TEMPLATE_MPLS2_TC, 		"MPLS.2.TC", 	4);
 
 	// ipv4 block
 	{
@@ -1015,13 +1039,16 @@ static u32 FlowDump(u8* OutputStr, u64 TS, FlowRecord_t* Flow, u32 FlowID)
 	if (Flow->VLAN[1] != 0) FlowTemplate_WriteU64	(OutputStr, FLOW_TEMPLATE_VLAN1, 		Flow->VLAN[1]);
 
 	// mpls 0
-	if (Flow->MPLS[0] != 0) FlowTemplate_WriteU64	(OutputStr, FLOW_TEMPLATE_MPLS0_LABEL, 	Flow->MPLS[0]);
-
-	if (Flow->MPLS[0] != 0) FlowTemplate_WriteU64	(OutputStr, FLOW_TEMPLATE_MPLS0_TC, 	Flow->MPLStc[0]);
+	if (Flow->MPLS0 != 0) FlowTemplate_WriteU64	(OutputStr, FLOW_TEMPLATE_MPLS0_LABEL, 	Flow->MPLS0);
+	if (Flow->MPLS0 != 0) FlowTemplate_WriteU64	(OutputStr, FLOW_TEMPLATE_MPLS0_TC, 	Flow->MPLStc0);
 
 	// mpls 1
-	if (Flow->MPLS[1] != 0) FlowTemplate_WriteU64	(OutputStr, FLOW_TEMPLATE_MPLS1_LABEL, 	Flow->MPLS[1]);
-	if (Flow->MPLS[1] != 0) FlowTemplate_WriteU64	(OutputStr, FLOW_TEMPLATE_MPLS1_TC, 	Flow->MPLStc[1]);
+	if (Flow->MPLS1 != 0) FlowTemplate_WriteU64	(OutputStr, FLOW_TEMPLATE_MPLS1_LABEL, 	Flow->MPLS1);
+	if (Flow->MPLS1 != 0) FlowTemplate_WriteU64	(OutputStr, FLOW_TEMPLATE_MPLS1_TC, 	Flow->MPLStc1);
+
+	// mpls 2
+	if (Flow->MPLS2 != 0) FlowTemplate_WriteU64	(OutputStr, FLOW_TEMPLATE_MPLS2_LABEL, 	Flow->MPLS2);
+	if (Flow->MPLS2 != 0) FlowTemplate_WriteU64	(OutputStr, FLOW_TEMPLATE_MPLS2_TC, 	Flow->MPLStc2);
 
 	// IPv4 proto info
 	if (Flow->EtherProto ==  ETHER_PROTO_IPV4)
@@ -1435,8 +1462,8 @@ void DecodePacket(	u32 CPUID,
 		u32 MPLSDepth = 0;
 
 		// first MPLS 
-		FlowPkt->MPLS[0]		= MPLS_LABEL(MPLS);
-		FlowPkt->MPLStc[0]		= MPLS->TC;
+		FlowPkt->MPLS0		= MPLS_LABEL(MPLS);
+		FlowPkt->MPLStc0	= MPLS->TC;
 
 		// for now only process outer tag
 		// assume there is a sane limint on the encapsulation count
@@ -1446,8 +1473,8 @@ void DecodePacket(	u32 CPUID,
 			MPLSDepth++;
 
 			// seccond 
-			FlowPkt->MPLS[1]		= MPLS_LABEL(MPLS);
-			FlowPkt->MPLStc[1]		= MPLS->TC;
+			FlowPkt->MPLS1		= MPLS_LABEL(MPLS);
+			FlowPkt->MPLStc1	= MPLS->TC;
 		}
 		if (!MPLS->BOS)
 		{
@@ -1455,8 +1482,8 @@ void DecodePacket(	u32 CPUID,
 			MPLSDepth++;
 
 			// third 
-			FlowPkt->MPLS[2]		= MPLS_LABEL(MPLS);
-			FlowPkt->MPLStc[2]		= MPLS->TC;
+			FlowPkt->MPLS2		= MPLS_LABEL(MPLS);
+			FlowPkt->MPLStc2	= MPLS->TC;
 		}
 		if (!MPLS->BOS)
 		{
@@ -1464,8 +1491,8 @@ void DecodePacket(	u32 CPUID,
 			MPLSDepth++;
 
 			// fourth 
-			FlowPkt->MPLS[3]		= MPLS_LABEL(MPLS);
-			FlowPkt->MPLStc[3]		= MPLS->TC;
+			FlowPkt->MPLS3		= MPLS_LABEL(MPLS);
+			FlowPkt->MPLStc3	= MPLS->TC;
 		}
 
 		// update to next header
@@ -2055,6 +2082,10 @@ void Flow_Open(struct Output_t* Out, s32* CPUMap, u32 FlowIndexDepth, u64 FlowMa
 
 	// reset histogram
 	memset(s_PacketSizeHisto, 0, sizeof(s_PacketSizeHisto));
+
+	// ensure first 64B of flow record is correctly aligned
+	fprintf(stderr, "Flow Record %i\n", offsetof(FlowRecord_t, TCPACKCnt));
+	assert(offsetof(FlowRecord_t, TCPACKCnt) == 64);
 }
 
 //---------------------------------------------------------------------------------------------
@@ -2077,16 +2108,16 @@ void Flow_Close(struct Output_t* Out, u64 LastTS)
 	}
 	s_Exit = true;
 
-	printf("QueueCnt : %lli\n", s_PacketQueueCnt);	
-	printf("DecodeCnt: %lli\n", s_PacketDecodeCnt);	
+	fprintf(stderr, "QueueCnt : %lli\n", s_PacketQueueCnt);	
+	fprintf(stderr, "DecodeCnt: %lli\n", s_PacketDecodeCnt);	
 
-	printf("Flow Join\n");
+	fprintf(stderr, "Flow Join\n");
 	for (int i=0; i < s_DecodeCPUActive; i++)
 	{
-		printf("  Worker %i\n", i);
+		fprintf(stderr, "  Worker %i\n", i);
 		pthread_join(s_DecodeThread[i], NULL);
 	}
-	printf("Flow Close\n");
+	fprintf(stderr, "Flow Close\n");
 }
 
 //---------------------------------------------------------------------------------------------
