@@ -94,8 +94,8 @@
                  		"type" : "long"
 					}
 				}
-
-            }
+              }
+			}
           },
           "VLAN" : 
 		  {
@@ -130,7 +130,15 @@
 				,
 				"DSCP" :
 				{
-                	"type" : "long"
+					"type" : "text",
+					"fields" : 
+			  		{
+				  		"keyword" : 
+				 		 {
+						  	"type" : "keyword",
+						  	"ignore_above" :32 
+					  	}
+				 	 }
 				}
 				,	
 				"Dst" : 
