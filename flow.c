@@ -1402,9 +1402,6 @@ static u32 FlowTopN(u32* SortList, FlowIndex_t* FlowIndex, u32 FlowMax)
 
 		// no more flows found
 		if (Index == (u32)-1) break;
-
-		assert(MaxByte < 10e9);
-
 		SortList[SortListPos++] = Index;	
 
 		// reached top flow count
