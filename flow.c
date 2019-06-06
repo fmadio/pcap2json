@@ -339,6 +339,10 @@ static FlowRecord_t* FlowAlloc(FlowIndex_t* FlowIndex, FlowRecord_t* F)
 	// copy flow values, leaving the counters reset at zero 
 	memcpy(Flow, F, offsetof(FlowRecord_t, pad));
 
+	// copy values that are part of the flow but not included with the hash
+	Flow->MPLS0 	= F->MPLS0;
+	Flow->MPLStc0 	= F->MPLStc0;
+
 	// copy per packet state
 	Flow->TCPLength = F->TCPLength;
 
