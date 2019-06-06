@@ -1362,6 +1362,14 @@ static void FlowMerge(FlowIndex_t* IndexOut, FlowIndex_t* IndexRoot, u32 IndexCn
 	}
 }
 
+static int cmp_long(const void* a, const void* b)
+{
+	const u64* a64 = (const u64*)a;
+	const u64* b64 = (const u64*)b;
+
+	return (a64[1] < b64[1]);
+}
+
 //---------------------------------------------------------------------------------------------
 // sort the flow list, and output the top N by total bytes 
 static u32 FlowTopN(u32* SortList, FlowIndex_t* FlowIndex, u32 FlowMax)
@@ -1372,47 +1380,49 @@ static u32 FlowTopN(u32* SortList, FlowIndex_t* FlowIndex, u32 FlowMax)
 	// reset sorted output
 	u32 SortListPos = 0;
 
-	// number of outputed flows
-	u32 OutputCnt = 0;
+	//u64 TSC0 = rdtsc();
 
-	// reset sort flag
-	for (int i=0; i < FlowIndex->FlowCntSnapshot; i++)
 	{
-		FlowIndex->FlowList[i].SortDone = false;	
-	}
-
-	// find the top count
-	for (int f=0; f < FlowMax; f++)
-	{
-		u32 Index = (u32)-1;
-		MaxByte = 0;	
+		// build array for qsort to work on
+		u64* List = (u64*)SortList;
 		for (int i=0; i < FlowIndex->FlowCntSnapshot; i++)
 		{
-			FlowRecord_t* F = &FlowIndex->FlowList[i];
-
-			// NOTE: careful of unique flows with exactly the same TotalByte value
-			//       why need a SortDone flag
-			if ((F->TotalByte > MaxByte) && (F->TotalByte <= MinByte) && (!F->SortDone) )
-			{
-				Index = i;
-				MaxByte = F->TotalByte;
-			}
+			List[i*2 + 0] = i;
+			List[i*2 + 1] = FlowIndex->FlowList[i].TotalByte;
 		}
-		//printf("[%4i] max %lli Min: %lli Index:%i\n", FlowSort->FlowCntSnapshot, MaxByte, MinByte, Index);
 
-		// no more flows found
-		if (Index == (u32)-1) break;
-		SortList[SortListPos++] = Index;	
+		// sort all flows by total bytes
+		qsort(List, FlowIndex->FlowCntSnapshot, 2*sizeof(u64), cmp_long);
 
-		// reached top flow count
-		if (SortListPos >= FlowMax) break;
+		// max number of flows
+		SortListPos = min64(FlowMax, FlowIndex->FlowCntSnapshot);
 
-		// consume
-		FlowIndex->FlowList[Index].SortDone = true;
-
-		// find the next largest flow 
-		MinByte = MaxByte;	
+		// merge into a single list again
+		// works as List is awlays larger writing to a smaller(u32) list
+		// so can be done in-place
+		for (int i=0; i < SortListPos; i++)
+		{
+			SortList[i] = List[i*2 + 0];
+		}
 	}
+
+	//u64 TSC1 = rdtsc();
+	//fprintf(stderr, "flow count: %i / %i\n",  FlowIndex->FlowCntSnapshot, FlowMax); 
+	//fprintf(stderr, "Took: %.6f ms %.6f ms\n", tsc2ns(TSC1 - TSC0)/1e6, tsc2ns(TSC2 - TSC1)/1e6 ); 
+
+	/*
+	// validate the sort
+	for (int i=0; i < SortListPos-1; i++)
+	{
+		u32 Index0 = SortList[i+0];
+		u32 Index1 = SortList[i+1];
+
+		FlowRecord_t* F0 = &FlowIndex->FlowList[Index0];
+		FlowRecord_t* F1 = &FlowIndex->FlowList[Index1];
+		assert(F0->TotalByte >= F1->TotalByte);
+	}
+	*/
+
 	return SortListPos;
 }
 
@@ -1778,7 +1788,7 @@ void* Flow_Worker(void* User)
 	FlowIndex_t* FlowIndexLast = NULL;
 
 	u32 SortListCnt = 0;
-	u32* SortList 	= malloc(sizeof(u32) * s_FlowMax); 
+	u32* SortList 	= malloc(sizeof(u64) * s_FlowMax * 2); 
 
 	fprintf(stderr, "Start decoder thread: %i\n", CPUID);
 	while (!s_Exit)
