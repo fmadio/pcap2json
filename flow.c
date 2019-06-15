@@ -1366,21 +1366,33 @@ static void FlowMerge(FlowIndex_t* IndexOut, FlowIndex_t* IndexRoot, u32 IndexCn
 	}
 }
 
-static int cmp_long(const void* a, const void* b)
+static int cmp_flowlist_heavy(const void* a, const void* b, void *arg)
 {
 	const u64* a64 = (const u64*)a;
 	const u64* b64 = (const u64*)b;
+	FlowRecord_t *FlowList = (FlowRecord_t *)arg;
 
-	return (a64[1] < b64[1]);
+	// compare L2, L3, L4 and other proto information to get detailed cmp
+	return memcmp(&FlowList[a64[1]], &FlowList[b64[1]], offsetof(FlowRecord_t, pad));
+}
+
+static int cmp_flowlist_light(const void* a, const void* b, void *arg)
+{
+	const u64* a64 = (const u64*)a;
+	const u64* b64 = (const u64*)b;
+	FlowRecord_t *FlowList = (FlowRecord_t *)arg;
+
+	return ((FlowList[a64[1]].TotalByte > FlowList[b64[1]].TotalByte) ? -1 : (FlowList[a64[1]].TotalByte < FlowList[b64[1]].TotalByte));
 }
 
 //---------------------------------------------------------------------------------------------
 // sort the flow list, and output the top N by total bytes 
 static u32 FlowTopN(u32* SortList, FlowIndex_t* FlowIndex, u32 FlowMax, u8 *sMac, u8 *dMac)
 {
-	u64	j			= 0;
+	u64	j			= 0, last_data;
 	u64	MinByte		= (u64)-1;
 	u64	MaxByte 	= (u64)0;
+	int i, last_idx = 0;
 
 	// reset sorted output
 	u32 SortListPos = 0;
@@ -1395,13 +1407,13 @@ static u32 FlowTopN(u32* SortList, FlowIndex_t* FlowIndex, u32 FlowMax, u8 *sMac
 			if (!sMac || !dMac)
 			{
 				List[i*2 + 0] = i;
-				List[i*2 + 1] = FlowIndex->FlowList[i].TotalByte;
+				List[i*2 + 1] = i;
 			}
 			else if (MAC_CMP(FlowIndex->FlowList[i].EtherDst, dMac) &&
 					MAC_CMP(FlowIndex->FlowList[i].EtherSrc, sMac))
 			{
 				List[j*2 + 0] = i;
-				List[j*2 + 1] = FlowIndex->FlowList[i].TotalByte;
+				List[j*2 + 1] = i;
 				j++;
 			}
 
@@ -1416,10 +1428,37 @@ static u32 FlowTopN(u32* SortList, FlowIndex_t* FlowIndex, u32 FlowMax, u8 *sMac
 		}
 
 		// sort all flows by total bytes
-		qsort(List, j, 2*sizeof(u64), cmp_long);
+		qsort_r(List, j, 2*sizeof(u64), cmp_flowlist_light, FlowIndex->FlowList);
 
 		// max number of flows
 		SortListPos = min64(FlowMax, j);
+
+		// Need 2nd sort on the pkts having same TotalByte
+		last_data = FlowIndex->FlowList[0].TotalByte;
+		for (i=1, last_idx=0; i < SortListPos; i++)
+		{
+			if (FlowIndex->FlowList[List[i*2 + 0]].TotalByte != last_data)
+			{
+				if (last_idx < i-1)
+				{
+					qsort_r(&List[last_idx*2], i-last_idx, 2*sizeof(u64), cmp_flowlist_heavy, FlowIndex->FlowList);
+				}
+				last_data = FlowIndex->FlowList[List[i*2 + 0]].TotalByte;
+				last_idx = i;
+			}
+		}
+		// Also check the next few records if they matches with last record
+		for (; i < j; i++)
+		{
+			if (FlowIndex->FlowList[List[i*2 + 0]].TotalByte != last_data)
+			{
+				if (last_idx < i-1)
+				{
+					qsort_r(&List[last_idx*2], i-last_idx, 2*sizeof(u64), cmp_flowlist_heavy, FlowIndex->FlowList);
+				}
+				break;
+			}
+		}
 
 		// merge into a single list again
 		// works as List is awlays larger writing to a smaller(u32) list
