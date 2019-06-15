@@ -225,6 +225,12 @@ extern bool				g_IsFlowNULL;
 extern bool				g_FlowTopNEnable;
 extern u32				g_FlowTopNMax;
 
+extern u8				g_FlowTopNMac;
+extern u8				g_FlowTopNsMac[MAX_TOPN_MAC][6];
+extern u8				g_FlowTopNdMac[MAX_TOPN_MAC][6];
+static u8				*g_pFlowTopNsMac = NULL;
+static u8				*g_pFlowTopNdMac = NULL;
+
 extern bool				g_Output_ESPush;
 
 extern u8 				g_CaptureName[256];
@@ -1374,7 +1380,8 @@ static int cmp_long(const void* a, const void* b)
 // sort the flow list, and output the top N by total bytes 
 static u32 FlowTopN(u32* SortList, FlowIndex_t* FlowIndex, u32 FlowMax)
 {
-	u64	MinByte 	= (u64)-1;
+	u64	j			= 0;
+	u64	MinByte		= (u64)-1;
 	u64	MaxByte 	= (u64)0;
 
 	// reset sorted output
@@ -1387,15 +1394,34 @@ static u32 FlowTopN(u32* SortList, FlowIndex_t* FlowIndex, u32 FlowMax)
 		u64* List = (u64*)SortList;
 		for (int i=0; i < FlowIndex->FlowCntSnapshot; i++)
 		{
-			List[i*2 + 0] = i;
-			List[i*2 + 1] = FlowIndex->FlowList[i].TotalByte;
+			if (!g_FlowTopNMac)
+			{
+				List[i*2 + 0] = i;
+				List[i*2 + 1] = FlowIndex->FlowList[i].TotalByte;
+			}
+			else if (MAC_CMP(FlowIndex->FlowList[i].EtherDst, g_pFlowTopNdMac) &&
+					MAC_CMP(FlowIndex->FlowList[i].EtherSrc, g_pFlowTopNsMac))
+			{
+				List[j*2 + 0] = i;
+				List[j*2 + 1] = FlowIndex->FlowList[i].TotalByte;
+				j++;
+			}
+
+#if 0
+			fprintf(stderr, "i: %d TotalByte: %llu SRC:" MAC_FMT " DEST: " MAC_FMT "\n", i, FlowIndex->FlowList[i].TotalByte,
+					MAC_PRNT_S(&FlowIndex->FlowList[i]), MAC_PRNT_D(&FlowIndex->FlowList[i]));
+#endif
+		}
+		if (!g_FlowTopNMac)
+		{
+			j = FlowIndex->FlowCntSnapshot;
 		}
 
 		// sort all flows by total bytes
-		qsort(List, FlowIndex->FlowCntSnapshot, 2*sizeof(u64), cmp_long);
+		qsort(List, j, 2*sizeof(u64), cmp_long);
 
 		// max number of flows
-		SortListPos = min64(FlowMax, FlowIndex->FlowCntSnapshot);
+		SortListPos = min64(FlowMax, j);
 
 		// merge into a single list again
 		// works as List is awlays larger writing to a smaller(u32) list
@@ -1407,7 +1433,7 @@ static u32 FlowTopN(u32* SortList, FlowIndex_t* FlowIndex, u32 FlowMax)
 	}
 
 	//u64 TSC1 = rdtsc();
-	//fprintf(stderr, "flow count: %i / %i\n",  FlowIndex->FlowCntSnapshot, FlowMax); 
+	//fprintf(stderr, "flow count: %llu j: %llu FlowMax: %u SortListPos: %u\n", FlowIndex->FlowCntSnapshot, j, FlowMax, SortListPos); 
 	//fprintf(stderr, "Took: %.6f ms %.6f ms\n", tsc2ns(TSC1 - TSC0)/1e6, tsc2ns(TSC2 - TSC1)/1e6 ); 
 
 	/*
@@ -1787,8 +1813,17 @@ void* Flow_Worker(void* User)
 
 	FlowIndex_t* FlowIndexLast = NULL;
 
-	u32 SortListCnt = 0;
-	u32* SortList 	= malloc(sizeof(u64) * s_FlowMax * 2); 
+	u8	SortListCount = ((g_FlowTopNMac) ? g_FlowTopNMac : 1);
+	u32	SortListCnt[SortListCount];
+	u32* SortList[SortListCount];
+
+	for (int i=0 ; i<SortListCount ; i++)
+	{
+		SortList[i] = malloc(sizeof(u64) * s_FlowMax * 2);
+		assert(SortList[i] != NULL);
+	}
+
+	memset(&SortListCnt, 0, sizeof(SortListCnt));
 
 	fprintf(stderr, "Start decoder thread: %i\n", CPUID);
 	while (!s_Exit)
@@ -1878,15 +1913,23 @@ void* Flow_Worker(void* User)
 					// if top talkers is enabled, reduce the flow list
 					if (g_FlowTopNEnable)
 					{
-						SortListCnt = FlowTopN(SortList, FlowIndex, g_FlowTopNMax);
+						for (int i=0; i < SortListCount; i++)
+						{
+							if (g_FlowTopNMac)
+							{
+								g_pFlowTopNdMac = g_FlowTopNdMac[i];
+								g_pFlowTopNsMac = g_FlowTopNsMac[i];
+							}
+							SortListCnt[i] = FlowTopN(SortList[i], FlowIndex, g_FlowTopNMax);
+						}
 					}
 					// use a linear map / no sorting 
 					else
 					{
-						SortListCnt = FlowIndex->FlowCntSnapshot;
+						SortListCnt[0] = FlowIndex->FlowCntSnapshot;
 						for (int i=0; i < FlowIndex->FlowCntSnapshot; i++)
 						{
-							SortList[i] = i;
+							SortList[0][i] = i;
 						}
 					}
 
@@ -1899,25 +1942,28 @@ void* Flow_Worker(void* User)
 					u8* JSONBuffer 			= FlowIndexRoot->JSONBuffer;
 					u32 JSONBufferOffset 	= 0;
 					u32 JSONLineCnt			= 0;
-					for (int i=0; i < SortListCnt; i++)
+					for (int j=0; j < SortListCount; j++)
 					{
-						FlowRecord_t* Flow = &FlowIndex->FlowList[ SortList[i] ];	
-
-						JSONBufferOffset += FlowDump(JSONBuffer + JSONBufferOffset, PktBlock->TSSnapshot, Flow, i);
-						JSONLineCnt++;
-
-						// flush to output 
-						if (JSONBufferOffset > FlowIndexRoot->JSONBufferMax - kKB(16))
+						for (int i=0; i < SortListCnt[j]; i++)
 						{
-							StallTSC += Output_BufferAdd(s_Output, JSONBuffer, JSONBufferOffset, JSONLineCnt);
+							FlowRecord_t* Flow = &FlowIndex->FlowList[ SortList[j][i] ];	
 
-							JSONBufferOffset 	= 0;
-							JSONLineCnt 		= 0;
+							JSONBufferOffset += FlowDump(JSONBuffer + JSONBufferOffset, PktBlock->TSSnapshot, Flow, i);
+							JSONLineCnt++;
+
+							// flush to output 
+							if (JSONBufferOffset > FlowIndexRoot->JSONBufferMax - kKB(16))
+							{
+								StallTSC += Output_BufferAdd(s_Output, JSONBuffer, JSONBufferOffset, JSONLineCnt);
+
+								JSONBufferOffset 	= 0;
+								JSONLineCnt 		= 0;
+							}
+							TotalPkt += Flow->TotalPkt;
+
+	//						Flow->TotalPkt 	= 0;
+	//						Flow->TotalByte = 0;
 						}
-						TotalPkt += Flow->TotalPkt;
-
-//						Flow->TotalPkt 	= 0;
-//						Flow->TotalByte = 0;
 					}
 
 					u64 TSC3 = rdtsc();
