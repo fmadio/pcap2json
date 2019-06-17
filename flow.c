@@ -1372,8 +1372,8 @@ static int cmp_flowlist_heavy(const void* a, const void* b, void *arg)
 	const u64* b64 = (const u64*)b;
 	FlowRecord_t *FlowList = (FlowRecord_t *)arg;
 
-	// compare L2, L3, L4 and other proto information to get detailed cmp
-	return memcmp(&FlowList[a64[1]], &FlowList[b64[1]], offsetof(FlowRecord_t, pad));
+	// compare based on SHA1, which is pre-calculated per pkt flow
+	return memcmp(FlowList[a64[1]].SHA1, &FlowList[b64[1]].SHA1, sizeof(FlowList[0].SHA1));
 }
 
 static int cmp_flowlist_light(const void* a, const void* b, void *arg)
