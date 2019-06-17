@@ -1389,10 +1389,9 @@ static int cmp_flowlist_light(const void* a, const void* b, void *arg)
 // sort the flow list, and output the top N by total bytes 
 static u32 FlowTopN(u32* SortList, FlowIndex_t* FlowIndex, u32 FlowMax, u8 *sMac, u8 *dMac)
 {
-	u64	j			= 0, last_data;
+	u64	j			= 0;
 	u64	MinByte		= (u64)-1;
 	u64	MaxByte 	= (u64)0;
-	int i, last_idx = 0;
 
 	// reset sorted output
 	u32 SortListPos = 0;
@@ -1434,7 +1433,9 @@ static u32 FlowTopN(u32* SortList, FlowIndex_t* FlowIndex, u32 FlowMax, u8 *sMac
 		SortListPos = min64(FlowMax, j);
 
 		// Need 2nd sort on the pkts having same TotalByte
-		last_data = FlowIndex->FlowList[0].TotalByte;
+		u64 last_data = FlowIndex->FlowList[0].TotalByte;
+		int	i;
+		int	last_idx;
 		for (i=1, last_idx=0; i < SortListPos; i++)
 		{
 			if (FlowIndex->FlowList[List[i*2 + 0]].TotalByte != last_data)
