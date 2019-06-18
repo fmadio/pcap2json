@@ -1407,6 +1407,7 @@ static u32 FlowTopN(u32* SortList, FlowIndex_t* FlowIndex, u32 FlowMax, u8 *sMac
 			{
 				List[i*2 + 0] = i;
 				List[i*2 + 1] = i;
+				j++;
 			}
 			else if (MAC_CMP(FlowIndex->FlowList[i].EtherDst, dMac) &&
 					MAC_CMP(FlowIndex->FlowList[i].EtherSrc, sMac))
@@ -1420,10 +1421,6 @@ static u32 FlowTopN(u32* SortList, FlowIndex_t* FlowIndex, u32 FlowMax, u8 *sMac
 			fprintf(stderr, "i: %d TotalByte: %llu SRC:" MAC_FMT " DEST: " MAC_FMT "\n", i, FlowIndex->FlowList[i].TotalByte,
 					MAC_PRNT_S(&FlowIndex->FlowList[i]), MAC_PRNT_D(&FlowIndex->FlowList[i]));
 #endif
-		}
-		if (!g_FlowTopNMac)
-		{
-			j = FlowIndex->FlowCntSnapshot;
 		}
 
 		// sort all flows by total bytes
@@ -1851,7 +1848,7 @@ void* Flow_Worker(void* User)
 
 	FlowIndex_t* FlowIndexLast = NULL;
 
-	u8	SortListCount = ((g_FlowTopNMac) ? g_FlowTopNMac : 1);
+	u8	SortListCount = ((g_FlowTopNMac) ? g_FlowTopNMac + 1 : 1);
 	u32	SortListCnt[SortListCount];
 	u32* SortList[SortListCount];
 
@@ -1951,7 +1948,8 @@ void* Flow_Worker(void* User)
 					// if top talkers is enabled, reduce the flow list
 					if (g_FlowTopNEnable)
 					{
-						for (int i=0; i < SortListCount; i++)
+						int	i = 0;
+						for (i=0; i < g_FlowTopNMac; i++)
 						{
 							if (g_FlowTopNMac)
 							{
@@ -1962,6 +1960,8 @@ void* Flow_Worker(void* User)
 								SortListCnt[i] = FlowTopN(SortList[i], FlowIndex, g_FlowTopNMax, NULL, NULL);
 							}
 						}
+						// we need default TopN in all the case
+						SortListCnt[i] = FlowTopN(SortList[i], FlowIndex, g_FlowTopNMax, NULL, NULL);
 					}
 					// use a linear map / no sorting 
 					else
