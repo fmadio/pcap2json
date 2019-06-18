@@ -346,6 +346,10 @@ static FlowRecord_t* FlowAlloc(FlowIndex_t* FlowIndex, FlowRecord_t* F)
 	// copy per packet state
 	Flow->TCPLength = F->TCPLength;
 
+	// reset TCP window parameters
+	Flow->TCPWindowMin = (u16)-1;
+	Flow->TCPWindowMax = (u16)0;
+
 	return Flow;
 }
 
@@ -566,11 +570,6 @@ static void FlowInsert(u32 CPUID, FlowIndex_t* FlowIndex, FlowRecord_t* FlowPkt,
 */
 		// first packet
 		u32 TCPWindow = swap16(TCP->Window); 
-		if (F->TotalPkt == 1)
-		{
-			F->TCPWindowMin = TCPWindow; 
-			F->TCPWindowMax = TCPWindow; 
-		}
 		F->TCPWindowMin = min32(F->TCPWindowMin, TCPWindow);
 		F->TCPWindowMax = max32(F->TCPWindowMax, TCPWindow);
 	}
@@ -1367,7 +1366,14 @@ static int cmp_long(const void* a, const void* b)
 	const u64* a64 = (const u64*)a;
 	const u64* b64 = (const u64*)b;
 
-	return (a64[1] < b64[1]);
+	if (a64[1] == b64[1])
+	{
+		return (a64[2] < b64[2]);
+	}
+	else
+	{
+		return (a64[1] < b64[1]);
+	}
 }
 
 //---------------------------------------------------------------------------------------------
@@ -1387,12 +1393,14 @@ static u32 FlowTopN(u32* SortList, FlowIndex_t* FlowIndex, u32 FlowMax)
 		u64* List = (u64*)SortList;
 		for (int i=0; i < FlowIndex->FlowCntSnapshot; i++)
 		{
-			List[i*2 + 0] = i;
-			List[i*2 + 1] = FlowIndex->FlowList[i].TotalByte;
+			FlowRecord_t* F = &FlowIndex->FlowList[i];
+			List[i*3 + 0] 	= i;
+			List[i*3 + 1]	= F->TotalByte; 
+			List[i*3 + 2]	= F->SHA1[4]; 
 		}
 
 		// sort all flows by total bytes
-		qsort(List, FlowIndex->FlowCntSnapshot, 2*sizeof(u64), cmp_long);
+		qsort(List, FlowIndex->FlowCntSnapshot, 3*sizeof(u64), cmp_long);
 
 		// max number of flows
 		SortListPos = min64(FlowMax, FlowIndex->FlowCntSnapshot);
@@ -1402,7 +1410,7 @@ static u32 FlowTopN(u32* SortList, FlowIndex_t* FlowIndex, u32 FlowMax)
 		// so can be done in-place
 		for (int i=0; i < SortListPos; i++)
 		{
-			SortList[i] = List[i*2 + 0];
+			SortList[i] = List[i*3 + 0];
 		}
 	}
 
@@ -1788,7 +1796,7 @@ void* Flow_Worker(void* User)
 	FlowIndex_t* FlowIndexLast = NULL;
 
 	u32 SortListCnt = 0;
-	u32* SortList 	= malloc(sizeof(u64) * s_FlowMax * 2); 
+	u32* SortList 	= malloc(sizeof(u64) * s_FlowMax * 3); 
 
 	fprintf(stderr, "Start decoder thread: %i\n", CPUID);
 	while (!s_Exit)
