@@ -50,4 +50,14 @@ void 			Flow_PacketQueue		(PacketBuffer_t* Pkt);
 PacketBuffer_t* Flow_PacketAlloc		(void);
 void 			Flow_PacketFree			(PacketBuffer_t* B);
 
+#define MAX_TOPN_MAC 64
+
+#define MAC_FMT			"%02hhX:%02hhX:%02hhX:%02hhX:%02hhX:%02hhX"
+#define MAC_PRINT(m)	(m)[0], (m)[1], (m)[2], (m)[3], (m)[4], (m)[5]
+
+#define MAC_PRNT_S(fr)	MAC_PRINT((fr)->EtherSrc)
+#define MAC_PRNT_D(fr)	MAC_PRINT((fr)->EtherDst)
+
+#define MAC_CMP(a, b)	((a)[0] == (b)[0] && (a)[1] == (b)[1] && (a)[2] == (b)[2] && (a)[3] == (b)[3] && (a)[4] == (b)[4] && (a)[5] == (b)[5])
+
 #endif
