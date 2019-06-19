@@ -1816,7 +1816,7 @@ void* Flow_Worker(void* User)
 	FlowIndex_t* FlowIndexLast = NULL;
 
 
-	u8	SortListCount = ((g_FlowTopNMac) ? g_FlowTopNMac : 1);
+	u8	SortListCount = ((g_FlowTopNMac) ? g_FlowTopNMac + 1 : 1);
 	u32	SortListCnt[SortListCount];
 	u32* SortList[SortListCount];
 
@@ -1915,7 +1915,7 @@ void* Flow_Worker(void* User)
 					// if top talkers is enabled, reduce the flow list
 					if (g_FlowTopNEnable)
 					{
-						for (int i=0; i < SortListCount; i++)
+						for (int i=0; i < g_FlowTopNMac; i++)
 						{
 							if (g_FlowTopNMac)
 							{
@@ -1926,6 +1926,8 @@ void* Flow_Worker(void* User)
 								SortListCnt[i] = FlowTopN(SortList[i], FlowIndex, g_FlowTopNMax, NULL, NULL);
 							}
 						}
+						// we need default TopN in all the cases
+						SortListCnt[g_FlowTopNMac] = FlowTopN(SortList[g_FlowTopNMac], FlowIndex, g_FlowTopNMax, NULL, NULL);
 					}
 					// use a linear map / no sorting 
 					else
