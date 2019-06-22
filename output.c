@@ -112,8 +112,10 @@ typedef struct Output_t
 	u32					ESHostPos;								// current ES push target
 	u8					ESHostName[ESHOST_MAX][256];			// ip host name of ES
 	u32					ESHostPort[ESHOST_MAX];					// port of ES
+	bool				ESHostIsNotWorking[ESHOST_MAX];			// set this if the host is found not working
 	u32					ESPushTotal[128];						// total number of ES pushes	
 	u32					ESPushError[128];						// total number of ES errors 
+	u32					ESHostLock;								// ES host lock to update ESHostPos
 
 	bool				IsCompress;								// enable compression
 
@@ -403,15 +405,34 @@ static void Hexdump(u8* Desc, u8* Buffer, s32 Length)
 	fprintf(stderr, "\n");
 }
 
+static u32 FindESHostPos(Output_t* Out)
+{
+	sync_lock(&Out->ESHostLock, 50);
+	u32 ESHostPos	= Out->ESHostPos;
+	Out->ESHostPos	= (Out->ESHostPos + 1) % Out->ESHostCnt;
+
+	for (u32 ESHostCnt = Out->ESHostCnt;
+			ESHostCnt > 0 && Out->ESHostIsNotWorking[Out->ESHostPos];
+				ESHostCnt--, Out->ESHostPos = (Out->ESHostPos + 1) % Out->ESHostCnt);
+
+	if (Out->ESHostIsNotWorking[Out->ESHostPos])
+	{
+		fprintf(stderr, "All ES hosts seems down !!\n");
+		sync_unlock(&Out->ESHostLock);
+		exit(-1);
+	}
+	sync_unlock(&Out->ESHostLock);
+
+	return ESHostPos;
+}
+
 //-------------------------------------------------------------------------------------------
 // directly push the json data to ES
 void BulkUpload(Output_t* Out, u32 BufferIndex, u32 BufferCnt, u32 CPUID)
 {
-	u8* IPAddress 	= Out->ESHostName[Out->ESHostPos]; 
-	u32 Port 		= Out->ESHostPort[Out->ESHostPos];	
-
-	// round robbin ES target 
-	Out->ESHostPos	= (Out->ESHostPos + 1) % Out->ESHostCnt;
+	u32 ESHostPos	= FindESHostPos(Out);
+	u8* IPAddress	= Out->ESHostName[ESHostPos];
+	u32 Port 		= Out->ESHostPort[ESHostPos];
 
 	// output buffer
 	u32 RawLength	 	= 0; 
@@ -433,7 +454,7 @@ void BulkUpload(Output_t* Out, u32 BufferIndex, u32 BufferCnt, u32 CPUID)
 
 	// if theres nothing to send then skip
 	// NOTE* happens on timeout flushe just after a real flush 
-	if (RawLength == 0) return;
+	if (RawLength == 0) goto cleanup;
 
 	/*
 	// compress the raw data
@@ -525,7 +546,8 @@ void BulkUpload(Output_t* Out, u32 BufferIndex, u32 BufferCnt, u32 CPUID)
 		if (ret < 0)
 		{
 			fprintf(stderr, "connect failed: %i %i : %s : %s:%i\n", ret, errno, strerror(errno), IPAddress, Port); 
-			return;
+			Out->ESHostIsNotWorking[ESHostPos]	= 1;
+			goto cleanup;
 		}
 
 		// set timeout for connect 
@@ -746,6 +768,20 @@ void BulkUpload(Output_t* Out, u32 BufferIndex, u32 BufferCnt, u32 CPUID)
 	u64 TSC3 = rdtsc();
 	Out->WorkerTSCRecv[CPUID] += TSC3 - TSC2;
 
+	// update counts
+	Out->ESPushTotal[CPUID] += 1;
+
+	// update completed bytes
+	__sync_fetch_and_add(&Out->ByteComplete, RawLength);
+
+	// udpate total lines
+	__sync_fetch_and_add(&Out->LineComplete, RawLine);
+
+	// total bulk uploads
+	__sync_fetch_and_add(&Out->ESPushByte, RawLength);
+	__sync_fetch_and_add(&Out->ESPushCnt,  1);
+
+cleanup:
 	// release the buffers
 	for (int i=0; i < BufferCnt; i++)
 	{
@@ -760,21 +796,8 @@ void BulkUpload(Output_t* Out, u32 BufferIndex, u32 BufferCnt, u32 CPUID)
 		B->IsReady		= false;
 	}
 
-	// update counts
-	Out->ESPushTotal[CPUID] += 1;
-
 	// update completion count
 	__sync_fetch_and_add(&Out->BufferFin, BufferCnt);
-
-	// update completed bytes
-	__sync_fetch_and_add(&Out->ByteComplete, RawLength);
-
-	// udpate total lines
-	__sync_fetch_and_add(&Out->LineComplete, RawLine);
-
-	// total bulk uploads
-	__sync_fetch_and_add(&Out->ESPushByte, RawLength);
-	__sync_fetch_and_add(&Out->ESPushCnt,  1);
 }
 
 //-------------------------------------------------------------------------------------------
