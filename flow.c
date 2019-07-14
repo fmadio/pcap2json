@@ -572,6 +572,9 @@ static void FlowInsert(u32 CPUID, FlowIndex_t* FlowIndex, FlowRecord_t* FlowPkt,
 			F->TCPAckNo = TCPAckNo;
 		}
 */
+		// count SACKs per flow
+		if (FlowPkt->TCPIsSACK) F->TCPSACKCnt	+= 1; 
+
 		// first packet
 		u32 TCPWindow = swap16(TCP->Window); 
 		F->TCPWindowMin = min32(F->TCPWindowMin, TCPWindow);
@@ -625,12 +628,14 @@ static u32	s_FlowTemplate_Length	[1024];
 #define FLOW_TEMPLATE_TCP_RST				26
 #define FLOW_TEMPLATE_TCP_PSH				27
 #define FLOW_TEMPLATE_TCP_ACK				28
-#define FLOW_TEMPLATE_TCP_WIN_MIN			29
-#define FLOW_TEMPLATE_TCP_WIN_MAX			30
+#define FLOW_TEMPLATE_TCP_SACK				29
+#define FLOW_TEMPLATE_TCP_FACK				30
+#define FLOW_TEMPLATE_TCP_WIN_MIN			31
+#define FLOW_TEMPLATE_TCP_WIN_MAX			32
 
-#define FLOW_TEMPLATE_TOTAL_PKT				31
-#define FLOW_TEMPLATE_TOTAL_BYTE			32
-#define FLOW_TEMPLATE_TOTAL_BIT				33
+#define FLOW_TEMPLATE_TOTAL_PKT				33
+#define FLOW_TEMPLATE_TOTAL_BYTE			34
+#define FLOW_TEMPLATE_TOTAL_BIT				35
 
 //---------------------------------------------------------------------------------------------
 // create JSON field with a default value of NULL 
@@ -736,7 +741,7 @@ static u32 FlowTemplate(void)
 			Output += FlowTemplate_Write(s_FlowTemplate, Output, FLOW_TEMPLATE_TCP_ACK, 		"TCP.ACK", 		8);
 			Output += FlowTemplate_Write(s_FlowTemplate, Output, FLOW_TEMPLATE_TCP_WIN_MIN, 	"TCP.WindowMin", 8);
 			Output += FlowTemplate_Write(s_FlowTemplate, Output, FLOW_TEMPLATE_TCP_WIN_MAX, 	"TCP.WindowMax", 8);
-			//Output += FlowTemplate_Write(s_FlowTemplate, Output, FLOW_TEMPLATE_TCP_ACKDup, 	"TCP.ACKDup", 8);
+			Output += FlowTemplate_Write(s_FlowTemplate, Output, FLOW_TEMPLATE_TCP_SACK, 		"TCP.SACK", 8);
 			//Output += FlowTemplate_Write(s_FlowTemplate, Output, FLOW_TEMPLATE_TCP_ACKDup, 	"TCP.ACKDup", 8);
 		}
 	}
@@ -1139,6 +1144,7 @@ static u32 FlowDump(u8* OutputStr, u64 TS, FlowRecord_t* Flow, u32 FlowID)
 			FlowTemplate_WriteU64	(OutputStr, FLOW_TEMPLATE_TCP_ACK, 			Flow->TCPACKCnt); 
 			FlowTemplate_WriteU64	(OutputStr, FLOW_TEMPLATE_TCP_WIN_MIN,		Flow->TCPWindowMin); 
 			FlowTemplate_WriteU64	(OutputStr, FLOW_TEMPLATE_TCP_WIN_MAX,		Flow->TCPWindowMax); 
+			FlowTemplate_WriteU64	(OutputStr, FLOW_TEMPLATE_TCP_SACK,			Flow->TCPSACKCnt); 
 		}
 		break;
 		}
@@ -1654,7 +1660,21 @@ void DecodePacket(	u32 CPUID,
 
 						// SACK
 						case 0x5:
-							FlowPkt->TCPIsSACK = true;
+							{
+								u32  *D32 = (u32*)(Options + 2);
+
+								// get 1st blocks byte delta
+								// ignore any subsiquent left/right blocks
+								// as only want to know if there was a gap, not how many 
+								s32 Delta = swap32(D32[1]) - swap32(D32[0]);
+
+								// if there is gaps 
+								if (Delta > 1)
+								{
+									FlowPkt->TCPIsSACK = true;
+									//printf("SACK %i %08x %08x (%8i)\n", Len, D32[0], D32[1], Delta); 
+								}	
+							}
 							break;
 
 						// TSOpt
