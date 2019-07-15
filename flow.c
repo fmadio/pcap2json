@@ -381,7 +381,7 @@ static void FlowIndexFree(FlowIndex_t* FlowIndexRoot)
 		{
 			memset(FlowIndex->FlowHash, 0, sizeof(u32) * (2 << 20) );
 		}
-		FlowIndex->FlowCntSnapshot = 1;			// entry 0 is a sential
+		FlowIndex->FlowCntSnapshot = 0;
 
 		FlowIndex->PktBlockCnt 	= 0;
 		FlowIndex->PktBlockMax 	= 0;
@@ -583,6 +583,7 @@ static void FlowInsert(u32 CPUID, FlowIndex_t* FlowIndex, FlowRecord_t* FlowPkt,
 		F->TCPWindowMin = min32(F->TCPWindowMin, TCPWindow);
 		F->TCPWindowMax = max32(F->TCPWindowMax, TCPWindow);
 	}
+
 }
 
 //---------------------------------------------------------------------------------------------
@@ -1351,8 +1352,10 @@ static void FlowMerge(FlowIndex_t* IndexOut, FlowIndex_t* IndexRoot, u32 IndexCn
 
 		for (int i=0; i < Source->FlowCntSnapshot; i++)
 		{
+			// source flow to merge from
 			FlowRecord_t* Flow = &Source->FlowList[i];
 
+			// merge into a single FlowIndex 
 			FlowRecord_t* F = FlowAdd(IndexOut, Flow, Flow->SHA1);
 
 			F->TotalPkt 	+= Flow->TotalPkt;
@@ -1981,7 +1984,8 @@ void* Flow_Worker(void* User)
 					{
 						for (int i=0; i < SortListCnt[j]; i++)
 						{
-							FlowRecord_t* Flow = &FlowIndex->FlowList[ SortList[j][i] ];	
+							u32 FIndex =  SortList[j][i];
+							FlowRecord_t* Flow = &FlowIndex->FlowList[ FIndex ];	
 
 							JSONBufferOffset += FlowDump(JSONBuffer + JSONBufferOffset, PktBlock->TSSnapshot, Flow, i);
 							JSONLineCnt++;
