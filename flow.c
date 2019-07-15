@@ -179,6 +179,7 @@ typedef struct FlowRecord_t
 
 	u64						TotalPkt;			// total packets
 	u64						TotalByte;			// total bytes
+	u64						TotalFCS;			// total number of FCS errors
 
 	TCPHeader_t				TCPHeader;			// copy of the TCP Header
 
@@ -536,6 +537,8 @@ static void FlowInsert(u32 CPUID, FlowIndex_t* FlowIndex, FlowRecord_t* FlowPkt,
 	F->FirstTS		= (F->FirstTS == 0) ? TS : F->FirstTS;
 	F->LastTS		=  TS;
 
+	F->TotalFCS		+= FlowPkt->TotalFCS;
+
 	if (F->IPProto == IPv4_PROTO_TCP)
 	{
 		// update TCP Flag counts
@@ -636,6 +639,7 @@ static u32	s_FlowTemplate_Length	[1024];
 #define FLOW_TEMPLATE_TOTAL_PKT				33
 #define FLOW_TEMPLATE_TOTAL_BYTE			34
 #define FLOW_TEMPLATE_TOTAL_BIT				35
+#define FLOW_TEMPLATE_TOTAL_FCS				36
 
 //---------------------------------------------------------------------------------------------
 // create JSON field with a default value of NULL 
@@ -697,6 +701,7 @@ static u32 FlowTemplate(void)
 	Output += FlowTemplate_Write(s_FlowTemplate, Output, FLOW_TEMPLATE_TOTAL_PKT, 		"TotalPkt",  	12);
 	Output += FlowTemplate_Write(s_FlowTemplate, Output, FLOW_TEMPLATE_TOTAL_BYTE, 		"TotalByte", 	12);
 	Output += FlowTemplate_Write(s_FlowTemplate, Output, FLOW_TEMPLATE_TOTAL_BIT, 		"TotalBits", 	12);
+	Output += FlowTemplate_Write(s_FlowTemplate, Output, FLOW_TEMPLATE_TOTAL_FCS, 		"TotalFCS", 	8);
 
 	Output += FlowTemplate_Write(s_FlowTemplate, Output, FLOW_TEMPLATE_MAC_SRC, 		"MACSrc", 		3*6+1);
 	Output += FlowTemplate_Write(s_FlowTemplate, Output, FLOW_TEMPLATE_MAC_DST, 		"MACDst", 		3*6+1);	 // +1 instead of +2 for quotes as the final : is removed in the mac address
@@ -1015,6 +1020,7 @@ static u32 FlowDump(u8* OutputStr, u64 TS, FlowRecord_t* Flow, u32 FlowID)
 	FlowTemplate_WriteU64		(OutputStr, FLOW_TEMPLATE_TOTAL_PKT,	Flow->TotalPkt); 
 	FlowTemplate_WriteU64		(OutputStr, FLOW_TEMPLATE_TOTAL_BYTE,	Flow->TotalByte); 
 	FlowTemplate_WriteU64		(OutputStr, FLOW_TEMPLATE_TOTAL_BIT,	Flow->TotalByte * 8ULL); 
+	FlowTemplate_WriteU64		(OutputStr, FLOW_TEMPLATE_TOTAL_FCS,	Flow->TotalFCS); 
 
 	FlowTemplate_WriteMAC		(OutputStr, FLOW_TEMPLATE_MAC_SRC, 		(u8*)Flow->EtherSrc);
 	FlowTemplate_WriteMAC		(OutputStr, FLOW_TEMPLATE_MAC_DST, 		(u8*)Flow->EtherDst);
@@ -1353,6 +1359,7 @@ static void FlowMerge(FlowIndex_t* IndexOut, FlowIndex_t* IndexRoot, u32 IndexCn
 			F->TotalByte 	+= Flow->TotalByte;
 			F->FirstTS 		= min64(F->FirstTS, Flow->FirstTS);
 			F->LastTS 		= max64(F->LastTS, Flow->LastTS);
+			F->TotalFCS 	+= Flow->TotalFCS;	
 
 			// TCP stats
 			if (F->IPProto == IPv4_PROTO_TCP)
@@ -1476,6 +1483,8 @@ void DecodePacket(	u32 CPUID,
 	// assume single packet flow
 	FlowPkt->TotalPkt	 	= 1;
 	FlowPkt->TotalByte 		= PktHeader->LengthWire;
+
+	FlowPkt->TotalFCS		+= (PktHeader->Flag & FMAD_PACKET_FLAG_FCS) ? 1 : 0;
 
 	// ether header info
 	fEther_t* Ether 		= (fEther_t*)(PktHeader + 1);	

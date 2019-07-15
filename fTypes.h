@@ -629,6 +629,8 @@ typedef struct FMADPacket_t
 
 } __attribute__((packed)) FMADPacket_t;
 
+#define FMAD_PACKET_FLAG_FCS		(1<<0)		// flags invalid FCS was captured 
+
 // header per packet
 typedef struct FMADHeader_t
 {
