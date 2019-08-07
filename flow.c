@@ -681,8 +681,10 @@ static u32 FlowTemplate(void)
 	// only ouput ES header if in ES push mode
 	if (g_Output_ESPush)
 	{
-		Output += sprintf(Output, "{\"index\":{\"_index\":\"%s\",\"_type\":\"flow_record\",\"_score\":null}}\n", g_CaptureName);
-	}	
+		// 2019/8/7: depcreiate tpye field for ES 7.xx
+		//Output += sprintf(Output, "{\"index\":{\"_index\":\"%s\",\"_type\":\"flow_record\",\"_score\":null}}\n", g_CaptureName);
+		Output += sprintf(Output, "{\"index\":{\"_index\":\"%s\",\"_score\":null}}\n", g_CaptureName);
+	}
 
 	// actual payload
 	Output += sprintf(Output, "{");
