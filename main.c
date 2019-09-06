@@ -517,20 +517,22 @@ static void ProfileDump(struct Output_t* Out)
 	fProfile_Dump(0);
 	fprintf(stderr, "\n");
 
-	float OutputWorkerCPU;
-	float OutputWorkerCPUCompress;
-	float OutputWorkerCPUSend;
-	float OutputWorkerCPURecv;
-	u64   OutputTotalCycle;
-	u64   OutputPendingByte;
-	u64   OutputPushSizeByte;
+	float	OutputWorkerCPU;
+	float	OutputWorkerCPUCompress;
+	float	OutputWorkerCPUSend;
+	float	OutputWorkerCPURecv;
+	u64		OutputTotalCycle;
+	u64		OutputPendingByte;
+	u64		OutputPushSizeByte;
+	u64		OutputPushBps;
 	Output_Stats(Out, 1,  	&OutputWorkerCPU, 
 							&OutputWorkerCPUCompress, 
 							&OutputWorkerCPUSend, 
 							&OutputWorkerCPURecv,
 							&OutputTotalCycle,
 							&OutputPendingByte,
-							&OutputPushSizeByte);
+							&OutputPushSizeByte,
+							&OutputPushBps);
 
 	fprintf(stderr, "Output Worker CPU\n");
 	fprintf(stderr, "  Top      : %.6f\n", OutputWorkerCPU);
@@ -540,6 +542,7 @@ static void ProfileDump(struct Output_t* Out)
 	fprintf(stderr, "  Total    : %.6f sec\n", tsc2ns(OutputTotalCycle)/1e9 );
 	fprintf(stderr, "  Pending  : %.6f MB\n", OutputPendingByte  / (float)kMB(1)); 
 	fprintf(stderr, "  PushSize : %.2f MB\n", OutputPushSizeByte / (float)kMB(1)); 
+	fprintf(stderr, "  PushSpeed: %.2f Gbps\n", OutputPushBps / 1e9); 
 	fprintf(stderr, "\n");
 
 	u64 FlowCntSnapshot		= 0;
@@ -757,13 +760,14 @@ int main(int argc, u8* argv[])
 			float OutputWorkerCPURecv;
 			u64 OutputPendingB;
 			u64 OutputPushSizeB;
-			Output_Stats(Out, 0,  &OutputWorkerCPU, NULL, NULL, &OutputWorkerCPURecv, NULL, &OutputPendingB, &OutputPushSizeB);
+			u64 OutputPushBps;
+			Output_Stats(Out, true,  &OutputWorkerCPU, NULL, NULL, &OutputWorkerCPURecv, NULL, &OutputPendingB, &OutputPushSizeB, &OutputPushBps);
 
 			u64 FlowCntSnapshot;	
 			float FlowCPU;
 			Flow_Stats(false, &FlowCntSnapshot, NULL, NULL, &FlowCPU, NULL, NULL, NULL, NULL, NULL, NULL, NULL);
 
-			fprintf(stderr, "[%s] %.3f/%.3f GB %.2f Mpps %.2f Gbps | cat %6.f MB %.2f %.2f %.2f | Flows/Snap: %6i FlowCPU:%.2f | ESPush:%6lli %6.2fK ESErr %4lli | OutCPU:%.2f OutPush: %.2f MB OutQueue:%6.1fMB\n", 
+			fprintf(stderr, "[%s] %.3f/%.3f GB %.2f Mpps %.2f Gbps | cat %6.f MB %.2f %.2f %.2f | Flows/Snap: %6i FlowCPU:%.2f | ESPush:%6lli %6.2fK ESErr %4lli | OutCPU:%.2f OutPush: %.2f MB OutQueue:%6.1fMB %.3f Gbps\n", 
 
 								FormatTS(PacketTSLast),
 
@@ -784,7 +788,8 @@ int main(int argc, u8* argv[])
 								Output_ESErrorCnt(Out),
 								OutputWorkerCPU,
 								OutputPushSizeB / (float)kMB(1),
-								OutputPendingB / (float)kMB(1) 
+								OutputPendingB / (float)kMB(1) ,
+								(float)(OutputPushBps / 1e9)
 							);
 			fflush(stderr);
 
