@@ -72,8 +72,9 @@ u64				g_FlowMax			= 250e3;			// maximum number of flows per snapshot
 bool			g_FlowTopNEnable	= false;			// enable or disable output the top N flows
 u32				g_FlowTopNMax		= 1000;				// number of top flow to output
 u8				g_FlowTopNMac		= 0;				// count of topN flows for particuar MAC address
-u8				g_FlowTopNsMac[MAX_TOPN_MAC][6];				// topN source MAC
-u8				g_FlowTopNdMac[MAX_TOPN_MAC][6];				// topN destination MAC
+u8				g_FlowTopNsMac[MAX_TOPN_MAC][6];		// topN source MAC
+u8				g_FlowTopNdMac[MAX_TOPN_MAC][6];		// topN destination MAC
+u8*				g_FlowTemplate		= NULL;				// custom flow template
 
 bool			g_Output_NULL		= false;			// benchmarking mode output to /dev/null 
 bool			g_Output_STDOUT		= true;				// by default output to stdout 
@@ -117,37 +118,38 @@ static void help(void)
 	fprintf(stderr, "cat /tmp/test.pcap | pcap2json > test.json\n");
 	fprintf(stderr, "\n");
 	fprintf(stderr, "Command Line Arguments:\n");
-	fprintf(stderr, " --index-name <name>          : capture name to use for ES Index data\n");
-	fprintf(stderr, " --verbose                      : verbose output\n");
-	fprintf(stderr, " --config <confrig file>        : read from config file\n");
+	fprintf(stderr, " --index-name <name>              : capture name to use for ES Index data\n");
+	fprintf(stderr, " --verbose                        : verbose output\n");
+	fprintf(stderr, " --config <confrig file>          : read from config file\n");
 	fprintf(stderr, "\n");
-	fprintf(stderr, " --cpu-core   <cpu no>          : cpu map for core thread\n"); 
-	fprintf(stderr, " --cpu-flow   <cpu0.. cpu3>     : cpu map for flow threads\n"); 
-	fprintf(stderr, " --cpu-output <cpu0 .. cpu3>    : cpu map for output threads\n"); 
+	fprintf(stderr, " --cpu-core   <cpu no>            : cpu map for core thread\n"); 
+	fprintf(stderr, " --cpu-flow   <cpu0.. cpu3>       : cpu map for flow threads\n"); 
+	fprintf(stderr, " --cpu-output <cpu0 .. cpu3>      : cpu map for output threads\n"); 
 	fprintf(stderr, "\n");
-	fprintf(stderr, " --json-packet                  : write JSON packet data\n");
-	fprintf(stderr, " --json-flow                    : write JSON flow data\n");
+	fprintf(stderr, " --json-packet                    : write JSON packet data\n");
+	fprintf(stderr, " --json-flow                      : write JSON flow data\n");
 	fprintf(stderr, "\n");
 
 	fprintf(stderr, "Output Mode\n");
-	fprintf(stderr, " --output-stdout                : writes output to STDOUT\n");
-	fprintf(stderr, " --output-espush                : writes output directly to ES HTTP POST \n");
-	fprintf(stderr, " --output-buffercnt <pow2 cnt>  : number of output buffers (default is 64)\n");
+	fprintf(stderr, " --output-stdout                  : writes output to STDOUT\n");
+	fprintf(stderr, " --output-espush                  : writes output directly to ES HTTP POST \n");
+	fprintf(stderr, " --output-buffercnt <pow2 cnt>    : number of output buffers (default is 64)\n");
 
 	fprintf(stderr, "\n");
 	fprintf(stderr, "Flow specific options\n");
-	fprintf(stderr, " --flow-samplerate <nanos>      : scientific notation flow sample rate. default 100e6 (100msec)\n");
-	fprintf(stderr, " --flow-index-depth <number>    : number of root flow index to allocate defulat 6\n");
-	fprintf(stderr, " --flow-max   <number>          : maximum number of flows (default 250e3)6\n");
-	fprintf(stderr, " --flow-top-n <number>          : only output the top N flows\n"); 
+	fprintf(stderr, " --flow-samplerate <nanos>        : scientific notation flow sample rate. default 100e6 (100msec)\n");
+	fprintf(stderr, " --flow-index-depth <number>      : number of root flow index to allocate defulat 6\n");
+	fprintf(stderr, " --flow-max   <number>            : maximum number of flows (default 250e3)6\n");
+	fprintf(stderr, " --flow-top-n <number>            : only output the top N flows\n"); 
 	fprintf(stderr, " --flow-top-n-circuit <sMAC_dMAC> : output top N flows based on specified src/dest MAC\n"); 
+	fprintf(stderr, " --flow-template <template>       : Use a customized template for JSON output\n"); 
 
 	fprintf(stderr, "\n");
 	fprintf(stderr, "Elastic Stack options\n");
-	fprintf(stderr, " --es-host <hostname:port>      : Sets the ES Hostname\n");
-	fprintf(stderr, " --es-compress                  : enables gzip compressed POST\n");
-	fprintf(stderr, " --es-null                      : use ES Null target for perf testing\n");
-	fprintf(stderr, " --es-queue-path                : ES Output queue is file backed\n");
+	fprintf(stderr, " --es-host <hostname:port>        : Sets the ES Hostname\n");
+	fprintf(stderr, " --es-compress                    : enables gzip compressed POST\n");
+	fprintf(stderr, " --es-null                        : use ES Null target for perf testing\n");
+	fprintf(stderr, " --es-queue-path                  : ES Output queue is file backed\n");
 }
 
 //---------------------------------------------------------------------------------------------
@@ -378,6 +380,13 @@ static bool ParseCommandLine(u8* argv[])
 		g_IsFlowNULL = true; 
 		fprintf(stderr, "  Flow NULL benchmarking\n"); 
 		cnt	+= 1;
+	}
+	// custom flow template 
+	if (strcmp(argv[0], "--flow-template") == 0)
+	{
+		g_FlowTemplate = argv[1];
+		fprintf(stderr, "  Flow template [%s]\n", g_FlowTemplate); 
+		cnt	+= 2;
 	}
 
 	// create a unique id so calling applications
@@ -716,7 +725,7 @@ int main(int argc, u8* argv[])
 	}
 
 	// init flow state
-	Flow_Open(Out, g_CPUFlow, g_FlowIndexDepth, g_FlowMax);
+	Flow_Open(Out, g_CPUFlow, g_FlowIndexDepth, g_FlowMax, g_FlowTemplate);
 
 	u64 PacketTSFirst 	= 0;
 	u64 PacketTSLast  	= 0;

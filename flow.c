@@ -618,7 +618,7 @@ static void FlowInsert(u32 CPUID, FlowIndex_t* FlowIndex, FlowRecord_t* FlowPkt,
 static u8* 	s_FlowTemplate 			= NULL;
 static u32	s_FlowTemplateLen		= 0;
 
-static u32	s_FlowTemplate_Key		[1024];		// start of key
+//static u32	s_FlowTemplate_Key		[1024];		// start of key
 static u32	s_FlowTemplate_Value	[1024];		// start of value
 static u32	s_FlowTemplate_Length	[1024];
 
@@ -671,6 +671,7 @@ static u32	s_FlowTemplate_Length	[1024];
 
 //---------------------------------------------------------------------------------------------
 // create JSON field with a default value of NULL 
+/*
 static u32 FlowTemplate_Write(u8* Base, u8* Output, u32 Index, u8* Name, u32 Length)
 {
 	u8* OutputStart = Output;
@@ -696,12 +697,18 @@ static u32 FlowTemplate_Write(u8* Base, u8* Output, u32 Index, u8* Name, u32 Len
 
 	return Output - OutputStart;
 }
+*/
 
 //---------------------------------------------------------------------------------------------
+//
 // build the initial template 
+//
+static u8* s_FlowTemplateDefault = "{\"timestamp\":@TIMESTAMP#16#,\"TS\":@TS#22#,\"FlowCnt\":@FLOWCNT#10#,\"Device\":@DEVICE#32#,\"hash\":@HASH#42#,\"TotalPkt\":@TOTALPKT#12#,\"TotalByte\":@TOTALBYTE#12#,\"TotalBits\":@TOTALBIT#12#,\"TotalFCS\":@TOTALFCS#8#,\"MACSrc\":@MACSRC#19#,\"MACDst\":@MACDST#19#,\"MACProto\":@MACPROTO#8#,\"VLAN.0\":@VLAN0#8#,\"VLAN.1\":@VLAN1#8#,\"MPLS.0.Label\":@MPLS0LABEL#8#,\"MPLS.0.TC\":@MPLS0TC#4#,\"MPLS.1.Label\":@MPLS1LABEL#8#,\"MPLS.1.TC\":@MPLS1TC#4#,\"MPLS.2.Label\":@MPLS2LABEL#8#,\"MPLS.2.TC\":@MPLS2TC#4#,\"IPv4.Src\":@IPV4SRC#20#,\"IPv4.Dst\":@IPV4DST#20#,\"IPv4.Proto\":@IPV4PROTO#8#,\"IPv4.DSCP\":@IPV4DSCP#8#,\"UDP.Port.Src\":@UDPPORTSRC#8#,\"UDP.Port.Dst\":@UDPPORTDST#8#,\"TCP.Port.Src\":@TCPPORTSRC#8#,\"TCP.Port.Dst\":@TCPPORTDST#8#,\"TCP.FIN\":@TCPFIN#8#,\"TCP.SYN\":@TCPSYN#8#,\"TCP.RST\":@TCPRST#8#,\"TCP.PSH\":@TCPPSH#8#,\"TCP.ACK\":@TCPACK#8#,\"TCP.WindowMin\":@TCPWINMIN#8#,\"TCP.WindowMax\":@TCPWINMAX#8#,\"TCP.SACK\":@TCPSACK#8#}\n";
+
 static u32 FlowTemplate(void)
 {
 	s_FlowTemplate = malloc(16*1024);
+	memset(s_FlowTemplate, 0, 16*1024);
 
 	u8* Output = s_FlowTemplate;
 
@@ -713,15 +720,129 @@ static u32 FlowTemplate(void)
 		Output += sprintf(Output, "{\"index\":{\"_index\":\"%s\",\"_score\":null}}\n", g_CaptureName);
 	}
 
+	// parse the formatting string
+	for (int i=0; i < strlen(s_FlowTemplateDefault); i++)
+	{
+		int c = s_FlowTemplateDefault[i];
+
+		// search for tmplate
+		if (c == '@')
+		{
+			// skip the @ char
+			i++;
+
+			// first is template keyword name 
+			u8 TemplateName[32];
+			u8 TemplateNamePos = 0;
+
+			for (;i < strlen(s_FlowTemplateDefault); i++)
+			{
+				int c = s_FlowTemplateDefault[i];
+				if (c == '#') break;
+
+				TemplateName[TemplateNamePos++] = c;
+			}
+			TemplateName[TemplateNamePos++] = 0;
+
+			// skip the first #
+			i++;
+
+
+			// next is the depth
+			u8 TemplateLength[8];
+			u8 TemplateLengthPos = 0;
+
+			for (;i < strlen(s_FlowTemplateDefault); i++)
+			{
+				int c = s_FlowTemplateDefault[i];
+				if (c == '#') break;
+
+				TemplateLength[TemplateLengthPos++] = c;
+			}
+			TemplateLength[TemplateLengthPos++] = 0;
+
+			u32 Length = atoi(TemplateLength);
+
+			fprintf(stderr, "Templat %i [%s] length %i\n", Output - s_FlowTemplate, TemplateName, Length);
+
+			Output[0] = 'n';
+			Output[1] = 'u';
+			Output[2] = 'l';
+			Output[3] = 'l';
+			for (int j=4; j < Length; j++)
+			{
+				Output[j] = ' ';
+			}
+
+			u32 Index = -1;
+			if (strcmp(TemplateName, "TIMESTAMP") 		== 0) Index		= FLOW_TEMPLATE_TIMESTAMP;
+			if (strcmp(TemplateName, "TS") 				== 0) Index		= FLOW_TEMPLATE_TS;
+			if (strcmp(TemplateName, "FLOWCNT") 		== 0) Index		= FLOW_TEMPLATE_FLOWCNT;
+			if (strcmp(TemplateName, "DEVICE") 			== 0) Index		= FLOW_TEMPLATE_DEVICE;
+			if (strcmp(TemplateName, "HASH")			== 0) Index		= FLOW_TEMPLATE_HASH;
+			if (strcmp(TemplateName, "TOTALPKT") 		== 0) Index		= FLOW_TEMPLATE_TOTAL_PKT;
+			if (strcmp(TemplateName, "TOTALBYTE") 		== 0) Index		= FLOW_TEMPLATE_TOTAL_BYTE;
+			if (strcmp(TemplateName, "TOTALBIT") 		== 0) Index		= FLOW_TEMPLATE_TOTAL_BIT;
+			if (strcmp(TemplateName, "TOTALFCS") 		== 0) Index		= FLOW_TEMPLATE_TOTAL_FCS;
+			if (strcmp(TemplateName, "MACSRC") 			== 0) Index		= FLOW_TEMPLATE_MAC_SRC;
+			if (strcmp(TemplateName, "MACDST") 			== 0) Index		= FLOW_TEMPLATE_MAC_DST;
+			if (strcmp(TemplateName, "MACPROTO") 		== 0) Index		= FLOW_TEMPLATE_MAC_PROTO;
+			if (strcmp(TemplateName, "VLAN0") 			== 0) Index		= FLOW_TEMPLATE_VLAN0;
+			if (strcmp(TemplateName, "VLAN1") 			== 0) Index		= FLOW_TEMPLATE_VLAN1;
+
+			if (strcmp(TemplateName, "MPLS0LABEL") 		== 0) Index		= FLOW_TEMPLATE_MPLS0_LABEL;
+			if (strcmp(TemplateName, "MPLS0TC") 		== 0) Index		= FLOW_TEMPLATE_MPLS0_TC;
+			if (strcmp(TemplateName, "MPLS1LABEL") 		== 0) Index		= FLOW_TEMPLATE_MPLS1_LABEL;
+			if (strcmp(TemplateName, "MPLS1TC") 		== 0) Index		= FLOW_TEMPLATE_MPLS1_TC;
+			if (strcmp(TemplateName, "MPLS2LABEL") 		== 0) Index		= FLOW_TEMPLATE_MPLS2_LABEL;
+			if (strcmp(TemplateName, "MPLS2TC") 		== 0) Index		= FLOW_TEMPLATE_MPLS2_TC;
+
+			if (strcmp(TemplateName, "IPV4SRC") 		== 0) Index		= FLOW_TEMPLATE_IPV4_SRC;
+			if (strcmp(TemplateName, "IPV4DST") 		== 0) Index		= FLOW_TEMPLATE_IPV4_DST;
+			if (strcmp(TemplateName, "IPV4PROTO") 		== 0) Index		= FLOW_TEMPLATE_IPV4_PROTO;
+			if (strcmp(TemplateName, "IPV4DSCP") 		== 0) Index		= FLOW_TEMPLATE_IPV4_DSCP;
+
+			if (strcmp(TemplateName, "UDPPORTSRC") 		== 0) Index		= FLOW_TEMPLATE_UDP_PORT_SRC;
+			if (strcmp(TemplateName, "UDPPORTDST") 		== 0) Index		= FLOW_TEMPLATE_UDP_PORT_DST;
+
+			if (strcmp(TemplateName, "TCPPORTSRC") 		== 0) Index		= FLOW_TEMPLATE_TCP_PORT_SRC;
+			if (strcmp(TemplateName, "TCPPORTDST") 		== 0) Index		= FLOW_TEMPLATE_TCP_PORT_DST;
+
+			if (strcmp(TemplateName, "TCPFIN") 			== 0) Index		= FLOW_TEMPLATE_TCP_FIN;
+			if (strcmp(TemplateName, "TCPSYN") 			== 0) Index		= FLOW_TEMPLATE_TCP_SYN;
+			if (strcmp(TemplateName, "TCPRST") 			== 0) Index		= FLOW_TEMPLATE_TCP_RST;
+			if (strcmp(TemplateName, "TCPPSH") 			== 0) Index		= FLOW_TEMPLATE_TCP_PSH;
+			if (strcmp(TemplateName, "TCPACK") 			== 0) Index		= FLOW_TEMPLATE_TCP_ACK;
+			if (strcmp(TemplateName, "TCPSACK") 		== 0) Index		= FLOW_TEMPLATE_TCP_SACK;
+			if (strcmp(TemplateName, "TCPWINMIN") 		== 0) Index		= FLOW_TEMPLATE_TCP_WIN_MIN;
+			if (strcmp(TemplateName, "TCPWINMAX") 		== 0) Index		= FLOW_TEMPLATE_TCP_WIN_MAX;
+
+			if (Index == -1)	
+			{
+				fprintf(stderr, "Uknown templat name (%s)\n", TemplateName); 
+				assert(false);
+			}
+
+			// update index
+			s_FlowTemplate_Value[Index] 	= Output - s_FlowTemplate; 
+			s_FlowTemplate_Length[Index] 	= Length; 
+
+			Output += Length; 
+		}
+		else
+		{
+			*Output++ = c;
+		}
+	}
+
+/*
+
 	// actual payload
 	Output += sprintf(Output, "{");
 
 	Output += FlowTemplate_Write(s_FlowTemplate, Output, FLOW_TEMPLATE_TIMESTAMP, 		"timestamp", 	16); 
-
 	Output += FlowTemplate_Write(s_FlowTemplate, Output, FLOW_TEMPLATE_TS, 				"TS", 			22); 
-
 	Output += FlowTemplate_Write(s_FlowTemplate, Output, FLOW_TEMPLATE_FLOWCNT, 		"FlowCnt", 		10); 
-
 	Output += FlowTemplate_Write(s_FlowTemplate, Output, FLOW_TEMPLATE_DEVICE, 			"Device", 		32); 
 
 	// print flow info
@@ -786,6 +907,7 @@ static u32 FlowTemplate(void)
 
 	// terminate
 	Output += sprintf(Output, "}\n");
+*/
 
 	s_FlowTemplateLen = strlen(s_FlowTemplate);
 	fprintf(stderr, "Template\n%s\n %i\n", s_FlowTemplate, strlen(s_FlowTemplate));
@@ -2145,7 +2267,7 @@ void Flow_PacketFree(PacketBuffer_t* B)
 
 //---------------------------------------------------------------------------------------------
 // allocate memory and house keeping
-void Flow_Open(struct Output_t* Out, s32* CPUMap, u32 FlowIndexDepth, u64 FlowMax)
+void Flow_Open(struct Output_t* Out, s32* CPUMap, u32 FlowIndexDepth, u64 FlowMax, u8* FlowTemplateStr)
 {
 	assert(Out != NULL);
 
@@ -2163,6 +2285,13 @@ void Flow_Open(struct Output_t* Out, s32* CPUMap, u32 FlowIndexDepth, u64 FlowMa
 		memset(B->Buffer, 0, B->BufferMax);	
 
 		Flow_PacketFree(B);
+	}
+
+	// custom flow template was created? 
+	if (FlowTemplateStr)
+	{
+		fprintf(stderr, "Customized flow Template\n");
+		s_FlowTemplateDefault = FlowTemplateStr;
 	}
 
 	// create output template
