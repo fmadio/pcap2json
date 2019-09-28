@@ -142,7 +142,7 @@ static void help(void)
 	fprintf(stderr, " --flow-max   <number>            : maximum number of flows (default 250e3)6\n");
 	fprintf(stderr, " --flow-top-n <number>            : only output the top N flows\n"); 
 	fprintf(stderr, " --flow-top-n-circuit <sMAC_dMAC> : output top N flows based on specified src/dest MAC\n"); 
-	fprintf(stderr, " --flow-template <template>       : Use a customized template for JSON output\n"); 
+	fprintf(stderr, " --flow-template \"<template>\"   : Use a customized template for JSON output\n"); 
 
 	fprintf(stderr, "\n");
 	fprintf(stderr, "Elastic Stack options\n");
@@ -439,7 +439,7 @@ static bool ParseConfigFile(u8* ConfigFile)
 	u32 LinePos = 0;
 	u32 LineListPos = 0;
 	u8* LineList[256];
-	u8  LineBuffer[256];
+	u8  LineBuffer[16*1024];
 	bool IsComment = false;
 	while (!feof(F))
 	{

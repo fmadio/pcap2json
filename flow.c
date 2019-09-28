@@ -720,6 +720,8 @@ static u32 FlowTemplate(void)
 		Output += sprintf(Output, "{\"index\":{\"_index\":\"%s\",\"_score\":null}}\n", g_CaptureName);
 	}
 
+	fprintf(stderr, "Source [%s]\n", s_FlowTemplateDefault); 
+
 	// parse the formatting string
 	for (int i=0; i < strlen(s_FlowTemplateDefault); i++)
 	{
@@ -831,6 +833,10 @@ static u32 FlowTemplate(void)
 		}
 		else
 		{
+
+			// convert ' to " as command line args must be encased in "" and cant use them without escape codes
+			if (c == '\'') c = '"';
+
 			*Output++ = c;
 		}
 	}
@@ -904,10 +910,10 @@ static u32 FlowTemplate(void)
 
 	// remove last ","
 	Output--;
+*/
 
 	// terminate
 	Output += sprintf(Output, "}\n");
-*/
 
 	s_FlowTemplateLen = strlen(s_FlowTemplate);
 	fprintf(stderr, "Template\n%s\n %i\n", s_FlowTemplate, strlen(s_FlowTemplate));
@@ -972,6 +978,9 @@ static inline void FlowTemplate_WriteU64(u8* Base, u32 Index, s64 Value)
 // write a string encapsulated within quotes
 static inline void FlowTemplate_WriteString(u8* Base, u32 Index, u8* Value)
 {
+	// is field in the template?
+	if (s_FlowTemplate_Length[Index] == 0) return; 
+
 	// length - 2 as need space for the pre and post " quotes
 	u32 ValueLen 	= strlen(Value);
 	if (ValueLen > s_FlowTemplate_Length[Index] - 2)
