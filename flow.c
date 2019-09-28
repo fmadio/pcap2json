@@ -703,7 +703,7 @@ static u32 FlowTemplate_Write(u8* Base, u8* Output, u32 Index, u8* Name, u32 Len
 //
 // build the initial template 
 //
-static u8* s_FlowTemplateDefault = "{\"timestamp\":@TIMESTAMP#16#,\"TS\":@TS#22#,\"FlowCnt\":@FLOWCNT#10#,\"Device\":@DEVICE#32#,\"hash\":@HASH#42#,\"TotalPkt\":@TOTALPKT#12#,\"TotalByte\":@TOTALBYTE#12#,\"TotalBits\":@TOTALBIT#12#,\"TotalFCS\":@TOTALFCS#8#,\"MACSrc\":@MACSRC#19#,\"MACDst\":@MACDST#19#,\"MACProto\":@MACPROTO#8#,\"VLAN.0\":@VLAN0#8#,\"VLAN.1\":@VLAN1#8#,\"MPLS.0.Label\":@MPLS0LABEL#8#,\"MPLS.0.TC\":@MPLS0TC#4#,\"MPLS.1.Label\":@MPLS1LABEL#8#,\"MPLS.1.TC\":@MPLS1TC#4#,\"MPLS.2.Label\":@MPLS2LABEL#8#,\"MPLS.2.TC\":@MPLS2TC#4#,\"IPv4.Src\":@IPV4SRC#20#,\"IPv4.Dst\":@IPV4DST#20#,\"IPv4.Proto\":@IPV4PROTO#8#,\"IPv4.DSCP\":@IPV4DSCP#8#,\"UDP.Port.Src\":@UDPPORTSRC#8#,\"UDP.Port.Dst\":@UDPPORTDST#8#,\"TCP.Port.Src\":@TCPPORTSRC#8#,\"TCP.Port.Dst\":@TCPPORTDST#8#,\"TCP.FIN\":@TCPFIN#8#,\"TCP.SYN\":@TCPSYN#8#,\"TCP.RST\":@TCPRST#8#,\"TCP.PSH\":@TCPPSH#8#,\"TCP.ACK\":@TCPACK#8#,\"TCP.WindowMin\":@TCPWINMIN#8#,\"TCP.WindowMax\":@TCPWINMAX#8#,\"TCP.SACK\":@TCPSACK#8#}\n";
+static u8* s_FlowTemplateDefault = "{\"timestamp\":@TIMESTAMP#16#,\"TS\":@TS#22#,\"FlowCnt\":@FLOWCNT#10#,\"Device\":@DEVICE#32#,\"hash\":@HASH#42#,\"TotalPkt\":@TOTALPKT#12#,\"TotalByte\":@TOTALBYTE#12#,\"TotalBits\":@TOTALBIT#12#,\"TotalFCS\":@TOTALFCS#8#,\"MACSrc\":@MACSRC#19#,\"MACDst\":@MACDST#19#,\"MACProto\":@MACPROTO#8#,\"VLAN.0\":@VLAN0#8#,\"VLAN.1\":@VLAN1#8#,\"MPLS.0.Label\":@MPLS0LABEL#8#,\"MPLS.0.TC\":@MPLS0TC#4#,\"MPLS.1.Label\":@MPLS1LABEL#8#,\"MPLS.1.TC\":@MPLS1TC#4#,\"MPLS.2.Label\":@MPLS2LABEL#8#,\"MPLS.2.TC\":@MPLS2TC#4#,\"IPv4.Src\":@IPV4SRC#20#,\"IPv4.Dst\":@IPV4DST#20#,\"IPv4.Proto\":@IPV4PROTO#8#,\"IPv4.DSCP\":@IPV4DSCP#8#,\"UDP.Port.Src\":@UDPPORTSRC#8#,\"UDP.Port.Dst\":@UDPPORTDST#8#,\"TCP.Port.Src\":@TCPPORTSRC#8#,\"TCP.Port.Dst\":@TCPPORTDST#8#,\"TCP.FIN\":@TCPFIN#8#,\"TCP.SYN\":@TCPSYN#8#,\"TCP.RST\":@TCPRST#8#,\"TCP.PSH\":@TCPPSH#8#,\"TCP.ACK\":@TCPACK#8#,\"TCP.WindowMin\":@TCPWINMIN#8#,\"TCP.WindowMax\":@TCPWINMAX#8#,\"TCP.SACK\":@TCPSACK#8#}";
 
 static u32 FlowTemplate(void)
 {
@@ -913,7 +913,7 @@ static u32 FlowTemplate(void)
 */
 
 	// terminate
-	Output += sprintf(Output, "}\n");
+	Output += sprintf(Output, "\n");
 
 	s_FlowTemplateLen = strlen(s_FlowTemplate);
 	fprintf(stderr, "Template\n%s\n %i\n", s_FlowTemplate, strlen(s_FlowTemplate));
