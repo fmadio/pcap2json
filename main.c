@@ -2,7 +2,7 @@
 //
 // Copyright (c) 2018 fmad engineering llc 
 //
-// The MIT License (MIT) see LICENSE file for details 
+// The Creative Commons BY-NC 4.0 International License see LICENSE file for details 
 // 
 // PCAP to JSON file conversion. convers a PCAP and extracts basic IP / TCP / UDP information
 // that can be fed into Elastic Search for further processing and analysis 

@@ -2,7 +2,7 @@
 //
 // Copyright (c) 2018, fmad engineering llc 
 //
-// The MIT License (MIT) see LICENSE file for details 
+// The Creative Commons BY-NC 4.0 International License see LICENSE file for details 
 // 
 // guts of the flow calcuation. generats a SHA1 of the MAC/IP/Proto/Port
 // and maps packets into this
