@@ -54,6 +54,25 @@ typedef struct
 
 } ESHost_t;
 
+#define OUTPUT_VERSION_1_00		0x100		// initial version
+typedef struct
+{
+	u64				Version;				// version of output ring 	
+	u64				ChunkSize;				// size in bytes of each chunk
+	u64				pad0[16 - 2];			// header pad
+
+
+	volatile u64	Put;					// location of writer 
+	volatile u64	Get;					// location of reader 
+	u64				Mask;					// mask of buffer
+	u64				Max;					// mask of buffer
+	volatile u64	End;					// end of the capture stream
+
+	u64				pad2[16 - 5];
+
+} OutputHeader_t;
+
+
 //---------------------------------------------------------------------------------------------
 // tunables
 bool			g_Verbose			= false;				// verbose print mode
@@ -663,9 +682,11 @@ int main(int argc, u8* argv[])
 	}
 
 	// work out the input file format
-	bool IsPCAP = false;
-	bool IsFMAD = false;
+	bool IsPCAP 	= false;
+	bool IsFMAD 	= false;
+	bool IsFMADRING = false;
 	u64 TScale = 0;
+
 	switch (HeaderMaster.Magic)
 	{
 	case PCAPHEADER_MAGIC_NANO: 
@@ -685,8 +706,15 @@ int main(int argc, u8* argv[])
 		IsFMAD = true;
 		break;
 
+	case PCAPHEADER_MAGIC_FMADRING: 
+		fprintf(stderr, "FMAD Ringbuffer Chunked\n");
+		TScale = 1; 
+		IsFMADRING = true;
+		break;
+
+
 	default:
-		fprintf(stderr, "invaliid PCAP format\n");
+		fprintf(stderr, "invaliid PCAP format %08x\n", HeaderMaster.Magic);
 		return -1;
 	}
 
@@ -697,6 +725,53 @@ int main(int argc, u8* argv[])
 	u64 StartTSC		= rdtsc();
 	u64 LastTSC			= rdtsc();
 	u64 LastTS			= 0;
+
+	// SHM ring format
+	OutputHeader_t* SHMRingHeader	= NULL; 
+	u8* SHMRingData					= NULL; 
+	if (IsFMADRING)
+	{
+		// stream cat sends the size of the shm file
+		u64 SHMRingSize = 0;
+		fread(&SHMRingSize, 1, sizeof(SHMRingSize), FileIn);
+
+		u8 SHMRingName0[128];			// stream_cat sends ring names in 128B
+		u8 SHMRingName1[128];			// stream_cat sends ring names in 128B
+		u8 SHMRingName2[128];			// stream_cat sends ring names in 128B
+		u8 SHMRingName3[128];			// stream_cat sends ring names in 128B
+
+		fread(SHMRingName0, 1, 128, FileIn);
+		fread(SHMRingName1, 1, 128, FileIn);
+		fread(SHMRingName2, 1, 128, FileIn);
+		fread(SHMRingName3, 1, 128, FileIn);
+
+		fprintf(stderr, "SHMRingName [%s] %lli\n", SHMRingName0, SHMRingSize);
+
+		// open the shm ring
+		int fd = shm_open(SHMRingName0, O_CREAT | O_RDWR, S_IRUSR | S_IWUSR);
+		if (fd < 0)
+		{
+			fprintf(stderr, "failed to create SHM ring buffer\n");
+			return;
+		}
+
+		// map
+		void* SHMMap = mmap(NULL, SHMRingSize, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+		if (SHMMap == MAP_FAILED)
+		{
+			fprintf(stderr, "failed to mmap shm ring buffer\n");
+			return 0;
+		}
+
+		SHMRingHeader	= (OutputHeader_t*)SHMMap;
+		fprintf(stderr, "SHMRing Version :%08x ChunkSize:%i\n", SHMRingHeader->Version, SHMRingHeader->ChunkSize);
+		assert(SHMRingHeader->Version == OUTPUT_VERSION_1_00);
+
+		// reset get heade
+		SHMRingData	= (u8*)(SHMRingHeader + 1);
+
+		fprintf(stderr, "SHM Initial State Put:%08x Get:%08x\n", SHMRingHeader->Get, SHMRingHeader->Put);
+	}
 
 	// output + add all the ES targets
 	struct Output_t* Out = Output_Create(	g_Output_NULL,
@@ -725,6 +800,7 @@ int main(int argc, u8* argv[])
 	u64 PacketTSLastSample = 0;
 	u64 DecodeTimeLast 	= 0;
 	u64 DecodeTimeTSC 	= 0;
+
 
 	while (!feof(FileIn))
 	{
@@ -929,6 +1005,47 @@ int main(int argc, u8* argv[])
 			s_StreamCAT_CPUActive   = Header.CPUActive / (float)0x10000;
 			s_StreamCAT_CPUFetch    = Header.CPUFetch / (float)0x10000;
 			s_StreamCAT_CPUSend     = Header.CPUSend / (float)0x10000;
+		}
+
+		if (IsFMADRING)
+		{
+
+			fProfile_Start(5, "PacketFetch_Ring");
+
+			// wait foe new data
+			bool IsExit = false;
+			while (SHMRingHeader->Get == SHMRingHeader->Put)
+			{
+				if (SHMRingHeader->End == SHMRingHeader->Get)
+				{
+					fprintf(stderr, "end of capture End:%08x Put:%08x Get:%08x\n", SHMRingHeader->End, SHMRingHeader->Put, SHMRingHeader->Get);
+					IsExit = true;
+					break;
+				}
+				//usleep(0);
+				ndelay(100);
+			}
+			fProfile_Stop(5);
+
+			if (IsExit) break;
+
+			// get the chunk header info
+
+			u32 Index 	= SHMRingHeader->Get & SHMRingHeader->Mask;	
+			FMADHeader_t* Header = (FMADHeader_t*)(SHMRingData + Index * SHMRingHeader->ChunkSize);
+
+			PktCnt		= Header->PktCnt; 
+			ByteWire	= Header->BytesWire;
+			ByteCapture	= Header->BytesCapture;
+			TSFirst		= Header->TSStart;
+			TSLast		= Header->TSEnd;
+			Offset		= Header->Length;
+
+			// copy to local buffer
+	 		memcpy(PktBlock->Buffer, Header + 1, Header->Length);
+
+			// signal its been consued to stream_cat
+			SHMRingHeader->Get++;
 		}
 
 		// general stats on the packet block

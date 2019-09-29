@@ -22,7 +22,6 @@
 // [11:54:56.768.221.696] Input:33.900 GB  17.09 Gbps PCAP: 273.26 Gbps | Output 0.29819 GB Flows/Snap:  43591 FlowCPU:0.619 | ESPush:       0  43.59K ESErr    0 | OutputCPU: 0.000
 // [11:54:56.831.990.784] Input:35.886 GB  17.05 Gbps PCAP: 267.44 Gbps | Output 0.31004 GB Flows/Snap:  43591 FlowCPU:0.616 | ESPush:       0  22.04K ESErr    0 | OutputCPU: 0.000
 //
-//
 // 2018/12/27
 // 
 // PCAP interface using packet blocks
@@ -32,7 +31,6 @@
 // [11:53:14.611.949.056] In:60.846 GB 2.55 Mpps 23.02 Gbps PCAP: 264.30 Gbps | Out 0.50738 GB Flows/Snap:  41926 FlowCPU:0.32 | ESPush:     0  41.92K ESErr    0 | OutCPU: 0.00 (0.00)
 //
 // PCAPWall time: 3.09 sec ProcessTime 37.40 sec (12.105)
-//
 //
 // 2018/12/28
 //
@@ -45,7 +43,6 @@
 //
 // PCAPWall time: 16900787200.00 sec ProcessTime 17.74 sec (0.000)
 // Total Time: 17.84 sec RawInput[44.211 Gbps 38906940 Pps] Output[0.469 Gbps] TotalLine:1909656 107021 Line/Sec
-//
 //
 // 2019/01/07
 //
@@ -60,7 +57,6 @@
 //
 // PCAPWall time: 16899884032.00 sec ProcessTime 15.72 sec (0.000)
 // Total Time: 15.72 sec RawInput[50.191 Gbps 44169856 Pps] Output[0.390 Gbps] TotalLine:1396322 88838 Line/Sec
-//
 //
 // 2019/2/01
 //
@@ -101,6 +97,7 @@
 // Total Time: 12.78 sec RawInput[Wire 61.713 Gbps Capture 9.604 Gbps 6.789 Mpps] Output[0.000 Gbps] TotalLine:0 0 Line/Sec
 //
 // 2019/8/13:
+//
 // using stream_cat slice 72B (instead of 128B) not sure if the above was using 128B or 72B
 //
 // sudo stream_cat --chunked --cpu 63 interop_20190812_1755 --pktslice 128 | /mnt/store0/git/pcap2json/pcap2json  --config /mnt/store0/etc/pcap2json.config
@@ -1932,6 +1929,7 @@ void* Flow_Worker(void* User)
 				for (int i=0; i < PktBlock->PktCnt; i++)
 				{
 					FMADPacket_t* PktHeader = (FMADPacket_t*)(PktBlock->Buffer + Offset);
+
 					Offset += sizeof(PCAPPacket_t) + PktHeader->LengthCapture;
 
 					assert(PktHeader->LengthWire    > 0); 
