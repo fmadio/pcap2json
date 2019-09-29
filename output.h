@@ -27,6 +27,7 @@ float 				Output_Stats		(struct Output_t* Out,
 										 float* pRecv, 
 										 u64* pTotalCycle,
 										 u64* pPendingB,
-										 u64* pPushSizeB);
+										 u64* pPushSizeB,
+										 u64* pPushBps);
 
 #endif
