@@ -764,7 +764,7 @@ int main(int argc, u8* argv[])
 		if (fd < 0)
 		{
 			fprintf(stderr, "failed to create SHM ring buffer\n");
-			return;
+			return 0;
 		}
 
 		// map
