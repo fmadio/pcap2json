@@ -1058,6 +1058,13 @@ int main(int argc, u8* argv[])
 			// copy to local buffer
 	 		memcpy(PktBlock->Buffer, Header + 1, Header->Length);
 
+			// copy stream cat stats
+			s_StreamCAT_BytePending = Header->BytePending;
+			s_StreamCAT_CPUActive   = Header->CPUActive / (float)0x10000;
+			s_StreamCAT_CPUFetch    = Header->CPUFetch / (float)0x10000;
+			s_StreamCAT_CPUSend     = Header->CPUSend / (float)0x10000;
+
+
 			// signal its been consued to stream_cat
 			SHMRingHeader->Get++;
 		}
