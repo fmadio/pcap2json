@@ -530,6 +530,11 @@ void BulkUpload(Output_t* Out, u32 BufferIndex, u32 BufferCnt, u32 CPUID)
 		BindAddr.sin_port 			= htons(Port);
 		BindAddr.sin_addr.s_addr 	= inet_addr(IPAddress);
 
+		// connect call should not hang for longer duration
+		struct timeval tv = {1, 0};
+		setsockopt(Sock, SOL_SOCKET, SO_RCVTIMEO, (struct timeval *)&tv, sizeof(struct timeval));
+		setsockopt(Sock, SOL_SOCKET, SO_SNDTIMEO, (struct timeval *)&tv, sizeof(struct timeval));
+
 		// retry connection a few times 
 		int ret = -1;
 		for (int r=0; r < 10; r++)
