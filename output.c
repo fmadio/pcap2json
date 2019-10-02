@@ -411,9 +411,11 @@ static u32 FindESHostPos(Output_t* Out)
 	u32 ESHostPos	= Out->ESHostPos;
 	Out->ESHostPos	= (Out->ESHostPos + 1) % Out->ESHostCnt;
 
-	for (u32 ESHostCnt = Out->ESHostCnt;
-			ESHostCnt > 0 && Out->ESHostIsNotWorking[Out->ESHostPos];
-				ESHostCnt--, Out->ESHostPos = (Out->ESHostPos + 1) % Out->ESHostCnt);
+	for (u32 ESHostCnt=Out->ESHostCnt; ESHostCnt > 0; ESHostCnt--)
+	{
+		if (Out->ESHostIsNotWorking[Out->ESHostPos] == 0) break;
+		Out->ESHostPos = (Out->ESHostPos + 1) % Out->ESHostCnt;
+	}
 
 	if (Out->ESHostIsNotWorking[Out->ESHostPos])
 	{
@@ -531,7 +533,7 @@ void BulkUpload(Output_t* Out, u32 BufferIndex, u32 BufferCnt, u32 CPUID)
 		BindAddr.sin_addr.s_addr 	= inet_addr(IPAddress);
 
 		// connect call should not hang for longer duration
-		struct timeval tv = {1, 0};
+		struct timeval tv = {2, 0}; // 2 seconds
 		setsockopt(Sock, SOL_SOCKET, SO_RCVTIMEO, (struct timeval *)&tv, sizeof(struct timeval));
 		setsockopt(Sock, SOL_SOCKET, SO_SNDTIMEO, (struct timeval *)&tv, sizeof(struct timeval));
 
