@@ -2,15 +2,15 @@
 //
 // Copyright (c) 2018, fmad engineering llc 
 //
-// The MIT License (MIT) see LICENSE file for details 
+// The Creative Commons BY-NC 4.0 International License see LICENSE file for details 
 // 
 // guts of the flow calcuation. generats a SHA1 of the MAC/IP/Proto/Port
 // and maps packets into this
 // source upload:
 // fmadio@fmadio40v2-194:/mnt/store1/tmp$ lz4 -d -c interop17_hotstage_20170609_133953.717.953.280.pcap.lz4  | sudo stream_upload --time-compress 100 --slice 192 --name interop17
 //
-//
 // on the interop timecompressed(x100) + (192B sliced) data following performance is seen
+//
 //
 // interop_scaled_20181204_2054     15GB Chunk(Cnt:   63842 Start: 4100250 End: 4164091 Comp:1.49) Inv:-nan Cap:-nan CacheI:-nan Cache:-nan Disk:-nan Drop:-nan Pkt:0
 //
@@ -22,7 +22,6 @@
 // [11:54:56.768.221.696] Input:33.900 GB  17.09 Gbps PCAP: 273.26 Gbps | Output 0.29819 GB Flows/Snap:  43591 FlowCPU:0.619 | ESPush:       0  43.59K ESErr    0 | OutputCPU: 0.000
 // [11:54:56.831.990.784] Input:35.886 GB  17.05 Gbps PCAP: 267.44 Gbps | Output 0.31004 GB Flows/Snap:  43591 FlowCPU:0.616 | ESPush:       0  22.04K ESErr    0 | OutputCPU: 0.000
 //
-//
 // 2018/12/27
 // 
 // PCAP interface using packet blocks
@@ -32,7 +31,6 @@
 // [11:53:14.611.949.056] In:60.846 GB 2.55 Mpps 23.02 Gbps PCAP: 264.30 Gbps | Out 0.50738 GB Flows/Snap:  41926 FlowCPU:0.32 | ESPush:     0  41.92K ESErr    0 | OutCPU: 0.00 (0.00)
 //
 // PCAPWall time: 3.09 sec ProcessTime 37.40 sec (12.105)
-//
 //
 // 2018/12/28
 //
@@ -45,7 +43,6 @@
 //
 // PCAPWall time: 16900787200.00 sec ProcessTime 17.74 sec (0.000)
 // Total Time: 17.84 sec RawInput[44.211 Gbps 38906940 Pps] Output[0.469 Gbps] TotalLine:1909656 107021 Line/Sec
-//
 //
 // 2019/01/07
 //
@@ -61,7 +58,6 @@
 // PCAPWall time: 16899884032.00 sec ProcessTime 15.72 sec (0.000)
 // Total Time: 15.72 sec RawInput[50.191 Gbps 44169856 Pps] Output[0.390 Gbps] TotalLine:1396322 88838 Line/Sec
 //
-//
 // 2019/2/01
 //
 // flow indexs now run up 6 entries wide, snapshot(0....5) all running lockless
@@ -74,7 +70,6 @@
 // PCAPWall time: 16897678336.00 sec ProcessTime 13.11 sec (0.000)
 // Total Time: 13.11 sec RawInput[Wire 60.155 Gbps Capture 9.362 Gbps 53 Mpps] Output[0.454 Gbps] TotalLine:1365000 104084 Line/Sec
 //
-//
 // 2019/2/01
 //
 // changed flow hash index to use lazy state clear, helps alot to churn though low bandwidth large PCAPs
@@ -86,6 +81,35 @@
 //
 // PCAPWall time: 16897678336.00 sec ProcessTime 12.65 sec (0.000)
 // Total Time: 12.65 sec RawInput[Wire 62.342 Gbps Capture 9.702 Gbps 55 Mpps] Output[0.471 Gbps] TotalLine:1365062 107874 Line/Sec
+//
+// 2019/8/12
+//
+// benchmark using Platnim 8160 CPU, mapping Core 50, flow 51-58, output 59-62
+// nothing else has changed, same cpu counts just a new processor. As the CPU stalling shows its entirely stalled by stream_cat fetching capacity
+//
+// [13:39:55.589.688.832] 55.494/0.000 GB 8.70 Mpps 79.49 Gbps | cat   6324 MB 1.00 0.45 0.43 | Flows/Snap:  42331 FlowCPU:0.30 | ESPush:     0   0.00K ESErr    0 | OutCPU:0.00 OutPush: 0.00 MB OutQueue: 687.7MB
+// [13:39:55.896.608.000] 64.767/0.000 GB 8.82 Mpps 79.65 Gbps | cat   4704 MB 1.00 0.45 0.43 | Flows/Snap:  44268 FlowCPU:0.30 | ESPush:     0   0.00K ESErr    0 | OutCPU:0.00 OutPush: 0.00 MB OutQueue: 796.5MB
+// [13:39:56.192.491.008] 73.518/0.000 GB 8.30 Mpps 75.16 Gbps | cat   3178 MB 1.00 0.45 0.43 | Flows/Snap:  43490 FlowCPU:0.29 | ESPush:     0   0.00K ESErr    0 | OutCPU:0.00 OutPush: 0.00 MB OutQueue: 901.7MB
+// [13:39:56.472.166.400] 81.811/0.000 GB 7.83 Mpps 71.24 Gbps | cat   1738 MB 1.00 0.45 0.42 | Flows/Snap:  45822 FlowCPU:0.29 | ESPush:     0   0.00K ESErr    0 | OutCPU:0.00 OutPush: 0.00 MB OutQueue:1014.6MB
+// [13:39:56.759.885.056] 90.389/0.000 GB 8.06 Mpps 73.67 Gbps | cat    252 MB 1.00 0.46 0.41 | Flows/Snap:  45334 FlowCPU:0.29 | ESPush:     0   0.00K ESErr    0 | OutCPU:0.00 OutPush: 0.00 MB OutQueue:1129.2MB
+//
+// PCAPWall time: 16949728256.00 sec ProcessTime 12.78 sec (0.000)
+// Total Time: 12.78 sec RawInput[Wire 61.713 Gbps Capture 9.604 Gbps 6.789 Mpps] Output[0.000 Gbps] TotalLine:0 0 Line/Sec
+//
+// 2019/8/13:
+//
+// using stream_cat slice 72B (instead of 128B) not sure if the above was using 128B or 72B
+//
+// sudo stream_cat --chunked --cpu 63 interop_20190812_1755 --pktslice 128 | /mnt/store0/git/pcap2json/pcap2json  --config /mnt/store0/etc/pcap2json.config
+//
+// [13:39:55.219.739.136] 44.601/0.000 GB 10.37 Mpps 94.07 Gbps | cat   8214 MB 1.00 0.57 0.31 | Flows/Snap:  41624 FlowCPU:0.38 | ESPush:     0   0.00K ESErr    0 | OutCPU:0.00 OutPush: 0.00 MB OutQueue: 581.8MB
+// [13:39:55.593.488.896] 55.603/0.000 GB 10.36 Mpps 94.50 Gbps | cat   6306 MB 1.00 0.57 0.31 | Flows/Snap:  42331 FlowCPU:0.38 | ESPush:     0   0.00K ESErr    0 | OutCPU:0.00 OutPush: 0.00 MB OutQueue: 687.7MB
+// [13:39:55.955.025.664] 66.539/0.000 GB 10.41 Mpps 93.93 Gbps | cat   4394 MB 1.00 0.57 0.31 | Flows/Snap:  42148 FlowCPU:0.38 | ESPush:     0   0.00K ESErr    0 | OutCPU:0.00 OutPush: 0.00 MB OutQueue: 831.5MB
+// [13:39:56.330.177.792] 77.589/0.000 GB 10.47 Mpps 94.91 Gbps | cat   2469 MB 1.00 0.57 0.31 | Flows/Snap:  45309 FlowCPU:0.38 | ESPush:     0   0.00K ESErr    0 | OutCPU:0.00 OutPush: 0.00 MB OutQueue: 976.6MB
+// [13:39:56.704.730.112] 88.713/0.000 GB 10.47 Mpps 95.55 Gbps | cat    541 MB 1.00 0.57 0.31 | Flows/Snap:  47187 FlowCPU:0.38 | ESPush:     0   0.00K ESErr    0 | OutCPU:0.00 OutPush: 0.00 MB OutQueue:1095.5MB
+//
+// PCAPWall time: 16949728256.00 sec ProcessTime 10.96 sec (0.000)
+// Total Time: 10.96 sec RawInput[Wire 71.950 Gbps Capture 11.197 Gbps 7.915 Mpps] Output[0.000 Gbps] TotalLine:0 0 Line/Sec
 //
 //---------------------------------------------------------------------------------------------
 
@@ -179,6 +203,7 @@ typedef struct FlowRecord_t
 
 	u64						TotalPkt;			// total packets
 	u64						TotalByte;			// total bytes
+	u64						TotalFCS;			// total number of FCS errors
 
 	TCPHeader_t				TCPHeader;			// copy of the TCP Header
 
@@ -380,7 +405,7 @@ static void FlowIndexFree(FlowIndex_t* FlowIndexRoot)
 		{
 			memset(FlowIndex->FlowHash, 0, sizeof(u32) * (2 << 20) );
 		}
-		FlowIndex->FlowCntSnapshot = 1;			// entry 0 is a sential
+		FlowIndex->FlowCntSnapshot = 0;
 
 		FlowIndex->PktBlockCnt 	= 0;
 		FlowIndex->PktBlockMax 	= 0;
@@ -536,6 +561,8 @@ static void FlowInsert(u32 CPUID, FlowIndex_t* FlowIndex, FlowRecord_t* FlowPkt,
 	F->FirstTS		= (F->FirstTS == 0) ? TS : F->FirstTS;
 	F->LastTS		=  TS;
 
+	F->TotalFCS		+= FlowPkt->TotalFCS;
+
 	if (F->IPProto == IPv4_PROTO_TCP)
 	{
 		// update TCP Flag counts
@@ -572,11 +599,15 @@ static void FlowInsert(u32 CPUID, FlowIndex_t* FlowIndex, FlowRecord_t* FlowPkt,
 			F->TCPAckNo = TCPAckNo;
 		}
 */
+		// count SACKs per flow
+		if (FlowPkt->TCPIsSACK) F->TCPSACKCnt	+= 1; 
+
 		// first packet
 		u32 TCPWindow = swap16(TCP->Window); 
 		F->TCPWindowMin = min32(F->TCPWindowMin, TCPWindow);
 		F->TCPWindowMax = max32(F->TCPWindowMax, TCPWindow);
 	}
+
 }
 
 //---------------------------------------------------------------------------------------------
@@ -584,7 +615,7 @@ static void FlowInsert(u32 CPUID, FlowIndex_t* FlowIndex, FlowRecord_t* FlowPkt,
 static u8* 	s_FlowTemplate 			= NULL;
 static u32	s_FlowTemplateLen		= 0;
 
-static u32	s_FlowTemplate_Key		[1024];		// start of key
+//static u32	s_FlowTemplate_Key		[1024];		// start of key
 static u32	s_FlowTemplate_Value	[1024];		// start of value
 static u32	s_FlowTemplate_Length	[1024];
 
@@ -625,15 +656,19 @@ static u32	s_FlowTemplate_Length	[1024];
 #define FLOW_TEMPLATE_TCP_RST				26
 #define FLOW_TEMPLATE_TCP_PSH				27
 #define FLOW_TEMPLATE_TCP_ACK				28
-#define FLOW_TEMPLATE_TCP_WIN_MIN			29
-#define FLOW_TEMPLATE_TCP_WIN_MAX			30
+#define FLOW_TEMPLATE_TCP_SACK				29
+#define FLOW_TEMPLATE_TCP_FACK				30
+#define FLOW_TEMPLATE_TCP_WIN_MIN			31
+#define FLOW_TEMPLATE_TCP_WIN_MAX			32
 
-#define FLOW_TEMPLATE_TOTAL_PKT				31
-#define FLOW_TEMPLATE_TOTAL_BYTE			32
-#define FLOW_TEMPLATE_TOTAL_BIT				33
+#define FLOW_TEMPLATE_TOTAL_PKT				33
+#define FLOW_TEMPLATE_TOTAL_BYTE			34
+#define FLOW_TEMPLATE_TOTAL_BIT				35
+#define FLOW_TEMPLATE_TOTAL_FCS				36
 
 //---------------------------------------------------------------------------------------------
 // create JSON field with a default value of NULL 
+/*
 static u32 FlowTemplate_Write(u8* Base, u8* Output, u32 Index, u8* Name, u32 Length)
 {
 	u8* OutputStart = Output;
@@ -659,31 +694,159 @@ static u32 FlowTemplate_Write(u8* Base, u8* Output, u32 Index, u8* Name, u32 Len
 
 	return Output - OutputStart;
 }
+*/
 
 //---------------------------------------------------------------------------------------------
+//
 // build the initial template 
+//
+static u8* s_FlowTemplateDefault = "{\"timestamp\":@TIMESTAMP#16#,\"TS\":@TS#22#,\"FlowCnt\":@FLOWCNT#10#,\"Device\":@DEVICE#32#,\"hash\":@HASH#42#,\"TotalPkt\":@TOTALPKT#12#,\"TotalByte\":@TOTALBYTE#12#,\"TotalBits\":@TOTALBIT#12#,\"TotalFCS\":@TOTALFCS#8#,\"MACSrc\":@MACSRC#19#,\"MACDst\":@MACDST#19#,\"MACProto\":@MACPROTO#8#,\"VLAN.0\":@VLAN0#8#,\"VLAN.1\":@VLAN1#8#,\"MPLS.0.Label\":@MPLS0LABEL#8#,\"MPLS.0.TC\":@MPLS0TC#4#,\"MPLS.1.Label\":@MPLS1LABEL#8#,\"MPLS.1.TC\":@MPLS1TC#4#,\"MPLS.2.Label\":@MPLS2LABEL#8#,\"MPLS.2.TC\":@MPLS2TC#4#,\"IPv4.Src\":@IPV4SRC#20#,\"IPv4.Dst\":@IPV4DST#20#,\"IPv4.Proto\":@IPV4PROTO#8#,\"IPv4.DSCP\":@IPV4DSCP#8#,\"UDP.Port.Src\":@UDPPORTSRC#8#,\"UDP.Port.Dst\":@UDPPORTDST#8#,\"TCP.Port.Src\":@TCPPORTSRC#8#,\"TCP.Port.Dst\":@TCPPORTDST#8#,\"TCP.FIN\":@TCPFIN#8#,\"TCP.SYN\":@TCPSYN#8#,\"TCP.RST\":@TCPRST#8#,\"TCP.PSH\":@TCPPSH#8#,\"TCP.ACK\":@TCPACK#8#,\"TCP.WindowMin\":@TCPWINMIN#8#,\"TCP.WindowMax\":@TCPWINMAX#8#,\"TCP.SACK\":@TCPSACK#8#}";
+
 static u32 FlowTemplate(void)
 {
 	s_FlowTemplate = malloc(16*1024);
+	memset(s_FlowTemplate, 0, 16*1024);
 
 	u8* Output = s_FlowTemplate;
 
 	// only ouput ES header if in ES push mode
 	if (g_Output_ESPush)
 	{
-		Output += sprintf(Output, "{\"index\":{\"_index\":\"%s\",\"_type\":\"flow_record\",\"_score\":null}}\n", g_CaptureName);
-	}	
+		// 2019/8/7: depcreiate tpye field for ES 7.xx
+		//Output += sprintf(Output, "{\"index\":{\"_index\":\"%s\",\"_type\":\"flow_record\",\"_score\":null}}\n", g_CaptureName);
+		Output += sprintf(Output, "{\"index\":{\"_index\":\"%s\",\"_score\":null}}\n", g_CaptureName);
+	}
+
+	fprintf(stderr, "Source [%s]\n", s_FlowTemplateDefault); 
+
+	// parse the formatting string
+	for (int i=0; i < strlen(s_FlowTemplateDefault); i++)
+	{
+		int c = s_FlowTemplateDefault[i];
+
+		// search for tmplate
+		if (c == '@')
+		{
+			// skip the @ char
+			i++;
+
+			// first is template keyword name 
+			u8 TemplateName[32];
+			u8 TemplateNamePos = 0;
+
+			for (;i < strlen(s_FlowTemplateDefault); i++)
+			{
+				int c = s_FlowTemplateDefault[i];
+				if (c == '#') break;
+
+				TemplateName[TemplateNamePos++] = c;
+			}
+			TemplateName[TemplateNamePos++] = 0;
+
+			// skip the first #
+			i++;
+
+
+			// next is the depth
+			u8 TemplateLength[8];
+			u8 TemplateLengthPos = 0;
+
+			for (;i < strlen(s_FlowTemplateDefault); i++)
+			{
+				int c = s_FlowTemplateDefault[i];
+				if (c == '#') break;
+
+				TemplateLength[TemplateLengthPos++] = c;
+			}
+			TemplateLength[TemplateLengthPos++] = 0;
+
+			u32 Length = atoi(TemplateLength);
+
+			fprintf(stderr, "Templat %i [%s] length %i\n", Output - s_FlowTemplate, TemplateName, Length);
+
+			Output[0] = 'n';
+			Output[1] = 'u';
+			Output[2] = 'l';
+			Output[3] = 'l';
+			for (int j=4; j < Length; j++)
+			{
+				Output[j] = ' ';
+			}
+
+			u32 Index = -1;
+			if (strcmp(TemplateName, "TIMESTAMP") 		== 0) Index		= FLOW_TEMPLATE_TIMESTAMP;
+			if (strcmp(TemplateName, "TS") 				== 0) Index		= FLOW_TEMPLATE_TS;
+			if (strcmp(TemplateName, "FLOWCNT") 		== 0) Index		= FLOW_TEMPLATE_FLOWCNT;
+			if (strcmp(TemplateName, "DEVICE") 			== 0) Index		= FLOW_TEMPLATE_DEVICE;
+			if (strcmp(TemplateName, "HASH")			== 0) Index		= FLOW_TEMPLATE_HASH;
+			if (strcmp(TemplateName, "TOTALPKT") 		== 0) Index		= FLOW_TEMPLATE_TOTAL_PKT;
+			if (strcmp(TemplateName, "TOTALBYTE") 		== 0) Index		= FLOW_TEMPLATE_TOTAL_BYTE;
+			if (strcmp(TemplateName, "TOTALBIT") 		== 0) Index		= FLOW_TEMPLATE_TOTAL_BIT;
+			if (strcmp(TemplateName, "TOTALFCS") 		== 0) Index		= FLOW_TEMPLATE_TOTAL_FCS;
+			if (strcmp(TemplateName, "MACSRC") 			== 0) Index		= FLOW_TEMPLATE_MAC_SRC;
+			if (strcmp(TemplateName, "MACDST") 			== 0) Index		= FLOW_TEMPLATE_MAC_DST;
+			if (strcmp(TemplateName, "MACPROTO") 		== 0) Index		= FLOW_TEMPLATE_MAC_PROTO;
+			if (strcmp(TemplateName, "VLAN0") 			== 0) Index		= FLOW_TEMPLATE_VLAN0;
+			if (strcmp(TemplateName, "VLAN1") 			== 0) Index		= FLOW_TEMPLATE_VLAN1;
+
+			if (strcmp(TemplateName, "MPLS0LABEL") 		== 0) Index		= FLOW_TEMPLATE_MPLS0_LABEL;
+			if (strcmp(TemplateName, "MPLS0TC") 		== 0) Index		= FLOW_TEMPLATE_MPLS0_TC;
+			if (strcmp(TemplateName, "MPLS1LABEL") 		== 0) Index		= FLOW_TEMPLATE_MPLS1_LABEL;
+			if (strcmp(TemplateName, "MPLS1TC") 		== 0) Index		= FLOW_TEMPLATE_MPLS1_TC;
+			if (strcmp(TemplateName, "MPLS2LABEL") 		== 0) Index		= FLOW_TEMPLATE_MPLS2_LABEL;
+			if (strcmp(TemplateName, "MPLS2TC") 		== 0) Index		= FLOW_TEMPLATE_MPLS2_TC;
+
+			if (strcmp(TemplateName, "IPV4SRC") 		== 0) Index		= FLOW_TEMPLATE_IPV4_SRC;
+			if (strcmp(TemplateName, "IPV4DST") 		== 0) Index		= FLOW_TEMPLATE_IPV4_DST;
+			if (strcmp(TemplateName, "IPV4PROTO") 		== 0) Index		= FLOW_TEMPLATE_IPV4_PROTO;
+			if (strcmp(TemplateName, "IPV4DSCP") 		== 0) Index		= FLOW_TEMPLATE_IPV4_DSCP;
+
+			if (strcmp(TemplateName, "UDPPORTSRC") 		== 0) Index		= FLOW_TEMPLATE_UDP_PORT_SRC;
+			if (strcmp(TemplateName, "UDPPORTDST") 		== 0) Index		= FLOW_TEMPLATE_UDP_PORT_DST;
+
+			if (strcmp(TemplateName, "TCPPORTSRC") 		== 0) Index		= FLOW_TEMPLATE_TCP_PORT_SRC;
+			if (strcmp(TemplateName, "TCPPORTDST") 		== 0) Index		= FLOW_TEMPLATE_TCP_PORT_DST;
+
+			if (strcmp(TemplateName, "TCPFIN") 			== 0) Index		= FLOW_TEMPLATE_TCP_FIN;
+			if (strcmp(TemplateName, "TCPSYN") 			== 0) Index		= FLOW_TEMPLATE_TCP_SYN;
+			if (strcmp(TemplateName, "TCPRST") 			== 0) Index		= FLOW_TEMPLATE_TCP_RST;
+			if (strcmp(TemplateName, "TCPPSH") 			== 0) Index		= FLOW_TEMPLATE_TCP_PSH;
+			if (strcmp(TemplateName, "TCPACK") 			== 0) Index		= FLOW_TEMPLATE_TCP_ACK;
+			if (strcmp(TemplateName, "TCPSACK") 		== 0) Index		= FLOW_TEMPLATE_TCP_SACK;
+			if (strcmp(TemplateName, "TCPWINMIN") 		== 0) Index		= FLOW_TEMPLATE_TCP_WIN_MIN;
+			if (strcmp(TemplateName, "TCPWINMAX") 		== 0) Index		= FLOW_TEMPLATE_TCP_WIN_MAX;
+
+			if (Index == -1)	
+			{
+				fprintf(stderr, "Uknown templat name (%s)\n", TemplateName); 
+				assert(false);
+			}
+
+			// update index
+			s_FlowTemplate_Value[Index] 	= Output - s_FlowTemplate; 
+			s_FlowTemplate_Length[Index] 	= Length; 
+
+			Output += Length; 
+		}
+		else
+		{
+
+			// convert ' to " as command line args must be encased in "" and cant use them without escape codes
+			if (c == '\'') c = '"';
+
+			*Output++ = c;
+		}
+	}
+
+/*
 
 	// actual payload
 	Output += sprintf(Output, "{");
 
 	Output += FlowTemplate_Write(s_FlowTemplate, Output, FLOW_TEMPLATE_TIMESTAMP, 		"timestamp", 	16); 
-
 	Output += FlowTemplate_Write(s_FlowTemplate, Output, FLOW_TEMPLATE_TS, 				"TS", 			22); 
-
 	Output += FlowTemplate_Write(s_FlowTemplate, Output, FLOW_TEMPLATE_FLOWCNT, 		"FlowCnt", 		10); 
-
-	Output += FlowTemplate_Write(s_FlowTemplate, Output, FLOW_TEMPLATE_DEVICE, 			"Device", 		16); 
+	Output += FlowTemplate_Write(s_FlowTemplate, Output, FLOW_TEMPLATE_DEVICE, 			"Device", 		32); 
 
 	// print flow info
 	Output += FlowTemplate_Write(s_FlowTemplate, Output, FLOW_TEMPLATE_HASH,			"hash", 		40+2);
@@ -692,6 +855,7 @@ static u32 FlowTemplate(void)
 	Output += FlowTemplate_Write(s_FlowTemplate, Output, FLOW_TEMPLATE_TOTAL_PKT, 		"TotalPkt",  	12);
 	Output += FlowTemplate_Write(s_FlowTemplate, Output, FLOW_TEMPLATE_TOTAL_BYTE, 		"TotalByte", 	12);
 	Output += FlowTemplate_Write(s_FlowTemplate, Output, FLOW_TEMPLATE_TOTAL_BIT, 		"TotalBits", 	12);
+	Output += FlowTemplate_Write(s_FlowTemplate, Output, FLOW_TEMPLATE_TOTAL_FCS, 		"TotalFCS", 	8);
 
 	Output += FlowTemplate_Write(s_FlowTemplate, Output, FLOW_TEMPLATE_MAC_SRC, 		"MACSrc", 		3*6+1);
 	Output += FlowTemplate_Write(s_FlowTemplate, Output, FLOW_TEMPLATE_MAC_DST, 		"MACDst", 		3*6+1);	 // +1 instead of +2 for quotes as the final : is removed in the mac address
@@ -736,16 +900,17 @@ static u32 FlowTemplate(void)
 			Output += FlowTemplate_Write(s_FlowTemplate, Output, FLOW_TEMPLATE_TCP_ACK, 		"TCP.ACK", 		8);
 			Output += FlowTemplate_Write(s_FlowTemplate, Output, FLOW_TEMPLATE_TCP_WIN_MIN, 	"TCP.WindowMin", 8);
 			Output += FlowTemplate_Write(s_FlowTemplate, Output, FLOW_TEMPLATE_TCP_WIN_MAX, 	"TCP.WindowMax", 8);
-			//Output += FlowTemplate_Write(s_FlowTemplate, Output, FLOW_TEMPLATE_TCP_ACKDup, 	"TCP.ACKDup", 8);
+			Output += FlowTemplate_Write(s_FlowTemplate, Output, FLOW_TEMPLATE_TCP_SACK, 		"TCP.SACK", 8);
 			//Output += FlowTemplate_Write(s_FlowTemplate, Output, FLOW_TEMPLATE_TCP_ACKDup, 	"TCP.ACKDup", 8);
 		}
 	}
 
 	// remove last ","
 	Output--;
+*/
 
 	// terminate
-	Output += sprintf(Output, "}\n");
+	Output += sprintf(Output, "\n");
 
 	s_FlowTemplateLen = strlen(s_FlowTemplate);
 	fprintf(stderr, "Template\n%s\n %i\n", s_FlowTemplate, strlen(s_FlowTemplate));
@@ -810,6 +975,9 @@ static inline void FlowTemplate_WriteU64(u8* Base, u32 Index, s64 Value)
 // write a string encapsulated within quotes
 static inline void FlowTemplate_WriteString(u8* Base, u32 Index, u8* Value)
 {
+	// is field in the template?
+	if (s_FlowTemplate_Length[Index] == 0) return; 
+
 	// length - 2 as need space for the pre and post " quotes
 	u32 ValueLen 	= strlen(Value);
 	if (ValueLen > s_FlowTemplate_Length[Index] - 2)
@@ -1010,6 +1178,7 @@ static u32 FlowDump(u8* OutputStr, u64 TS, FlowRecord_t* Flow, u32 FlowID)
 	FlowTemplate_WriteU64		(OutputStr, FLOW_TEMPLATE_TOTAL_PKT,	Flow->TotalPkt); 
 	FlowTemplate_WriteU64		(OutputStr, FLOW_TEMPLATE_TOTAL_BYTE,	Flow->TotalByte); 
 	FlowTemplate_WriteU64		(OutputStr, FLOW_TEMPLATE_TOTAL_BIT,	Flow->TotalByte * 8ULL); 
+	FlowTemplate_WriteU64		(OutputStr, FLOW_TEMPLATE_TOTAL_FCS,	Flow->TotalFCS); 
 
 	FlowTemplate_WriteMAC		(OutputStr, FLOW_TEMPLATE_MAC_SRC, 		(u8*)Flow->EtherSrc);
 	FlowTemplate_WriteMAC		(OutputStr, FLOW_TEMPLATE_MAC_DST, 		(u8*)Flow->EtherDst);
@@ -1139,6 +1308,7 @@ static u32 FlowDump(u8* OutputStr, u64 TS, FlowRecord_t* Flow, u32 FlowID)
 			FlowTemplate_WriteU64	(OutputStr, FLOW_TEMPLATE_TCP_ACK, 			Flow->TCPACKCnt); 
 			FlowTemplate_WriteU64	(OutputStr, FLOW_TEMPLATE_TCP_WIN_MIN,		Flow->TCPWindowMin); 
 			FlowTemplate_WriteU64	(OutputStr, FLOW_TEMPLATE_TCP_WIN_MAX,		Flow->TCPWindowMax); 
+			FlowTemplate_WriteU64	(OutputStr, FLOW_TEMPLATE_TCP_SACK,			Flow->TCPSACKCnt); 
 		}
 		break;
 		}
@@ -1339,14 +1509,17 @@ static void FlowMerge(FlowIndex_t* IndexOut, FlowIndex_t* IndexRoot, u32 IndexCn
 
 		for (int i=0; i < Source->FlowCntSnapshot; i++)
 		{
+			// source flow to merge from
 			FlowRecord_t* Flow = &Source->FlowList[i];
 
+			// merge into a single FlowIndex 
 			FlowRecord_t* F = FlowAdd(IndexOut, Flow, Flow->SHA1);
 
 			F->TotalPkt 	+= Flow->TotalPkt;
 			F->TotalByte 	+= Flow->TotalByte;
 			F->FirstTS 		= min64(F->FirstTS, Flow->FirstTS);
 			F->LastTS 		= max64(F->LastTS, Flow->LastTS);
+			F->TotalFCS 	+= Flow->TotalFCS;	
 
 			// TCP stats
 			if (F->IPProto == IPv4_PROTO_TCP)
@@ -1470,6 +1643,8 @@ void DecodePacket(	u32 CPUID,
 	// assume single packet flow
 	FlowPkt->TotalPkt	 	= 1;
 	FlowPkt->TotalByte 		= PktHeader->LengthWire;
+
+	FlowPkt->TotalFCS		+= (PktHeader->Flag & FMAD_PACKET_FLAG_FCS) ? 1 : 0;
 
 	// ether header info
 	fEther_t* Ether 		= (fEther_t*)(PktHeader + 1);	
@@ -1654,7 +1829,21 @@ void DecodePacket(	u32 CPUID,
 
 						// SACK
 						case 0x5:
-							FlowPkt->TCPIsSACK = true;
+							{
+								u32  *D32 = (u32*)(Options + 2);
+
+								// get 1st blocks byte delta
+								// ignore any subsiquent left/right blocks
+								// as only want to know if there was a gap, not how many 
+								s32 Delta = swap32(D32[1]) - swap32(D32[0]);
+
+								// if there is gaps 
+								if (Delta > 1)
+								{
+									FlowPkt->TCPIsSACK = true;
+									//printf("SACK %i %08x %08x (%8i)\n", Len, D32[0], D32[1], Delta); 
+								}	
+							}
 							break;
 
 						// TSOpt
@@ -1871,6 +2060,7 @@ void* Flow_Worker(void* User)
 				for (int i=0; i < PktBlock->PktCnt; i++)
 				{
 					FMADPacket_t* PktHeader = (FMADPacket_t*)(PktBlock->Buffer + Offset);
+
 					Offset += sizeof(PCAPPacket_t) + PktHeader->LengthCapture;
 
 					assert(PktHeader->LengthWire    > 0); 
@@ -1952,7 +2142,8 @@ void* Flow_Worker(void* User)
 					{
 						for (int i=0; i < SortListCnt[j]; i++)
 						{
-							FlowRecord_t* Flow = &FlowIndex->FlowList[ SortList[j][i] ];	
+							u32 FIndex =  SortList[j][i];
+							FlowRecord_t* Flow = &FlowIndex->FlowList[ FIndex ];	
 
 							JSONBufferOffset += FlowDump(JSONBuffer + JSONBufferOffset, PktBlock->TSSnapshot, Flow, i);
 							JSONLineCnt++;
@@ -2083,7 +2274,7 @@ void Flow_PacketFree(PacketBuffer_t* B)
 
 //---------------------------------------------------------------------------------------------
 // allocate memory and house keeping
-void Flow_Open(struct Output_t* Out, s32* CPUMap, u32 FlowIndexDepth, u64 FlowMax)
+void Flow_Open(struct Output_t* Out, s32* CPUMap, u32 FlowIndexDepth, u64 FlowMax, u8* FlowTemplateStr)
 {
 	assert(Out != NULL);
 
@@ -2101,6 +2292,13 @@ void Flow_Open(struct Output_t* Out, s32* CPUMap, u32 FlowIndexDepth, u64 FlowMa
 		memset(B->Buffer, 0, B->BufferMax);	
 
 		Flow_PacketFree(B);
+	}
+
+	// custom flow template was created? 
+	if (FlowTemplateStr)
+	{
+		fprintf(stderr, "Customized flow Template\n");
+		s_FlowTemplateDefault = FlowTemplateStr;
 	}
 
 	// create output template

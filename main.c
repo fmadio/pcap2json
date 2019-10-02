@@ -2,7 +2,7 @@
 //
 // Copyright (c) 2018 fmad engineering llc 
 //
-// The MIT License (MIT) see LICENSE file for details 
+// The Creative Commons BY-NC 4.0 International License see LICENSE file for details 
 // 
 // PCAP to JSON file conversion. convers a PCAP and extracts basic IP / TCP / UDP information
 // that can be fed into Elastic Search for further processing and analysis 
@@ -54,6 +54,25 @@ typedef struct
 
 } ESHost_t;
 
+#define OUTPUT_VERSION_1_00		0x100		// initial version
+typedef struct
+{
+	u64				Version;				// version of output ring 	
+	u64				ChunkSize;				// size in bytes of each chunk
+	u64				pad0[16 - 2];			// header pad
+
+
+	volatile u64	Put;					// location of writer 
+	volatile u64	Get;					// location of reader 
+	u64				Mask;					// mask of buffer
+	u64				Max;					// mask of buffer
+	volatile u64	End;					// end of the capture stream
+
+	u64				pad2[16 - 5];
+
+} OutputHeader_t;
+
+
 //---------------------------------------------------------------------------------------------
 // tunables
 bool			g_Verbose			= false;				// verbose print mode
@@ -72,8 +91,9 @@ u64				g_FlowMax			= 250e3;			// maximum number of flows per snapshot
 bool			g_FlowTopNEnable	= false;			// enable or disable output the top N flows
 u32				g_FlowTopNMax		= 1000;				// number of top flow to output
 u8				g_FlowTopNMac		= 0;				// count of topN flows for particuar MAC address
-u8				g_FlowTopNsMac[MAX_TOPN_MAC][6];				// topN source MAC
-u8				g_FlowTopNdMac[MAX_TOPN_MAC][6];				// topN destination MAC
+u8				g_FlowTopNsMac[MAX_TOPN_MAC][6];		// topN source MAC
+u8				g_FlowTopNdMac[MAX_TOPN_MAC][6];		// topN destination MAC
+u8*				g_FlowTemplate		= NULL;				// custom flow template
 
 bool			g_Output_NULL		= false;			// benchmarking mode output to /dev/null 
 bool			g_Output_STDOUT		= true;				// by default output to stdout 
@@ -118,38 +138,39 @@ static void help(void)
 	fprintf(stderr, "cat /tmp/test.pcap | pcap2json > test.json\n");
 	fprintf(stderr, "\n");
 	fprintf(stderr, "Command Line Arguments:\n");
-	fprintf(stderr, " --index-name <name>          : capture name to use for ES Index data\n");
-	fprintf(stderr, " --verbose                      : verbose output\n");
-	fprintf(stderr, " --config <confrig file>        : read from config file\n");
+	fprintf(stderr, " --index-name <name>              : capture name to use for ES Index data\n");
+	fprintf(stderr, " --verbose                        : verbose output\n");
+	fprintf(stderr, " --config <confrig file>          : read from config file\n");
 	fprintf(stderr, "\n");
-	fprintf(stderr, " --cpu-core   <cpu no>          : cpu map for core thread\n"); 
-	fprintf(stderr, " --cpu-flow   <cpu0.. cpu3>     : cpu map for flow threads\n"); 
-	fprintf(stderr, " --cpu-output <cpu0 .. cpu3>    : cpu map for output threads\n"); 
+	fprintf(stderr, " --cpu-core   <cpu no>            : cpu map for core thread\n"); 
+	fprintf(stderr, " --cpu-flow   <cpu0.. cpu3>       : cpu map for flow threads\n"); 
+	fprintf(stderr, " --cpu-output <cpu0 .. cpu3>      : cpu map for output threads\n"); 
 	fprintf(stderr, "\n");
-	fprintf(stderr, " --json-packet                  : write JSON packet data\n");
-	fprintf(stderr, " --json-flow                    : write JSON flow data\n");
+	fprintf(stderr, " --json-packet                    : write JSON packet data\n");
+	fprintf(stderr, " --json-flow                      : write JSON flow data\n");
 	fprintf(stderr, "\n");
 
 	fprintf(stderr, "Output Mode\n");
-	fprintf(stderr, " --output-stdout                : writes output to STDOUT\n");
-	fprintf(stderr, " --output-espush                : writes output directly to ES HTTP POST \n");
-	fprintf(stderr, " --output-buffercnt <pow2 cnt>  : number of output buffers (default is 64)\n");
+	fprintf(stderr, " --output-stdout                  : writes output to STDOUT\n");
+	fprintf(stderr, " --output-espush                  : writes output directly to ES HTTP POST \n");
+	fprintf(stderr, " --output-buffercnt <pow2 cnt>    : number of output buffers (default is 64)\n");
 
 	fprintf(stderr, "\n");
 	fprintf(stderr, "Flow specific options\n");
-	fprintf(stderr, " --flow-samplerate <nanos>      : scientific notation flow sample rate. default 100e6 (100msec)\n");
-	fprintf(stderr, " --flow-index-depth <number>    : number of root flow index to allocate defulat 6\n");
-	fprintf(stderr, " --flow-max   <number>          : maximum number of flows (default 250e3)6\n");
-	fprintf(stderr, " --flow-top-n <number>          : only output the top N flows\n"); 
+	fprintf(stderr, " --flow-samplerate <nanos>        : scientific notation flow sample rate. default 100e6 (100msec)\n");
+	fprintf(stderr, " --flow-index-depth <number>      : number of root flow index to allocate defulat 6\n");
+	fprintf(stderr, " --flow-max   <number>            : maximum number of flows (default 250e3)6\n");
+	fprintf(stderr, " --flow-top-n <number>            : only output the top N flows\n"); 
 	fprintf(stderr, " --flow-top-n-circuit <sMAC_dMAC> : output top N flows based on specified src/dest MAC\n"); 
+	fprintf(stderr, " --flow-template \"<template>\"   : Use a customized template for JSON output\n"); 
 
 	fprintf(stderr, "\n");
 	fprintf(stderr, "Elastic Stack options\n");
-	fprintf(stderr, " --es-host <hostname:port>      : Sets the ES Hostname\n");
-	fprintf(stderr, " --es-timeout <timeout>         : Sets ES connection timeout in milliseconds (Default: 2000 msec)\n");
-	fprintf(stderr, " --es-compress                  : enables gzip compressed POST\n");
-	fprintf(stderr, " --es-null                      : use ES Null target for perf testing\n");
-	fprintf(stderr, " --es-queue-path                : ES Output queue is file backed\n");
+	fprintf(stderr, " --es-host <hostname:port>        : Sets the ES Hostname\n");
+  fprintf(stderr, " --es-timeout <timeout>           : Sets ES connection timeout in milliseconds (Default: 2000 msec)\n");
+	fprintf(stderr, " --es-compress                    : enables gzip compressed POST\n");
+	fprintf(stderr, " --es-null                        : use ES Null target for perf testing\n");
+	fprintf(stderr, " --es-queue-path                  : ES Output queue is file backed\n");
 }
 
 //---------------------------------------------------------------------------------------------
@@ -387,6 +408,13 @@ static bool ParseCommandLine(u8* argv[])
 		fprintf(stderr, "  Flow NULL benchmarking\n"); 
 		cnt	+= 1;
 	}
+	// custom flow template 
+	if (strcmp(argv[0], "--flow-template") == 0)
+	{
+		g_FlowTemplate = argv[1];
+		fprintf(stderr, "  Flow template [%s]\n", g_FlowTemplate); 
+		cnt	+= 2;
+	}
 
 	// create a unique id so calling applications
 	// can identify it with ps 
@@ -438,7 +466,7 @@ static bool ParseConfigFile(u8* ConfigFile)
 	u32 LinePos = 0;
 	u32 LineListPos = 0;
 	u8* LineList[256];
-	u8  LineBuffer[256];
+	u8  LineBuffer[16*1024];
 	bool IsComment = false;
 	while (!feof(F))
 	{
@@ -525,20 +553,22 @@ static void ProfileDump(struct Output_t* Out)
 	fProfile_Dump(0);
 	fprintf(stderr, "\n");
 
-	float OutputWorkerCPU;
-	float OutputWorkerCPUCompress;
-	float OutputWorkerCPUSend;
-	float OutputWorkerCPURecv;
-	u64   OutputTotalCycle;
-	u64   OutputPendingByte;
-	u64   OutputPushSizeByte;
+	float	OutputWorkerCPU;
+	float	OutputWorkerCPUCompress;
+	float	OutputWorkerCPUSend;
+	float	OutputWorkerCPURecv;
+	u64		OutputTotalCycle;
+	u64		OutputPendingByte;
+	u64		OutputPushSizeByte;
+	u64		OutputPushBps;
 	Output_Stats(Out, 1,  	&OutputWorkerCPU, 
 							&OutputWorkerCPUCompress, 
 							&OutputWorkerCPUSend, 
 							&OutputWorkerCPURecv,
 							&OutputTotalCycle,
 							&OutputPendingByte,
-							&OutputPushSizeByte);
+							&OutputPushSizeByte,
+							&OutputPushBps);
 
 	fprintf(stderr, "Output Worker CPU\n");
 	fprintf(stderr, "  Top      : %.6f\n", OutputWorkerCPU);
@@ -548,6 +578,7 @@ static void ProfileDump(struct Output_t* Out)
 	fprintf(stderr, "  Total    : %.6f sec\n", tsc2ns(OutputTotalCycle)/1e9 );
 	fprintf(stderr, "  Pending  : %.6f MB\n", OutputPendingByte  / (float)kMB(1)); 
 	fprintf(stderr, "  PushSize : %.2f MB\n", OutputPushSizeByte / (float)kMB(1)); 
+	fprintf(stderr, "  PushSpeed: %.2f Gbps\n", OutputPushBps / 1e9); 
 	fprintf(stderr, "\n");
 
 	u64 FlowCntSnapshot		= 0;
@@ -671,9 +702,11 @@ int main(int argc, u8* argv[])
 	}
 
 	// work out the input file format
-	bool IsPCAP = false;
-	bool IsFMAD = false;
+	bool IsPCAP 	= false;
+	bool IsFMAD 	= false;
+	bool IsFMADRING = false;
 	u64 TScale = 0;
+
 	switch (HeaderMaster.Magic)
 	{
 	case PCAPHEADER_MAGIC_NANO: 
@@ -693,8 +726,15 @@ int main(int argc, u8* argv[])
 		IsFMAD = true;
 		break;
 
+	case PCAPHEADER_MAGIC_FMADRING: 
+		fprintf(stderr, "FMAD Ringbuffer Chunked\n");
+		TScale = 1; 
+		IsFMADRING = true;
+		break;
+
+
 	default:
-		fprintf(stderr, "invaliid PCAP format\n");
+		fprintf(stderr, "invaliid PCAP format %08x\n", HeaderMaster.Magic);
 		return -1;
 	}
 
@@ -705,6 +745,53 @@ int main(int argc, u8* argv[])
 	u64 StartTSC		= rdtsc();
 	u64 LastTSC			= rdtsc();
 	u64 LastTS			= 0;
+
+	// SHM ring format
+	OutputHeader_t* SHMRingHeader	= NULL; 
+	u8* SHMRingData					= NULL; 
+	if (IsFMADRING)
+	{
+		// stream cat sends the size of the shm file
+		u64 SHMRingSize = 0;
+		fread(&SHMRingSize, 1, sizeof(SHMRingSize), FileIn);
+
+		u8 SHMRingName0[128];			// stream_cat sends ring names in 128B
+		u8 SHMRingName1[128];			// stream_cat sends ring names in 128B
+		u8 SHMRingName2[128];			// stream_cat sends ring names in 128B
+		u8 SHMRingName3[128];			// stream_cat sends ring names in 128B
+
+		fread(SHMRingName0, 1, 128, FileIn);
+		fread(SHMRingName1, 1, 128, FileIn);
+		fread(SHMRingName2, 1, 128, FileIn);
+		fread(SHMRingName3, 1, 128, FileIn);
+
+		fprintf(stderr, "SHMRingName [%s] %lli\n", SHMRingName0, SHMRingSize);
+
+		// open the shm ring
+		int fd = shm_open(SHMRingName0, O_CREAT | O_RDWR, S_IRUSR | S_IWUSR);
+		if (fd < 0)
+		{
+			fprintf(stderr, "failed to create SHM ring buffer\n");
+			return 0;
+		}
+
+		// map
+		void* SHMMap = mmap(NULL, SHMRingSize, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+		if (SHMMap == MAP_FAILED)
+		{
+			fprintf(stderr, "failed to mmap shm ring buffer\n");
+			return 0;
+		}
+
+		SHMRingHeader	= (OutputHeader_t*)SHMMap;
+		fprintf(stderr, "SHMRing Version :%08x ChunkSize:%i\n", SHMRingHeader->Version, SHMRingHeader->ChunkSize);
+		assert(SHMRingHeader->Version == OUTPUT_VERSION_1_00);
+
+		// reset get heade
+		SHMRingData	= (u8*)(SHMRingHeader + 1);
+
+		fprintf(stderr, "SHM Initial State Put:%08x Get:%08x\n", SHMRingHeader->Get, SHMRingHeader->Put);
+	}
 
 	// output + add all the ES targets
 	struct Output_t* Out = Output_Create(	g_Output_NULL,
@@ -721,7 +808,7 @@ int main(int argc, u8* argv[])
 	}
 
 	// init flow state
-	Flow_Open(Out, g_CPUFlow, g_FlowIndexDepth, g_FlowMax);
+	Flow_Open(Out, g_CPUFlow, g_FlowIndexDepth, g_FlowMax, g_FlowTemplate);
 
 	u64 PacketTSFirst 	= 0;
 	u64 PacketTSLast  	= 0;
@@ -733,6 +820,7 @@ int main(int argc, u8* argv[])
 	u64 PacketTSLastSample = 0;
 	u64 DecodeTimeLast 	= 0;
 	u64 DecodeTimeTSC 	= 0;
+
 
 	while (!feof(FileIn))
 	{
@@ -765,13 +853,14 @@ int main(int argc, u8* argv[])
 			float OutputWorkerCPURecv;
 			u64 OutputPendingB;
 			u64 OutputPushSizeB;
-			Output_Stats(Out, 0,  &OutputWorkerCPU, NULL, NULL, &OutputWorkerCPURecv, NULL, &OutputPendingB, &OutputPushSizeB);
+			u64 OutputPushBps;
+			Output_Stats(Out, true,  &OutputWorkerCPU, NULL, NULL, &OutputWorkerCPURecv, NULL, &OutputPendingB, &OutputPushSizeB, &OutputPushBps);
 
 			u64 FlowCntSnapshot;	
 			float FlowCPU;
 			Flow_Stats(false, &FlowCntSnapshot, NULL, NULL, &FlowCPU, NULL, NULL, NULL, NULL, NULL, NULL, NULL);
 
-			fprintf(stderr, "[%s] %.3f/%.3f GB %.2f Mpps %.2f Gbps | cat %6.f MB %.2f %.2f %.2f | Flows/Snap: %6i FlowCPU:%.2f | ESPush:%6lli %6.2fK ESErr %4lli | OutCPU:%.2f OutPush: %.2f MB OutQueue:%6.1fMB\n", 
+			fprintf(stderr, "[%s] %.3f/%.3f GB %.2f Mpps %.2f Gbps | cat %6.f MB %.2f %.2f %.2f | Flows/Snap: %6i FlowCPU:%.2f | ESPush:%6lli %6.2fK ESErr %4lli | OutCPU:%.2f OutPush: %.2f MB OutQueue:%6.1fMB %.3f Gbps\n", 
 
 								FormatTS(PacketTSLast),
 
@@ -792,7 +881,8 @@ int main(int argc, u8* argv[])
 								Output_ESErrorCnt(Out),
 								OutputWorkerCPU,
 								OutputPushSizeB / (float)kMB(1),
-								OutputPendingB / (float)kMB(1) 
+								OutputPendingB / (float)kMB(1) ,
+								(float)(OutputPushBps / 1e9)
 							);
 			fflush(stderr);
 
@@ -937,6 +1027,54 @@ int main(int argc, u8* argv[])
 			s_StreamCAT_CPUActive   = Header.CPUActive / (float)0x10000;
 			s_StreamCAT_CPUFetch    = Header.CPUFetch / (float)0x10000;
 			s_StreamCAT_CPUSend     = Header.CPUSend / (float)0x10000;
+		}
+
+		if (IsFMADRING)
+		{
+
+			fProfile_Start(5, "PacketFetch_Ring");
+
+			// wait foe new data
+			bool IsExit = false;
+			while (SHMRingHeader->Get == SHMRingHeader->Put)
+			{
+				if (SHMRingHeader->End == SHMRingHeader->Get)
+				{
+					fprintf(stderr, "end of capture End:%08x Put:%08x Get:%08x\n", SHMRingHeader->End, SHMRingHeader->Put, SHMRingHeader->Get);
+					IsExit = true;
+					break;
+				}
+				//usleep(0);
+				ndelay(100);
+			}
+			fProfile_Stop(5);
+
+			if (IsExit) break;
+
+			// get the chunk header info
+
+			u32 Index 	= SHMRingHeader->Get & SHMRingHeader->Mask;	
+			FMADHeader_t* Header = (FMADHeader_t*)(SHMRingData + Index * SHMRingHeader->ChunkSize);
+
+			PktCnt		= Header->PktCnt; 
+			ByteWire	= Header->BytesWire;
+			ByteCapture	= Header->BytesCapture;
+			TSFirst		= Header->TSStart;
+			TSLast		= Header->TSEnd;
+			Offset		= Header->Length;
+
+			// copy to local buffer
+	 		memcpy(PktBlock->Buffer, Header + 1, Header->Length);
+
+			// copy stream cat stats
+			s_StreamCAT_BytePending = Header->BytePending;
+			s_StreamCAT_CPUActive   = Header->CPUActive / (float)0x10000;
+			s_StreamCAT_CPUFetch    = Header->CPUFetch / (float)0x10000;
+			s_StreamCAT_CPUSend     = Header->CPUSend / (float)0x10000;
+
+
+			// signal its been consued to stream_cat
+			SHMRingHeader->Get++;
 		}
 
 		// general stats on the packet block

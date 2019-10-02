@@ -2,7 +2,7 @@
 //
 // Copyright (c) 2018, fmad engineering llc 
 //
-// The MIT License (MIT) see LICENSE file for details 
+// The Creative Commons BY-NC 4.0 International License see LICENSE file for details 
 // 
 // reference pcap interop17_small (10GB)
 //
@@ -104,6 +104,7 @@ typedef struct Output_t
 	u64					ESPushByte;								// stats on bytes pushed
 	u64					ESPushCnt;								// stats number of unique pushes 
 																// these get reset by Output_stats 
+	u64					ESPushTSC;								// TSC of last reset. allows bandwidth calcuation
 
 	FILE*				FileTXT;								// output text file	
 
@@ -1036,8 +1037,9 @@ void Output_Stats(	Output_t* Out,
 					float* pRecv,
 					u64*   pTotalCycle,
 					u64*   pPendingB,
-					u64*   pPushSizeB)
-{
+					u64*   pPushSizeB,
+					u64*   pPushBps
+){
 	u64 Total 	= 0;
 	u64 Top 	= 0;
 	u64 Comp 	= 0;
@@ -1071,16 +1073,25 @@ void Output_Stats(	Output_t* Out,
 	if (pRecv) 			pRecv[0] 		= Recv * inverse(Total);
 	if (pTotalCycle)	pTotalCycle[0]	= Total;
 
+	// time since last print
+	float dT		= tsc2ns(rdtsc() - Out->ESPushTSC) / 1e9;
+
 	// how much output data is pending
 	u64 BytePending = Out->ByteQueued - Out->ByteComplete;
 	if (pPendingB) pPendingB[0] = BytePending;
 
 	// average upload size
 	float AvgUpload = Out->ESPushByte * inverse(Out->ESPushCnt);
+
+	// average upload bits / sec 
+	float Bps = (Out->ESPushByte * 8.0) / dT;
+
 	if (pPushSizeB) pPushSizeB[0] = AvgUpload;
+	if (pPushBps) pPushBps[0] = Bps;
 	if (IsReset)
 	{
 		Out->ESPushByte = 0;
 		Out->ESPushCnt 	= 0;
+		Out->ESPushTSC	= rdtsc();
 	}
 }

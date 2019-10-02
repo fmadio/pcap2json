@@ -355,6 +355,17 @@ static inline double alog(const double a)
 	return -logf(a);
 }
 
+static inline u32 CRC32(void* Data, u32 Length)
+{
+	u32 CRC = 0;
+	u8* Data8 = (u8*)Data;
+	for (int i=0; i < Length; i++)
+	{
+		CRC += Data8[i];
+	}
+	return CRC;
+}
+
 static inline char* FormatTS(u64 ts)
 {
 	u64 usec = ts / 1000ULL;
@@ -395,7 +406,6 @@ static inline void FormatTSStr(u8* S, u64 ts)
 
 	sprintf(S, "%02lli:%02lli:%02lli.%03lli.%03lli.%03lli", hour % 24, min, sec, msec,usec, nsec);
 }
-
 
 static inline void CycleCalibration(void)
 {
@@ -587,6 +597,7 @@ typedef struct
 #define PCAPHEADER_MAGIC_NANO		0xa1b23c4d
 #define PCAPHEADER_MAGIC_USEC		0xa1b2c3d4
 #define PCAPHEADER_MAGIC_FMAD		0x1337bab3
+#define PCAPHEADER_MAGIC_FMADRING	0x1337bab7
 #define PCAPHEADER_MAJOR			2
 #define PCAPHEADER_MINOR			4
 #define PCAPHEADER_LINK_ETHERNET	1
@@ -628,6 +639,8 @@ typedef struct FMADPacket_t
 	u32             pad0            : 16;
 
 } __attribute__((packed)) FMADPacket_t;
+
+#define FMAD_PACKET_FLAG_FCS		(1<<0)		// flags invalid FCS was captured 
 
 // header per packet
 typedef struct FMADHeader_t
