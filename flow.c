@@ -311,8 +311,17 @@ static u64						s_PacketQueueCnt	= 0;
 static u64						s_PacketDecodeCnt	= 0;
 
 static u32						s_PacketSizeHistoBin = 32;				// size divide amount 
-static u32						s_PacketSizeHistoMax = 1024;			// max index (not in byte)
-static u32						s_PacketSizeHisto[128][1024];
+static u32						s_PacketSizeHistoMax = 1024;			// max index 
+static u32						s_PacketSizeHisto[128][1024];			// packet size histogram per snaphot
+
+static u32						s_FlowDepthHistoBin = 1;				// size divide amount 
+static u32						s_FlowDepthHistoMax = 128;				// max index 
+static u32						s_FlowDepthHisto[128][128];				// monitors the depth of each flow,
+																		// eg. are all the flows a single packt in the snapshot
+																		// or is it 1 flow with the majority of packets						
+static u32						s_FlowDepthHistoCnt[128];				// number of updates
+static float 					s_FlowDepthMedian = 0;					// calculated median depth of each flow entry
+
 
 //---------------------------------------------------------------------------------------------
 // generate a 20bit hash index 
@@ -762,7 +771,7 @@ static u32 FlowTemplate(void)
 
 			u32 Length = atoi(TemplateLength);
 
-			fprintf(stderr, "Templat %i [%s] length %i\n", Output - s_FlowTemplate, TemplateName, Length);
+			fprintf(stderr, "Template Pos:%3i Len:%3i [%s]\n", Output - s_FlowTemplate, Length, TemplateName);
 
 			Output[0] = 'n';
 			Output[1] = 'u';
@@ -1929,13 +1938,13 @@ void Flow_PacketQueue(PacketBuffer_t* Pkt)
 		}
 		fProfile_Stop(9);
 
-		// add to processing queue
+		// add to processing queueDecodeQueueFlowAlloch
 		s_DecodeQueue[s_DecodeQueuePut & s_DecodeQueueMsk] 	= Pkt;
 
 		// allocate a new flow
 		if (s_FlowIndexQueue == NULL)
 		{
-			fProfile_Start(10, "DecodeQueueFlowAlloc");
+			fProfile_Start(10, "FlowIndexAlloc");
 
 			s_FlowIndexQueue = FlowIndexAlloc();
 
@@ -2138,6 +2147,9 @@ void* Flow_Worker(void* User)
 					u8* JSONBuffer 			= FlowIndexRoot->JSONBuffer;
 					u32 JSONBufferOffset 	= 0;
 					u32 JSONLineCnt			= 0;
+					
+					u32 FlowDepthTotal		 = 0;
+
 					for (int j=0; j < SortListCount; j++)
 					{
 						for (int i=0; i < SortListCnt[j]; i++)
@@ -2158,8 +2170,27 @@ void* Flow_Worker(void* User)
 							}
 							TotalPkt += Flow->TotalPkt;
 
+							// update flow depth histogram
+							u32 HIndex = Flow->TotalPkt / s_FlowDepthHistoBin;
+							if (HIndex >= s_FlowDepthHistoMax) HIndex = s_FlowDepthHistoMax - 1;
+							s_FlowDepthHisto	[CPUID][HIndex]++;
+							s_FlowDepthHistoCnt	[CPUID]++;
+							FlowDepthTotal++;
+
 	//						Flow->TotalPkt 	= 0;
 	//						Flow->TotalByte = 0;
+						}
+					}
+
+					// find median flow depth
+					u32 FlowDepthSum = 0;
+					for (int i=0; i < s_FlowDepthHistoMax; i++)
+					{
+						FlowDepthSum += s_FlowDepthHisto[CPUID][i];
+						if (FlowDepthSum  >= FlowDepthTotal / 2)
+						{
+							s_FlowDepthMedian = i * s_FlowDepthHistoBin; 
+							break;
 						}
 					}
 
@@ -2425,6 +2456,8 @@ void Flow_Stats(	bool IsReset,
 					u64* pFlowCntSnapShot, 
 					u64* pPktCntSnapShot, 
 					u64* pFlowCntTotal, 
+					float* pFlowDepthMedian,
+
 					float * pCPUDecode,
 					float * pCPUHash,
 					float * pCPUOutput,
@@ -2438,6 +2471,7 @@ void Flow_Stats(	bool IsReset,
 	if (pPktCntSnapShot)	pPktCntSnapShot[0]	= s_PktCntSnapshotLast;
 
 	if (pFlowCntTotal)		pFlowCntTotal[0]	= s_FlowCntTotal;
+	if (pFlowDepthMedian)	pFlowDepthMedian[0]	= s_FlowDepthMedian;
 
 	u64 TotalTSC 	= 0;
 	u64 DecodeTSC 	= 0;
@@ -2537,6 +2571,39 @@ void Flow_PktSizeHisto(void)
 		fprintf(stderr, "\n");
 	}
 	fprintf(stderr, "\n");
+
+
+	// merge flow histo
+	u32 FlowDepthHisto[128];
+	u32 FlowDepthHistoCnt = 0;
+	memset(FlowDepthHisto, 0, sizeof(FlowDepthHisto));
+
+	fprintf(stderr, "Flow Depth Histogram\n");
+	for (int c=0; c < s_DecodeCPUActive; c++)
+	{
+		FlowDepthHistoCnt += s_FlowDepthHistoCnt[c];
+		for (int i=0; i < s_FlowDepthHistoMax; i++)
+		{
+			FlowDepthHisto[i] += s_FlowDepthHisto[c][i];
+			s_FlowDepthHisto[c][i] = 0;
+		}
+		s_FlowDepthHistoCnt[c] = 0;
+	}
+
+	float Total = 0;
+	float ooCnt = inverse(FlowDepthHistoCnt);
+	for (int i=0; i < s_FlowDepthHistoMax; i++)
+	{
+		if (FlowDepthHisto[i] > 0)
+		{
+			fprintf(stderr, "%4i : (%.3f) %.3f : ", i * s_FlowDepthHistoBin, Total, FlowDepthHisto[i] * ooCnt); 
+
+		 	u32 Cnt = (FlowDepthHisto[i] * 80 ) * ooCnt;
+			for (int j=0; j < Cnt; j++) fprintf(stderr, "*");
+			fprintf(stderr, "\n");
+		}
+		Total += FlowDepthHisto[i] * ooCnt; 
+	}
 }
 
 /* vim: set ts=4 sts=4 */

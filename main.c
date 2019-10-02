@@ -78,7 +78,7 @@ typedef struct
 bool			g_Verbose			= false;				// verbose print mode
 s32				g_CPUCore[2]		= {14, 12};					// which CPU to run the main flow logic on
 s32				g_CPUFlow[16]		= { 19, 20, 21, 22};	// cpu mapping for flow threads
-s32				g_CPUOutput[16]		= { 25, 26, 27, 28, 25, 26, 27, 28};	// cpu mappings for output threads 
+s32				g_CPUOutput[128]		= { 25, 26, 27, 28, 25, 26, 27, 28};	// cpu mappings for output threads 
 
 bool			g_IsJSONPacket		= false;			// output JSON packet format
 bool			g_IsJSONFlow		= false;			// output JSON flow format
@@ -576,6 +576,7 @@ static void ProfileDump(struct Output_t* Out)
 	u64 FlowCntSnapshot		= 0;
 	u64 PktCntSnapshot 		= 0;
 	u64 FlowCntTotal 		= 0;
+	float FlowDepthMean		= 0;
 	float FlowCPUDecode 	= 0;
 	float FlowCPUHash 		= 0;
 	float FlowCPUOutput 	= 0;
@@ -589,6 +590,7 @@ static void ProfileDump(struct Output_t* Out)
 				&FlowCntSnapshot, 
 				&PktCntSnapshot, 
 				&FlowCntTotal, 
+				&FlowDepthMean, 
 				&FlowCPUDecode, 
 				&FlowCPUHash, 
 				&FlowCPUOutput, 
@@ -850,9 +852,10 @@ int main(int argc, u8* argv[])
 
 			u64 FlowCntSnapshot;	
 			float FlowCPU;
-			Flow_Stats(false, &FlowCntSnapshot, NULL, NULL, &FlowCPU, NULL, NULL, NULL, NULL, NULL, NULL, NULL);
+			float FlowDepthMedian;
+			Flow_Stats(false, &FlowCntSnapshot, NULL, NULL, &FlowDepthMedian, &FlowCPU, NULL, NULL, NULL, NULL, NULL, NULL, NULL);
 
-			fprintf(stderr, "[%s] %.3f/%.3f GB %.2f Mpps %.2f Gbps | cat %6.f MB %.2f %.2f %.2f | Flows/Snap: %6i FlowCPU:%.2f | ESPush:%6lli %6.2fK ESErr %4lli | OutCPU:%.2f OutPush: %.2f MB OutQueue:%6.1fMB %.3f Gbps\n", 
+			fprintf(stderr, "[%s] %.3f/%.3f GB %.2f Mpps %.2f Gbps | cat %6.f MB %.2f %.2f %.2f | Flows/Snap: %6i:%4.f FlowCPU:%.2f | ESPush:%6lli %6.2fK ESErr %4lli | OutCPU:%.2f OutPush: %.2f MB OutQueue:%6.1fMB %.3f Gbps\n", 
 
 								FormatTS(PacketTSLast),
 
@@ -867,6 +870,7 @@ int main(int argc, u8* argv[])
 								s_StreamCAT_CPUSend,
 
 								FlowCntSnapshot, 
+								FlowDepthMedian,
 								FlowCPU,
 								Output_ESPushCnt(Out),
 								lps/1e3,
@@ -1025,6 +1029,7 @@ int main(int argc, u8* argv[])
 		{
 
 			fProfile_Start(5, "PacketFetch_Ring");
+			u32 Timeout = 0;
 
 			// wait foe new data
 			bool IsExit = false;
@@ -1038,13 +1043,21 @@ int main(int argc, u8* argv[])
 				}
 				//usleep(0);
 				ndelay(100);
+
+				// check for feof
+				if (feof(FileIn))
+				{
+					fprintf(stderr, "pipe exit\n");
+					IsExit = true;
+					break;	
+				};
+				assert(Timeout++ < 1e6);
 			}
 			fProfile_Stop(5);
 
 			if (IsExit) break;
 
 			// get the chunk header info
-
 			u32 Index 	= SHMRingHeader->Get & SHMRingHeader->Mask;	
 			FMADHeader_t* Header = (FMADHeader_t*)(SHMRingData + Index * SHMRingHeader->ChunkSize);
 
@@ -1101,6 +1114,9 @@ int main(int argc, u8* argv[])
 	}
 	fProfile_Stop(6);
 	fProfile_Stop(0);
+
+	fprintf(stderr, "pipe exit\n");
+
 
 	// flush any remaining flows
 	Flow_Close(Out, PacketTSLast);
