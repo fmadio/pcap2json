@@ -81,6 +81,7 @@ bool			g_Output_ESPush		= false;			// direct ES HTTP Push
 u32				g_Output_BufferCnt	= 64;				// number of output buffers
 
 u32				g_ESHostCnt 		= 0;				// number of active ES Hosts
+u32				g_ESTimeout 		= 2000;				// ES host connect/read/write timeout value in milliseconds
 ESHost_t		g_ESHost[128];							// list fo ES Hosts to output to
 bool			g_ESCompress		= false;			// elastic push enable compression 
 bool			g_ESNULL			= false;			// ues ES NULL Host 
@@ -145,6 +146,7 @@ static void help(void)
 	fprintf(stderr, "\n");
 	fprintf(stderr, "Elastic Stack options\n");
 	fprintf(stderr, " --es-host <hostname:port>      : Sets the ES Hostname\n");
+	fprintf(stderr, " --es-timeout <timeout>         : Sets ES connection timeout in milliseconds (Default: 2000 msec)\n");
 	fprintf(stderr, " --es-compress                  : enables gzip compressed POST\n");
 	fprintf(stderr, " --es-null                      : use ES Null target for perf testing\n");
 	fprintf(stderr, " --es-queue-path                : ES Output queue is file backed\n");
@@ -293,6 +295,12 @@ static bool ParseCommandLine(u8* argv[])
 		strncpy(Host->HostName, StrList[0], sizeof(Host->HostName));
 		Host->HostPort = atoi(StrList[1]);
 		fprintf(stderr, "  ES[%i] HostName [%s]  HostPort:%i\n", g_ESHostCnt, Host->HostName, Host->HostPort);
+		cnt	+= 2;
+	}
+	if (strcmp(argv[0], "--es-timeout") == 0)
+	{
+		g_ESTimeout = atoi(argv[1]);
+		fprintf(stderr, "  ES timeout %i\n", g_ESTimeout);
 		cnt	+= 2;
 	}
 	if (strcmp(argv[0], "--es-compress") == 0)

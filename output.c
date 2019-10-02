@@ -136,6 +136,7 @@ static void* Output_Worker(void * user);
 //-------------------------------------------------------------------------------------------
 
 extern bool 			g_Verbose;
+extern u32				g_ESTimeout;
 
 static volatile bool	s_Exit 			= false;
 static u32				s_MergeMax		= 64;					// merge up to 64 x 1MB buffers for 1 bulk upload
@@ -533,7 +534,7 @@ void BulkUpload(Output_t* Out, u32 BufferIndex, u32 BufferCnt, u32 CPUID)
 		BindAddr.sin_addr.s_addr 	= inet_addr(IPAddress);
 
 		// connect call should not hang for longer duration
-		struct timeval tv = {2, 0}; // 2 seconds
+		struct timeval tv = { g_ESTimeout / 1000, (g_ESTimeout % 1000)*1000 }; // 2 seconds
 		setsockopt(Sock, SOL_SOCKET, SO_RCVTIMEO, (struct timeval *)&tv, sizeof(struct timeval));
 		setsockopt(Sock, SOL_SOCKET, SO_SNDTIMEO, (struct timeval *)&tv, sizeof(struct timeval));
 
