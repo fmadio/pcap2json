@@ -2305,7 +2305,7 @@ void Flow_PacketFree(PacketBuffer_t* B)
 
 //---------------------------------------------------------------------------------------------
 // allocate memory and house keeping
-void Flow_Open(struct Output_t* Out, s32* CPUMap, u32 FlowIndexDepth, u64 FlowMax, u8* FlowTemplateStr)
+void Flow_Open(struct Output_t* Out, u32 CPUMapCnt, s32* CPUMap, u32 FlowIndexDepth, u64 FlowMax, u8* FlowTemplateStr)
 {
 	assert(Out != NULL);
 
@@ -2338,15 +2338,11 @@ void Flow_Open(struct Output_t* Out, s32* CPUMap, u32 FlowIndexDepth, u64 FlowMa
 	// create worker threads
 	u32 CPUCnt = 0;
 
-	pthread_create(&s_DecodeThread[ 0], NULL, Flow_Worker, (void*)NULL); CPUCnt++;
-	pthread_create(&s_DecodeThread[ 1], NULL, Flow_Worker, (void*)NULL); CPUCnt++;
-	pthread_create(&s_DecodeThread[ 2], NULL, Flow_Worker, (void*)NULL); CPUCnt++;
-	pthread_create(&s_DecodeThread[ 3], NULL, Flow_Worker, (void*)NULL); CPUCnt++;
-
-	pthread_create(&s_DecodeThread[ 4], NULL, Flow_Worker, (void*)NULL); CPUCnt++;
-	pthread_create(&s_DecodeThread[ 5], NULL, Flow_Worker, (void*)NULL); CPUCnt++;
-	pthread_create(&s_DecodeThread[ 6], NULL, Flow_Worker, (void*)NULL); CPUCnt++;
-	pthread_create(&s_DecodeThread[ 7], NULL, Flow_Worker, (void*)NULL); CPUCnt++;
+	for (int i=0; i < CPUMapCnt; i++)
+	{
+		pthread_create(&s_DecodeThread[i], NULL, Flow_Worker, (void*)NULL); 
+		CPUCnt++;
+	}
 
 	for (int i=0; i < CPUCnt; i++)
 	{
