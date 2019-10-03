@@ -602,10 +602,13 @@ static void FlowInsert(u32 CPUID, FlowIndex_t* FlowIndex, FlowRecord_t* FlowPkt,
 		// count SACKs per flow
 		if (FlowPkt->TCPIsSACK) F->TCPSACKCnt	+= 1; 
 
-		// first packet
-		u32 TCPWindow = swap16(TCP->Window); 
-		F->TCPWindowMin = min32(F->TCPWindowMin, TCPWindow);
-		F->TCPWindowMax = max32(F->TCPWindowMax, TCPWindow);
+		// RST pkt window size is always 0, so we will not consider RST pkt
+		if (TCP_FLAG_RST(TCPFlags) == 0)
+		{
+			u32 TCPWindow = swap16(TCP->Window);
+			F->TCPWindowMin = min32(F->TCPWindowMin, TCPWindow);
+			F->TCPWindowMax = max32(F->TCPWindowMax, TCPWindow);
+		}
 	}
 
 }
