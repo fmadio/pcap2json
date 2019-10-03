@@ -67,8 +67,10 @@ typedef struct
 	u64				Mask;					// mask of buffer
 	u64				Max;					// mask of buffer
 	volatile u64	End;					// end of the capture stream
+	volatile u64	HBGetTSC;				// heart beat for consumer 
+	volatile u64	HBPutTSC;				// heart beat for producer 
 
-	u64				pad2[16 - 5];
+	u64				pad2[16 - 7];
 
 } OutputHeader_t;
 
@@ -1035,32 +1037,41 @@ int main(int argc, u8* argv[])
 
 		if (IsFMADRING)
 		{
-
 			fProfile_Start(5, "PacketFetch_Ring");
-			u32 Timeout = 0;
 
 			// wait foe new data
 			bool IsExit = false;
-			while (SHMRingHeader->Get == SHMRingHeader->Put)
+			do
 			{
+				// update consumer HB
+				SHMRingHeader->HBGetTSC = rdtsc();
+
+				// check producer is alive still
+				s64 dTSC = rdtsc() - SHMRingHeader->HBPutTSC;
+				if (dTSC > 10e9)
+				{
+					fprintf(stderr, "producer timeout: %lli\n", dTSC);
+					IsExit = true;
+					break;
+				}
+
+				// there is data
+				if (SHMRingHeader->Get != SHMRingHeader->Put) break;
+
+				// check for end of stream
 				if (SHMRingHeader->End == SHMRingHeader->Get)
 				{
 					fprintf(stderr, "end of capture End:%08x Put:%08x Get:%08x\n", SHMRingHeader->End, SHMRingHeader->Put, SHMRingHeader->Get);
 					IsExit = true;
 					break;
 				}
-				//usleep(0);
-				ndelay(100);
 
-				// check for feof
-				if (feof(FileIn))
-				{
-					fprintf(stderr, "pipe exit\n");
-					IsExit = true;
-					break;	
-				};
-				assert(Timeout++ < 1e6);
-			}
+				// wait a bit for a block to become ready
+				//usleep(0);
+				ndelay(250);
+
+			} while (SHMRingHeader->Get == SHMRingHeader->Put);
+
 			fProfile_Stop(5);
 
 			if (IsExit) break;
@@ -1084,7 +1095,6 @@ int main(int argc, u8* argv[])
 			s_StreamCAT_CPUActive   = Header->CPUActive / (float)0x10000;
 			s_StreamCAT_CPUFetch    = Header->CPUFetch / (float)0x10000;
 			s_StreamCAT_CPUSend     = Header->CPUSend / (float)0x10000;
-
 
 			// signal its been consued to stream_cat
 			SHMRingHeader->Get++;
