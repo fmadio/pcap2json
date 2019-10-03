@@ -111,6 +111,18 @@
 // PCAPWall time: 16949728256.00 sec ProcessTime 10.96 sec (0.000)
 // Total Time: 10.96 sec RawInput[Wire 71.950 Gbps Capture 11.197 Gbps 7.915 Mpps] Output[0.000 Gbps] TotalLine:0 0 Line/Sec
 //
+// 2019/10/3
+// 
+// 96CPU 100Gv2 system with 24 CPUs for Flow calculation
+//
+// [13:39:54.677.221.888] 28.337/0.000 GB 13.39 Mpps 121.15 Gbps | cat  12140 MB 1.00 1.00 0.00 | Flows/Snap:  43880:   1 FlowCPU:0.27 | ESPush:     0   0.00K ESErr    0 | OutCPU:0.00 OutPush: 0.00 MB OutQueue: 370.0MB 0.000 Gbps
+// [13:39:55.149.390.336] 42.485/0.000 GB 13.41 Mpps 121.52 Gbps | cat   9681 MB 1.00 1.00 0.00 | Flows/Snap:  40664:   1 FlowCPU:0.27 | ESPush:     0   0.00K ESErr    0 | OutCPU:0.00 OutPush: 0.00 MB OutQueue: 547.2MB 0.000 Gbps
+// [13:39:55.628.859.392] 56.645/0.000 GB 13.35 Mpps 121.63 Gbps | cat   7221 MB 1.00 1.00 0.00 | Flows/Snap:  42331:   1 FlowCPU:0.26 | ESPush:     0   0.00K ESErr    0 | OutCPU:0.00 OutPush: 0.00 MB OutQueue: 717.2MB 0.000 Gbps
+// [13:39:56.096.991.744] 70.709/0.000 GB 13.37 Mpps 120.81 Gbps | cat   4764 MB 1.00 1.00 0.00 | Flows/Snap:  41023:   1 FlowCPU:0.26 | ESPush:     0   0.00K ESErr    0 | OutCPU:0.00 OutPush: 0.00 MB OutQueue: 865.6MB 0.000 Gbps
+//
+// PCAPWall time: 16949728256.00 sec ProcessTime 8.04 sec (0.000)
+// Total Time: 8.04 sec RawInput[Wire 98.087 Gbps Capture 15.265 Gbps 10.790 Mpps] Output[0.000 Gbps] TotalLine:0 0 Line/Sec
+//
 //---------------------------------------------------------------------------------------------
 
 #include <stdio.h>
