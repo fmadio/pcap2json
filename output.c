@@ -132,6 +132,12 @@ typedef struct Output_t
 
 } Output_t;
 
+typedef struct ThreadData_t
+{
+	int Sock;													// Thread specific ES server connection socket fd
+	Output_t* Out;												// Output_t structure reference pointer
+} ThreadData_t;
+
 static void* Output_Worker(void * user);
 
 //-------------------------------------------------------------------------------------------
@@ -318,7 +324,10 @@ Output_t* Output_Create(bool IsNULL,
 	u32 CPUCnt 	= 0;
 	for (int i=0; i < 32; i++)
 	{
-		pthread_create(&O->PushThread[i], NULL, Output_Worker, (void*)O); 
+		ThreadData_t *T = malloc(sizeof(ThreadData_t));
+		T->Out = O;
+		T->Sock = -1;
+		pthread_create(&O->PushThread[i], NULL, Output_Worker, (void*)T);
 		CPUCnt++;
 	}
 	for (int i=0; i < CPUCnt; i++)
@@ -432,8 +441,9 @@ static u32 FindESHostPos(Output_t* Out)
 
 //-------------------------------------------------------------------------------------------
 // directly push the json data to ES
-void BulkUpload(Output_t* Out, u32 BufferIndex, u32 BufferCnt, u32 CPUID)
+void BulkUpload(ThreadData_t *T, u32 BufferIndex, u32 BufferCnt, u32 CPUID)
 {
+	Output_t* Out	= T->Out;
 	u32 ESHostPos	= FindESHostPos(Out);
 	u8* IPAddress	= Out->ESHostName[ESHostPos];
 	u32 Port 		= Out->ESHostPort[ESHostPos];
@@ -523,8 +533,17 @@ void BulkUpload(Output_t* Out, u32 BufferIndex, u32 BufferCnt, u32 CPUID)
 	// not null es host
 	if (!s_IsESNULL)
 	{
-		int Sock = socket(AF_INET, SOCK_STREAM, 0);
-		assert(Sock > 0);
+		if (T->Sock > 0)
+		{
+			int error = 0;
+			socklen_t len = sizeof (error);
+			//printf("[%lu] Using fd: %d\n", pthread_self(), Sock);
+			if (getsockopt(T->Sock, SOL_SOCKET, SO_ERROR, &error, &len) == 0 && error == 0)
+				goto send_data;
+			close(T->Sock);
+		}
+		T->Sock = socket(AF_INET, SOCK_STREAM, 0);
+		assert(T->Sock > 0);
 		
 		// listen address 
 		struct sockaddr_in	BindAddr;					// bind address for acks
@@ -536,15 +555,15 @@ void BulkUpload(Output_t* Out, u32 BufferIndex, u32 BufferCnt, u32 CPUID)
 
 		// connect call should not hang for longer duration
 		struct timeval tv = { g_ESTimeout / 1000, (g_ESTimeout % 1000)*1000 }; // 2 seconds
-		setsockopt(Sock, SOL_SOCKET, SO_RCVTIMEO, (struct timeval *)&tv, sizeof(struct timeval));
-		setsockopt(Sock, SOL_SOCKET, SO_SNDTIMEO, (struct timeval *)&tv, sizeof(struct timeval));
+		setsockopt(T->Sock, SOL_SOCKET, SO_RCVTIMEO, (struct timeval *)&tv, sizeof(struct timeval));
+		setsockopt(T->Sock, SOL_SOCKET, SO_SNDTIMEO, (struct timeval *)&tv, sizeof(struct timeval));
 
 		// retry connection a few times 
 		int ret = -1;
 		for (int r=0; r < 10; r++)
 		{
 			//bind socket to port
-			ret = connect(Sock, (struct sockaddr*)&BindAddr, sizeof(BindAddr));
+			ret = connect(T->Sock, (struct sockaddr*)&BindAddr, sizeof(BindAddr));
 			if (ret >= 0) break;
 
 			fprintf(stderr, "Connection to [%s:%i] timed out... retry\n", IPAddress, Port);
@@ -561,28 +580,11 @@ void BulkUpload(Output_t* Out, u32 BufferIndex, u32 BufferCnt, u32 CPUID)
 
 		// set timeout for connect 
 		{
-			int timeout = 10000;  // user timeout in milliseconds [ms]
-			ret = setsockopt (Sock, SOL_TCP, TCP_USER_TIMEOUT, (char*) &timeout, sizeof (timeout));
+			int timeout = g_ESTimeout;  // user timeout in milliseconds [ms]
+			ret = setsockopt (T->Sock, SOL_TCP, TCP_USER_TIMEOUT, (char*) &timeout, sizeof (timeout));
 			if (ret < 0)
 			{
 				fprintf(stderr, "TCP_USER_TIMEOUT failed: %i %i %s\n", ret, errno, strerror(errno));
-			}
-		}
-		// set timeout for read/write 
-		{
-			struct timeval timeout;      
-			timeout.tv_sec 	= 10;
-			timeout.tv_usec = 0;
-
-			ret = setsockopt (Sock, SOL_SOCKET, SO_RCVTIMEO, (char *)&timeout, sizeof(timeout));
-			if (ret < 0)
-			{
-				fprintf(stderr, "SO_RECVTIMEO failed: %i %i %s\n", ret, errno, strerror(errno));
-			}
-			ret = setsockopt (Sock, SOL_SOCKET, SO_SNDTIMEO, (char *)&timeout, sizeof(timeout));
-			if (ret < 0)
-			{
-				fprintf(stderr, "SO_SENDTIMEO failed: %i %i %s\n", ret, errno, strerror(errno));
 			}
 		}
 
@@ -593,32 +595,30 @@ void BulkUpload(Output_t* Out, u32 BufferIndex, u32 BufferCnt, u32 CPUID)
 		u8 Footer[16*1024];
 		u32 FooterPos = 0;
 
+	send_data:
+		HeaderPos = 0; FooterPos = 0;
 		// send trailing line feed
-		sprintf(Footer + FooterPos, "\r\n");
-		FooterPos += strlen(Footer + FooterPos);
+		FooterPos += sprintf(Footer + FooterPos, "\r\n");
 
 		// HTTP request
-		sprintf(Header + HeaderPos, "POST /_bulk HTTP/1.1\r\n"); 
-		HeaderPos += strlen(Header + HeaderPos);
+		HeaderPos += sprintf(Header + HeaderPos, "POST /_bulk HTTP/1.1\r\n");
 
-		sprintf(Header + HeaderPos, "Content-Type: application/x-ndjson\r\n");
-		HeaderPos += strlen(Header + HeaderPos);
+		HeaderPos += sprintf(Header + HeaderPos, "Content-Type: application/x-ndjson\r\n");
 
-		sprintf(Header + HeaderPos, "Content-Length: %i\r\n", BulkLength);
-		HeaderPos += strlen(Header + HeaderPos);
+		HeaderPos += sprintf(Header + HeaderPos, "Connection: keep-alive\r\n");
+
+		HeaderPos += sprintf(Header + HeaderPos, "Content-Length: %i\r\n", BulkLength);
 
 		if (Out->IsCompress)
 		{
-			sprintf(Header + HeaderPos, "Content-Encoding: gzip\r\n");
-			HeaderPos += strlen(Header + HeaderPos);
+			HeaderPos += sprintf(Header + HeaderPos, "Content-Encoding: gzip\r\n");
 		}
 
 		// no footer for compressed data 
-		sprintf(Header + HeaderPos, "\r\n");
-		HeaderPos += strlen(Header + HeaderPos);
+		HeaderPos += sprintf(Header + HeaderPos, "\r\n");
 
 		// send header
-		int hlen = SendBuffer(Sock, Header, HeaderPos);
+		int hlen = SendBuffer(T->Sock, Header, HeaderPos);
 		assert(hlen == HeaderPos);
 
 		// send body for all blocks
@@ -626,7 +626,7 @@ void BulkUpload(Output_t* Out, u32 BufferIndex, u32 BufferCnt, u32 CPUID)
 		{
 			Buffer_t* B = &Out->BufferList[ (BufferIndex + i) & Out->BufferMask];	
 
-			int blen = SendBuffer(Sock, B->Buffer, B->BufferPos);
+			int blen = SendBuffer(T->Sock, B->Buffer, B->BufferPos);
 			if (blen != B->BufferPos)
 			{
 				printf("ERROR: Send %i %i : %i %i\n", blen, B->BufferPos, i, BufferCnt);
@@ -636,7 +636,7 @@ void BulkUpload(Output_t* Out, u32 BufferIndex, u32 BufferCnt, u32 CPUID)
 		}
 
 		// send footer 
-		int flen = SendBuffer(Sock, Footer, FooterPos);
+		int flen = SendBuffer(T->Sock, Footer, FooterPos);
 		assert(flen == FooterPos);
 
 		// update stats
@@ -664,7 +664,7 @@ void BulkUpload(Output_t* Out, u32 BufferIndex, u32 BufferCnt, u32 CPUID)
 		while (RecvBufferLen < RecvBufferMax)
 		{
 			//printf("recv: %i %i\n", RecvBufferLen, TotalLength);
-			int rlen = recv(Sock, RecvBuffer + RecvBufferLen, TotalLength - RecvBufferLen, 0);
+			int rlen = recv(T->Sock, RecvBuffer + RecvBufferLen, TotalLength - RecvBufferLen, 0);
 			if (rlen <= 0) break;
 
 			// if content length has been parsed yet
@@ -768,10 +768,19 @@ void BulkUpload(Output_t* Out, u32 BufferIndex, u32 BufferCnt, u32 CPUID)
 				//Hexdump("Raw",		B->Buffer, 	B->BufferPos);
 				Hexdump("Footer",   Footer, 	FooterPos);
 			}	
+			printf("[%lu] error on socket, closing socket fd: %d\n", pthread_self(), T->Sock);
+			close(T->Sock);
+			T->Sock = -1;
 		}
-
-		// shutdown the socket	
-		close(Sock);
+		{
+			// read all the data from Sock otherwise it may hurt the subsequent send
+			u8 tmp[10240];
+			while (1)
+			{
+				int rlen = recv(T->Sock, tmp, sizeof(tmp), 0);
+				if (rlen <= 0) break;
+			}
+		}
 	}
 
 	u64 TSC3 = rdtsc();
@@ -961,7 +970,8 @@ u64 Output_BufferAdd(Output_t* Out, u8* Buffer, u32 BufferLen, u32 LineCnt)
 
 static void* Output_Worker(void * user)
 {
-	Output_t* Out = (Output_t*)user;
+	ThreadData_t *T = (ThreadData_t *)user;
+	Output_t* Out = T->Out;
 
 	// allocate a CPU number
 	u32 CPUID = __sync_fetch_and_add(&Out->CPUActiveCnt, 1);
@@ -1013,7 +1023,7 @@ static void* Output_Worker(void * user)
 				u64 TSC2 = rdtsc();
 
 				// output multiple blocks
-				BulkUpload(Out, BufferBase, BufferCnt, CPUID);
+				BulkUpload(T, BufferBase, BufferCnt, CPUID);
 
 				u64 TSC3 = rdtsc(); 
 				Out->WorkerTSCTop[CPUID] += TSC3 - TSC2;
@@ -1023,6 +1033,7 @@ static void* Output_Worker(void * user)
 		u64 TSC1 = rdtsc(); 
 		Out->WorkerTSCTotal[CPUID] += TSC1 - TSC0;
 	}
+	close(T->Sock);
 	return NULL;
 }
 

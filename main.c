@@ -101,7 +101,7 @@ bool			g_Output_ESPush		= false;			// direct ES HTTP Push
 u32				g_Output_BufferCnt	= 64;				// number of output buffers
 
 u32				g_ESHostCnt 		= 0;				// number of active ES Hosts
-u32				g_ESTimeout 		= 2000;				// ES host connect/read/write timeout value in milliseconds
+u32				g_ESTimeout 		= 10000;				// ES host connect/read/write timeout value in milliseconds
 ESHost_t		g_ESHost[128];							// list fo ES Hosts to output to
 bool			g_ESCompress		= false;			// elastic push enable compression 
 bool			g_ESNULL			= false;			// ues ES NULL Host 
