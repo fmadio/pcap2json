@@ -1034,6 +1034,7 @@ static void* Output_Worker(void * user)
 		Out->WorkerTSCTotal[CPUID] += TSC1 - TSC0;
 	}
 	close(T->Sock);
+	free(T);
 	return NULL;
 }
 
