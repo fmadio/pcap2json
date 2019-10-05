@@ -81,6 +81,13 @@ typedef struct
 
 } Buffer_t;
 
+typedef struct OutputThread_t
+{
+	int Sock;													// Thread specific ES server connection socket fd
+	void* Out;													// Output_t structure reference pointer
+} OutputThread_t;
+
+
 typedef struct Output_t
 {
 	volatile u32		BufferPut;								// buffers current put 
@@ -120,6 +127,7 @@ typedef struct Output_t
 
 	bool				IsCompress;								// enable compression
 
+	OutputThread_t		OutputThread[128];						// thread specific data
 	pthread_t   		PushThread[128];						// worker thread list
 
 	volatile u32		CPUActiveCnt;							// total number of active cpus
@@ -131,12 +139,6 @@ typedef struct Output_t
 	volatile u64		WorkerTSCRecv[128];						// cycles spent for tcp recv
 
 } Output_t;
-
-typedef struct ThreadData_t
-{
-	int Sock;													// Thread specific ES server connection socket fd
-	Output_t* Out;												// Output_t structure reference pointer
-} ThreadData_t;
 
 static void* Output_Worker(void * user);
 
@@ -324,10 +326,9 @@ Output_t* Output_Create(bool IsNULL,
 	u32 CPUCnt 	= 0;
 	for (int i=0; i < 32; i++)
 	{
-		ThreadData_t *T = malloc(sizeof(ThreadData_t));
-		T->Out = O;
-		T->Sock = -1;
-		pthread_create(&O->PushThread[i], NULL, Output_Worker, (void*)T);
+		O->OutputThread[i].Sock = -1;
+		O->OutputThread[i].Out  = O;
+		pthread_create(&O->PushThread[i], NULL, Output_Worker, (void*)&O->OutputThread[i]);
 		CPUCnt++;
 	}
 	for (int i=0; i < CPUCnt; i++)
@@ -439,11 +440,59 @@ static u32 FindESHostPos(Output_t* Out)
 	return ESHostPos;
 }
 
+static int ConnectToES(u8* IPAddress, u32 Port)
+{
+		int Sock = socket(AF_INET, SOCK_STREAM, 0);
+		assert(Sock > 0);
+
+		// listen address
+		struct sockaddr_in	BindAddr;					// bind address for acks
+		memset((char *) &BindAddr, 0, sizeof(BindAddr));
+
+		BindAddr.sin_family 		= AF_INET;
+		BindAddr.sin_port 			= htons(Port);
+		BindAddr.sin_addr.s_addr 	= inet_addr(IPAddress);
+
+		// connect call should not hang for longer duration
+		struct timeval tv = { g_ESTimeout / 1000, (g_ESTimeout % 1000)*1000 }; // 2 seconds
+		setsockopt(Sock, SOL_SOCKET, SO_RCVTIMEO, (struct timeval *)&tv, sizeof(struct timeval));
+		setsockopt(Sock, SOL_SOCKET, SO_SNDTIMEO, (struct timeval *)&tv, sizeof(struct timeval));
+
+		// retry connection a few times
+		int ret = -1;
+		for (int r=0; r < 10; r++)
+		{
+			//bind socket to port
+			ret = connect(Sock, (struct sockaddr*)&BindAddr, sizeof(BindAddr));
+			if (ret >= 0) break;
+
+			fprintf(stderr, "Connection to [%s:%i] timed out... retry\n", IPAddress, Port);
+
+			// connection timed out
+			usleep(100e3);
+		}
+		if (ret < 0)
+		{
+			fprintf(stderr, "connect failed: %i %i : %s : %s:%i\n", ret, errno, strerror(errno), IPAddress, Port);
+			close(Sock);
+			return -1;
+		}
+
+		// set timeout for connect
+		int timeout = g_ESTimeout;  // user timeout in milliseconds [ms]
+		ret = setsockopt (Sock, SOL_TCP, TCP_USER_TIMEOUT, (char*) &timeout, sizeof (timeout));
+		if (ret < 0)
+		{
+			fprintf(stderr, "TCP_USER_TIMEOUT failed: %i %i %s\n", ret, errno, strerror(errno));
+		}
+		return Sock;
+}
+
 //-------------------------------------------------------------------------------------------
 // directly push the json data to ES
-void BulkUpload(ThreadData_t *T, u32 BufferIndex, u32 BufferCnt, u32 CPUID)
+void BulkUpload(OutputThread_t *T, u32 BufferIndex, u32 BufferCnt, u32 CPUID)
 {
-	Output_t* Out	= T->Out;
+	Output_t* Out	= (Output_t*)T->Out;
 	u32 ESHostPos	= FindESHostPos(Out);
 	u8* IPAddress	= Out->ESHostName[ESHostPos];
 	u32 Port 		= Out->ESHostPort[ESHostPos];
@@ -533,58 +582,18 @@ void BulkUpload(ThreadData_t *T, u32 BufferIndex, u32 BufferCnt, u32 CPUID)
 	// not null es host
 	if (!s_IsESNULL)
 	{
-		if (T->Sock > 0)
+		int error = 0;
+		socklen_t len = sizeof (error);
+
+		// check error on existing socket, otherwise create new socket
+		if (T->Sock < 0 || getsockopt(T->Sock, SOL_SOCKET, SO_ERROR, &error, &len) != 0 || error != 0)
 		{
-			int error = 0;
-			socklen_t len = sizeof (error);
-			//printf("[%lu] Using fd: %d\n", pthread_self(), Sock);
-			if (getsockopt(T->Sock, SOL_SOCKET, SO_ERROR, &error, &len) == 0 && error == 0)
-				goto send_data;
-			close(T->Sock);
-		}
-		T->Sock = socket(AF_INET, SOCK_STREAM, 0);
-		assert(T->Sock > 0);
-		
-		// listen address 
-		struct sockaddr_in	BindAddr;					// bind address for acks
-		memset((char *) &BindAddr, 0, sizeof(BindAddr));
-
-		BindAddr.sin_family 		= AF_INET;
-		BindAddr.sin_port 			= htons(Port);
-		BindAddr.sin_addr.s_addr 	= inet_addr(IPAddress);
-
-		// connect call should not hang for longer duration
-		struct timeval tv = { g_ESTimeout / 1000, (g_ESTimeout % 1000)*1000 }; // 2 seconds
-		setsockopt(T->Sock, SOL_SOCKET, SO_RCVTIMEO, (struct timeval *)&tv, sizeof(struct timeval));
-		setsockopt(T->Sock, SOL_SOCKET, SO_SNDTIMEO, (struct timeval *)&tv, sizeof(struct timeval));
-
-		// retry connection a few times 
-		int ret = -1;
-		for (int r=0; r < 10; r++)
-		{
-			//bind socket to port
-			ret = connect(T->Sock, (struct sockaddr*)&BindAddr, sizeof(BindAddr));
-			if (ret >= 0) break;
-
-			fprintf(stderr, "Connection to [%s:%i] timed out... retry\n", IPAddress, Port);
-
-			// connection timed out
-			usleep(100e3);
-		}
-		if (ret < 0)
-		{
-			fprintf(stderr, "connect failed: %i %i : %s : %s:%i\n", ret, errno, strerror(errno), IPAddress, Port); 
-			Out->ESHostIsNotWorking[ESHostPos]	= 1;
-			goto cleanup;
-		}
-
-		// set timeout for connect 
-		{
-			int timeout = g_ESTimeout;  // user timeout in milliseconds [ms]
-			ret = setsockopt (T->Sock, SOL_TCP, TCP_USER_TIMEOUT, (char*) &timeout, sizeof (timeout));
-			if (ret < 0)
+			if (T->Sock > 0) close(T->Sock);
+			T->Sock = ConnectToES(IPAddress, Port);
+			if (T->Sock == -1)
 			{
-				fprintf(stderr, "TCP_USER_TIMEOUT failed: %i %i %s\n", ret, errno, strerror(errno));
+				Out->ESHostIsNotWorking[ESHostPos]  = 1;
+				goto cleanup;
 			}
 		}
 
@@ -595,8 +604,6 @@ void BulkUpload(ThreadData_t *T, u32 BufferIndex, u32 BufferCnt, u32 CPUID)
 		u8 Footer[16*1024];
 		u32 FooterPos = 0;
 
-	send_data:
-		HeaderPos = 0; FooterPos = 0;
 		// send trailing line feed
 		FooterPos += sprintf(Footer + FooterPos, "\r\n");
 
@@ -970,8 +977,8 @@ u64 Output_BufferAdd(Output_t* Out, u8* Buffer, u32 BufferLen, u32 LineCnt)
 
 static void* Output_Worker(void * user)
 {
-	ThreadData_t *T = (ThreadData_t *)user;
-	Output_t* Out = T->Out;
+	OutputThread_t *T = (OutputThread_t *)user;
+	Output_t* Out = (Output_t*)T->Out;
 
 	// allocate a CPU number
 	u32 CPUID = __sync_fetch_and_add(&Out->CPUActiveCnt, 1);
@@ -1034,7 +1041,6 @@ static void* Output_Worker(void * user)
 		Out->WorkerTSCTotal[CPUID] += TSC1 - TSC0;
 	}
 	close(T->Sock);
-	free(T);
 	return NULL;
 }
 
