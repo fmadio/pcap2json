@@ -436,6 +436,9 @@ static void Hexdump(u8* Desc, u8* Buffer, s32 Length)
 // calcuuated the next ES Host to send bulk updload to
 static u32 FindESHostPos(Output_t* Out)
 {
+	// case of --es-null where no outputs are specified
+	if (Out->ESHostCnt == 0) return 0;
+
 	sync_lock(&Out->ESHostLock, 50);
 	u32 ESHostPos	= Out->ESHostPos;
 	Out->ESHostPos	= (Out->ESHostPos + 1) % Out->ESHostCnt;
