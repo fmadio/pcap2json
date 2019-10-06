@@ -1,4 +1,3 @@
-//---------------------------------------------------------------------------------------------
 //
 // Copyright (c) 2018 fmad engineering llc 
 //
@@ -22,6 +21,15 @@
 // [05:54:51.704.135.799] In:5.327 GB 10.77 Mpps 5.51 Gbps PCAP:  14.88 Gbps | Out 0.00002 GB Flows/Snap:      2 FlowCPU:1.00 | ESPush:     0   0.01K ESErr    0 | OutCPU: 0.00 (0.00)
 // [05:54:52.073.885.145] In:5.968 GB 10.75 Mpps 5.50 Gbps PCAP:  14.88 Gbps | Out 0.00002 GB Flows/Snap:      2 FlowCPU:1.00 | ESPush:     0   0.01K ESErr    0 | OutCPU: 0.00 (0.00)
 // [05:54:52.445.099.551] In:6.611 GB 10.79 Mpps 5.52 Gbps PCAP:  14.88 Gbps | Out 0.00003 GB Flows/Snap:      2 FlowCPU:1.00 | ESPush:     0   0.01K ESErr    0 | OutCPU: 0.00 (0.00)
+
+// --shmring
+// Ingress TotalPkt:86788192 TotalCapture:15348760584 TotalWire:98697500569    
+
+// --chunked
+// Ingress TotalPkt:86788192 TotalCapture:15348760584 TotalWire:98697500569 PayloadCRC:2a1fbc88 
+
+// Ingress TotalPkt:86780961 TotalCapture:15346677399 TotalWire:98611504825 PayloadCRC:23ec2c6e  -- shm
+// Ingress TotalPkt:86780961 TotalCapture:15346677399 TotalWire:98611504825 PayloadCRC:2319d85f  -- chunk
 //
 //---------------------------------------------------------------------------------------------
 
@@ -66,7 +74,9 @@ typedef struct
 	volatile u64	Get;					// location of reader 
 	u64				Mask;					// mask of buffer
 	u64				Max;					// mask of buffer
+
 	volatile u64	End;					// end of the capture stream
+
 	volatile u64	HBGetTSC;				// heart beat for consumer 
 	volatile u64	HBPutTSC;				// heart beat for producer 
 
@@ -801,6 +811,7 @@ int main(int argc, u8* argv[])
 		assert(SHMRingHeader->Version == OUTPUT_VERSION_1_00);
 
 		// reset get heade
+		assert(sizeof(OutputHeader_t) == 8*16*2);
 		SHMRingData	= (u8*)(SHMRingHeader + 1);
 
 		fprintf(stderr, "SHM Initial State Put:%08x Get:%08x\n", SHMRingHeader->Get, SHMRingHeader->Put);
@@ -833,6 +844,8 @@ int main(int argc, u8* argv[])
 	u64 PacketTSLastSample = 0;
 	u64 DecodeTimeLast 	= 0;
 	u64 DecodeTimeTSC 	= 0;
+
+	u32 PayloadCRC		= 0;
 
 
 	while (!feof(FileIn))
@@ -1022,6 +1035,11 @@ int main(int argc, u8* argv[])
 				break;
 			}
 
+			for (int i=0; i < Header.Length; i++)
+			{
+				PayloadCRC += PktBlock->Buffer[i];
+			}
+
 			PktCnt		= Header.PktCnt; 
 			ByteWire	= Header.BytesWire;
 			ByteCapture	= Header.BytesCapture;
@@ -1055,9 +1073,10 @@ int main(int argc, u8* argv[])
 				// update consumer HB
 				SHMRingHeader->HBGetTSC = rdtsc();
 
-				// check producer is alive still
+				// check producer is alive still & producer did not
+				// exit due to end of stream
 				s64 dTSC = rdtsc() - SHMRingHeader->HBPutTSC;
-				if (dTSC > 10e9)
+				if ((dTSC > 10e9) && (SHMRingHeader->End == -1))
 				{
 					fprintf(stderr, "producer timeout: %lli\n", dTSC);
 					IsExit = true;
@@ -1097,7 +1116,27 @@ int main(int argc, u8* argv[])
 			Offset		= Header->Length;
 
 			// copy to local buffer
+			assert(Header->Length < PktBlock->BufferMax);
 	 		memcpy(PktBlock->Buffer, Header + 1, Header->Length);
+
+			/*
+			u32 CRC = 0;
+			u8* D8 = (u8*)(Header + 1);
+			for (int i=0; i < Header->Length; i++)
+			{
+				//CRC += PktBlock->Buffer[i];
+
+				CRC += D8[i]; 
+			}
+
+			//u16 CRC16 = (CRC & 0xffff) ^ (CRC >> 16); 
+			//if (CRC16 != Header->CRC16)
+			//{
+			//	fprintf(stderr, "CRC16 error Found:%04x Expect %04x Length:%i Put:%08x Get:%08x\n", CRC16, Header->CRC16, Header->Length, SHMRingHeader->Put, SHMRingHeader->Get);
+			//	assert(false);
+			//}
+			PayloadCRC += CRC;
+			*/
 
 			// copy stream cat stats
 			s_StreamCAT_BytePending = Header->BytePending;
@@ -1169,6 +1208,7 @@ int main(int argc, u8* argv[])
 
 	float PCAPWallTime = (PacketTSLast - PacketTSFirst) / 1e9;
 	fprintf(stderr, "PCAPWall time: %.2f sec ProcessTime %.2f sec (%.3f)\n", PCAPWallTime, dT, dT / PCAPWallTime);
+	fprintf(stderr, "Ingress TotalPkt:%lli TotalCapture:%lli TotalWire:%lli PayloadCRC:%08x\n", s_TotalPkt, s_TotalByteCapture, s_TotalByteWire, PayloadCRC); 
 
 	fprintf(stderr, "Total Time: %.2f sec RawInput[Wire %.3f Gbps Capture %.3f Gbps %.3f Mpps] Output[%.3f Gbps] TotalLine:%lli %.f Line/Sec\n", 
 			dT, 
@@ -1179,6 +1219,7 @@ int main(int argc, u8* argv[])
 			obps / 1e9, 
 			TotalLine, 
 			lps); 
+	fprintf(stderr, "SHMRing Put %i Get %i\n", SHMRingHeader->Put, SHMRingHeader->Get);
 }
 
 /* vim: set ts=4 sts=4 */

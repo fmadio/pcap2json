@@ -1949,7 +1949,7 @@ void Flow_PacketQueue(PacketBuffer_t* Pkt)
 		{
 			//ndelay(250);
 			usleep(0);
-			assert(Timeout++ < 1e9);
+//			assert(Timeout++ < 1e9);
 		}
 		fProfile_Stop(9);
 
