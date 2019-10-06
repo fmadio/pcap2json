@@ -1076,7 +1076,7 @@ int main(int argc, u8* argv[])
 				// check producer is alive still & producer did not
 				// exit due to end of stream
 				s64 dTSC = rdtsc() - SHMRingHeader->HBPutTSC;
-				if ((dTSC > 10e9) && (SHMRingHeader->End == -1))
+				if ((dTSC > 60e9) && (SHMRingHeader->End == -1))
 				{
 					fprintf(stderr, "producer timeout: %lli\n", dTSC);
 					IsExit = true;
