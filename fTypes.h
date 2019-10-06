@@ -646,7 +646,7 @@ typedef struct FMADPacket_t
 typedef struct FMADHeader_t
 {
 	u16				PktCnt;					// number of packets
-	u16				pad0;
+	u16				CRC16;
 
 	u32				BytesWire;				// total wire bytes  
 	u32				BytesCapture;			// total capture bytes 

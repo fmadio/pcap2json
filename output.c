@@ -28,6 +28,21 @@
 // sudo stream_cat --chunked --pktslice 72 --cpu 13 interop17_20190202_0902 | ./pcap2json  --config /mnt/store0/etc/pcap2json.config | wc -l
 // total lines 2730178 
 //
+// 2019/10/06:
+//
+// --output-null (stdin non chunked)
+//   Total Time: 283.36 sec RawInput[Wire 0.034 Gbps Capture 0.034 Gbps 0.046 Mpps] Output[0.000 Gbps] TotalLine:1345265 4748 Line/Sec 
+//   Total Time: 281.77 sec RawInput[Wire 0.034 Gbps Capture 0.034 Gbps 0.047 Mpps] Output[0.000 Gbps] TotalLine:1345265 4774 Line/Sec 
+//
+// --output-null (chunked)
+//   Total Time: 25.41 sec RawInput[Wire 31.051 Gbps Capture 4.832 Gbps 3.416 Mpps] Output[0.000 Gbps] TotalLine:1404882 55296 Line/Sec
+//   Total Time: 25.87 sec RawInput[Wire 30.493 Gbps Capture 4.746 Gbps 3.354 Mpps] Output[0.000 Gbps] TotalLine:1404882 54302 Line/Sec
+//
+// --output-null (shmring)
+//   Total Time: 22.39 sec RawInput[Wire 35.231 Gbps Capture 5.483 Gbps 3.876 Mpps] Output[0.000 Gbps] TotalLine:1404882 62741 Line/Sec    
+//   Total Time: 22.64 sec RawInput[Wire 34.852 Gbps Capture 5.424 Gbps 3.834 Mpps] Output[0.000 Gbps] TotalLine:1404882 62066 Line/Sec 
+
+//
 //---------------------------------------------------------------------------------------------
 
 #include <stdio.h>
@@ -83,8 +98,8 @@ typedef struct
 
 typedef struct OutputThread_t
 {
-	int Sock;													// Thread specific ES server connection socket fd
-	void* Out;													// Output_t structure reference pointer
+	int 			Sock;										// Thread specific ES server connection socket fd
+	void* 			Out;										// Output_t structure reference pointer
 } OutputThread_t;
 
 
@@ -418,8 +433,13 @@ static void Hexdump(u8* Desc, u8* Buffer, s32 Length)
 	fprintf(stderr, "\n");
 }
 
+//-------------------------------------------------------------------------------------------
+// calcuuated the next ES Host to send bulk updload to
 static u32 FindESHostPos(Output_t* Out)
 {
+	// case of --es-null where no outputs are specified
+	if (Out->ESHostCnt == 0) return 0;
+
 	sync_lock(&Out->ESHostLock, 50);
 	u32 ESHostPos	= Out->ESHostPos;
 	Out->ESHostPos	= (Out->ESHostPos + 1) % Out->ESHostCnt;
@@ -441,52 +461,54 @@ static u32 FindESHostPos(Output_t* Out)
 	return ESHostPos;
 }
 
+//-------------------------------------------------------------------------------------------
+// Connect tcp socket to the specified ES host 
 static int ConnectToES(u8* IPAddress, u32 Port)
 {
-		int Sock = socket(AF_INET, SOCK_STREAM, 0);
-		assert(Sock > 0);
+	int Sock = socket(AF_INET, SOCK_STREAM, 0);
+	assert(Sock > 0);
 
-		// listen address
-		struct sockaddr_in	BindAddr;					// bind address for acks
-		memset((char *) &BindAddr, 0, sizeof(BindAddr));
+	// listen address
+	struct sockaddr_in	BindAddr;					// bind address for acks
+	memset((char *) &BindAddr, 0, sizeof(BindAddr));
 
-		BindAddr.sin_family 		= AF_INET;
-		BindAddr.sin_port 			= htons(Port);
-		BindAddr.sin_addr.s_addr 	= inet_addr(IPAddress);
+	BindAddr.sin_family 		= AF_INET;
+	BindAddr.sin_port 			= htons(Port);
+	BindAddr.sin_addr.s_addr 	= inet_addr(IPAddress);
 
-		// connect call should not hang for longer duration
-		struct timeval tv = { g_ESTimeout / 1000, (g_ESTimeout % 1000)*1000 }; // 2 seconds
-		setsockopt(Sock, SOL_SOCKET, SO_RCVTIMEO, (struct timeval *)&tv, sizeof(struct timeval));
-		setsockopt(Sock, SOL_SOCKET, SO_SNDTIMEO, (struct timeval *)&tv, sizeof(struct timeval));
+	// connect call should not hang for longer duration
+	struct timeval tv = { g_ESTimeout / 1000, (g_ESTimeout % 1000)*1000 }; // 2 seconds
+	setsockopt(Sock, SOL_SOCKET, SO_RCVTIMEO, (struct timeval *)&tv, sizeof(struct timeval));
+	setsockopt(Sock, SOL_SOCKET, SO_SNDTIMEO, (struct timeval *)&tv, sizeof(struct timeval));
 
-		// retry connection a few times
-		int ret = -1;
-		for (int r=0; r < 10; r++)
-		{
-			//bind socket to port
-			ret = connect(Sock, (struct sockaddr*)&BindAddr, sizeof(BindAddr));
-			if (ret >= 0) break;
+	// retry connection a few times
+	int ret = -1;
+	for (int r=0; r < 10; r++)
+	{
+		//bind socket to port
+		ret = connect(Sock, (struct sockaddr*)&BindAddr, sizeof(BindAddr));
+		if (ret >= 0) break;
 
-			fprintf(stderr, "Connection to [%s:%i] timed out... retry\n", IPAddress, Port);
+		fprintf(stderr, "Connection to [%s:%i] timed out... retry\n", IPAddress, Port);
 
-			// connection timed out
-			usleep(100e3);
-		}
-		if (ret < 0)
-		{
-			fprintf(stderr, "connect failed: %i %i : %s : %s:%i\n", ret, errno, strerror(errno), IPAddress, Port);
-			close(Sock);
-			return -1;
-		}
+		// connection timed out
+		usleep(100e3);
+	}
+	if (ret < 0)
+	{
+		fprintf(stderr, "connect failed: %i %i : %s : %s:%i\n", ret, errno, strerror(errno), IPAddress, Port);
+		close(Sock);
+		return -1;
+	}
 
-		// set timeout for connect
-		int timeout = g_ESTimeout;  // user timeout in milliseconds [ms]
-		ret = setsockopt (Sock, SOL_TCP, TCP_USER_TIMEOUT, (char*) &timeout, sizeof (timeout));
-		if (ret < 0)
-		{
-			fprintf(stderr, "TCP_USER_TIMEOUT failed: %i %i %s\n", ret, errno, strerror(errno));
-		}
-		return Sock;
+	// set timeout for connect
+	int timeout = g_ESTimeout;  // user timeout in milliseconds [ms]
+	ret = setsockopt (Sock, SOL_TCP, TCP_USER_TIMEOUT, (char*) &timeout, sizeof (timeout));
+	if (ret < 0)
+	{
+		fprintf(stderr, "TCP_USER_TIMEOUT failed: %i %i %s\n", ret, errno, strerror(errno));
+	}
+	return Sock;
 }
 
 //-------------------------------------------------------------------------------------------
@@ -494,9 +516,6 @@ static int ConnectToES(u8* IPAddress, u32 Port)
 void BulkUpload(OutputThread_t *T, u32 BufferIndex, u32 BufferCnt, u32 CPUID)
 {
 	Output_t* Out	= (Output_t*)T->Out;
-	u32 ESHostPos	= FindESHostPos(Out);
-	u8* IPAddress	= Out->ESHostName[ESHostPos];
-	u32 Port 		= Out->ESHostPort[ESHostPos];
 
 	// output buffer
 	u32 RawLength	 	= 0; 
@@ -583,6 +602,11 @@ void BulkUpload(OutputThread_t *T, u32 BufferIndex, u32 BufferCnt, u32 CPUID)
 	// not null es host
 	if (!s_IsESNULL)
 	{
+		// work out which is the next ES Host
+		u32 ESHostPos	= FindESHostPos(Out);
+		u8* IPAddress	= Out->ESHostName[ESHostPos];
+		u32 Port 		= Out->ESHostPort[ESHostPos];
+
 		int error = 0;
 		socklen_t len = sizeof (error);
 
@@ -911,6 +935,7 @@ u64 Output_BufferAdd(Output_t* Out, u8* Buffer, u32 BufferLen, u32 LineCnt)
 	if (Out->FileTXT)
 	{
 		fprintf(Out->FileTXT, Buffer);
+		Out->LineComplete += LineCnt;
 	}
 
 	// push directly to ES
@@ -951,8 +976,6 @@ u64 Output_BufferAdd(Output_t* Out, u8* Buffer, u32 BufferLen, u32 LineCnt)
 			ndelay(100);
 		}
 		TSC1 = rdtsc();
-
-
 
 		// wait for buffer to be fully freeed
 		// as the above flow control is not fully thread safe

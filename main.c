@@ -1,4 +1,3 @@
-//---------------------------------------------------------------------------------------------
 //
 // Copyright (c) 2018 fmad engineering llc 
 //
@@ -22,6 +21,15 @@
 // [05:54:51.704.135.799] In:5.327 GB 10.77 Mpps 5.51 Gbps PCAP:  14.88 Gbps | Out 0.00002 GB Flows/Snap:      2 FlowCPU:1.00 | ESPush:     0   0.01K ESErr    0 | OutCPU: 0.00 (0.00)
 // [05:54:52.073.885.145] In:5.968 GB 10.75 Mpps 5.50 Gbps PCAP:  14.88 Gbps | Out 0.00002 GB Flows/Snap:      2 FlowCPU:1.00 | ESPush:     0   0.01K ESErr    0 | OutCPU: 0.00 (0.00)
 // [05:54:52.445.099.551] In:6.611 GB 10.79 Mpps 5.52 Gbps PCAP:  14.88 Gbps | Out 0.00003 GB Flows/Snap:      2 FlowCPU:1.00 | ESPush:     0   0.01K ESErr    0 | OutCPU: 0.00 (0.00)
+
+// --shmring
+// Ingress TotalPkt:86788192 TotalCapture:15348760584 TotalWire:98697500569    
+
+// --chunked
+// Ingress TotalPkt:86788192 TotalCapture:15348760584 TotalWire:98697500569 PayloadCRC:2a1fbc88 
+
+// Ingress TotalPkt:86780961 TotalCapture:15346677399 TotalWire:98611504825 PayloadCRC:23ec2c6e  -- shm
+// Ingress TotalPkt:86780961 TotalCapture:15346677399 TotalWire:98611504825 PayloadCRC:2319d85f  -- chunk
 //
 //---------------------------------------------------------------------------------------------
 
@@ -66,9 +74,13 @@ typedef struct
 	volatile u64	Get;					// location of reader 
 	u64				Mask;					// mask of buffer
 	u64				Max;					// mask of buffer
+
 	volatile u64	End;					// end of the capture stream
 
-	u64				pad2[16 - 5];
+	volatile u64	HBGetTSC;				// heart beat for consumer 
+	volatile u64	HBPutTSC;				// heart beat for producer 
+
+	u64				pad2[16 - 7];
 
 } OutputHeader_t;
 
@@ -76,9 +88,10 @@ typedef struct
 //---------------------------------------------------------------------------------------------
 // tunables
 bool			g_Verbose			= false;				// verbose print mode
-s32				g_CPUCore[2]		= {14, 12};					// which CPU to run the main flow logic on
-s32				g_CPUFlow[16]		= { 19, 20, 21, 22};	// cpu mapping for flow threads
-s32				g_CPUOutput[16]		= { 25, 26, 27, 28, 25, 26, 27, 28};	// cpu mappings for output threads 
+s32				g_CPUCore[2]		= {14, 12};				// which CPU to run the main flow logic on
+s32				g_CPUFlowCnt		= 4;					// total number of cpus for flow calcuiatoin			
+s32				g_CPUFlow[128]		= { 19, 20, 21, 22};	// cpu mapping for flow threads
+s32				g_CPUOutput[128]	= { 25, 26, 27, 28, 25, 26, 27, 28};	// cpu mappings for output threads 
 
 bool			g_IsJSONPacket		= false;			// output JSON packet format
 bool			g_IsJSONFlow		= false;			// output JSON flow format
@@ -139,40 +152,40 @@ static void help(void)
 	fprintf(stderr, "cat /tmp/test.pcap | pcap2json > test.json\n");
 	fprintf(stderr, "\n");
 	fprintf(stderr, "Command Line Arguments:\n");
-	fprintf(stderr, " --index-name <name>              : capture name to use for ES Index data\n");
-	fprintf(stderr, " --verbose                        : verbose output\n");
-	fprintf(stderr, " --config <confrig file>          : read from config file\n");
+	fprintf(stderr, " --index-name <name>                : capture name to use for ES Index data\n");
+	fprintf(stderr, " --verbose                          : verbose output\n");
+	fprintf(stderr, " --config <confrig file>            : read from config file\n");
 	fprintf(stderr, "\n");
-	fprintf(stderr, " --cpu-core   <cpu no>            : cpu map for core thread\n"); 
-	fprintf(stderr, " --cpu-flow   <cpu0.. cpu3>       : cpu map for flow threads\n"); 
-	fprintf(stderr, " --cpu-output <cpu0 .. cpu3>      : cpu map for output threads\n"); 
+	fprintf(stderr, " --cpu-core   <cpu no>              : cpu map for core thread\n"); 
+	fprintf(stderr, " --cpu-flow   <n> <cpu0.. cpu n-1>  : cpu count and map for flow threads\n"); 
+	fprintf(stderr, " --cpu-output <cpu0 .. cpu3>        : cpu map for output threads\n"); 
 	fprintf(stderr, "\n");
-	fprintf(stderr, " --json-packet                    : write JSON packet data\n");
-	fprintf(stderr, " --json-flow                      : write JSON flow data\n");
+	fprintf(stderr, " --json-packet                      : write JSON packet data\n");
+	fprintf(stderr, " --json-flow                        : write JSON flow data\n");
 	fprintf(stderr, "\n");
 
 	fprintf(stderr, "Output Mode\n");
-	fprintf(stderr, " --output-stdout                  : writes output to STDOUT\n");
-	fprintf(stderr, " --output-espush                  : writes output directly to ES HTTP POST \n");
-	fprintf(stderr, " --output-buffercnt <pow2 cnt>    : number of output buffers (default is 64)\n");
-	fprintf(stderr, " --output-keepalive               : enable keep alive (persistent) ES connection\n");
+	fprintf(stderr, " --output-stdout                    : writes output to STDOUT\n");
+	fprintf(stderr, " --output-espush                    : writes output directly to ES HTTP POST \n");
+	fprintf(stderr, " --output-buffercnt <pow2 cnt>      : number of output buffers (default is 64)\n");
+  fprintf(stderr, " --output-keepalive                 : enable keep alive (persistent) ES connection\n");
 
 	fprintf(stderr, "\n");
 	fprintf(stderr, "Flow specific options\n");
-	fprintf(stderr, " --flow-samplerate <nanos>        : scientific notation flow sample rate. default 100e6 (100msec)\n");
-	fprintf(stderr, " --flow-index-depth <number>      : number of root flow index to allocate defulat 6\n");
-	fprintf(stderr, " --flow-max   <number>            : maximum number of flows (default 250e3)6\n");
-	fprintf(stderr, " --flow-top-n <number>            : only output the top N flows\n"); 
-	fprintf(stderr, " --flow-top-n-circuit <sMAC_dMAC> : output top N flows based on specified src/dest MAC\n"); 
-	fprintf(stderr, " --flow-template \"<template>\"   : Use a customized template for JSON output\n"); 
+	fprintf(stderr, " --flow-samplerate <nanos>          : scientific notation flow sample rate. default 100e6 (100msec)\n");
+	fprintf(stderr, " --flow-index-depth <number>        : number of root flow index to allocate defulat 6\n");
+	fprintf(stderr, " --flow-max   <number>              : maximum number of flows (default 250e3)6\n");
+	fprintf(stderr, " --flow-top-n <number>              : only output the top N flows\n"); 
+	fprintf(stderr, " --flow-top-n-circuit <sMAC_dMAC>   : output top N flows based on specified src/dest MAC\n"); 
+	fprintf(stderr, " --flow-template \"<template>\"     : Use a customized template for JSON output\n"); 
 
 	fprintf(stderr, "\n");
 	fprintf(stderr, "Elastic Stack options\n");
-	fprintf(stderr, " --es-host <hostname:port>        : Sets the ES Hostname\n");
-  fprintf(stderr, " --es-timeout <timeout>           : Sets ES connection timeout in milliseconds (Default: 2000 msec)\n");
-	fprintf(stderr, " --es-compress                    : enables gzip compressed POST\n");
-	fprintf(stderr, " --es-null                        : use ES Null target for perf testing\n");
-	fprintf(stderr, " --es-queue-path                  : ES Output queue is file backed\n");
+	fprintf(stderr, " --es-host <hostname:port>          : Sets the ES Hostname\n");
+	fprintf(stderr, " --es-timeout <timeout>             : Sets ES connection timeout in milliseconds (Default: 2000 msec)\n");
+	fprintf(stderr, " --es-compress                      : enables gzip compressed POST\n");
+	fprintf(stderr, " --es-null                          : use ES Null target for perf testing\n");
+	fprintf(stderr, " --es-queue-path                    : ES Output queue is file backed\n");
 }
 
 //---------------------------------------------------------------------------------------------
@@ -194,18 +207,22 @@ static bool ParseCommandLine(u8* argv[])
 	}
 	if (strcmp(argv[0], "--cpu-flow") == 0)
 	{
-		g_CPUFlow[0] = atoi(argv[1]);
-		g_CPUFlow[1] = atoi(argv[2]);
-		g_CPUFlow[2] = atoi(argv[3]);
-		g_CPUFlow[3] = atoi(argv[4]);
+		// cmd line arg
+		cnt++;
 
-		g_CPUFlow[4] = atoi(argv[5]);
-		g_CPUFlow[5] = atoi(argv[6]);
-		g_CPUFlow[6] = atoi(argv[7]);
-		g_CPUFlow[7] = atoi(argv[8]);
+		// number of cpus allocated to flow calculation
+		g_CPUFlowCnt = atoi(argv[1]);
+		cnt++;
+		fprintf(stderr, "  Flow on CPU (%i) ", g_CPUFlowCnt); 
 
-		fprintf(stderr, "  Flow on CPU %i %i %i %i  %i %i %i %i\n", g_CPUFlow[0], g_CPUFlow[1], g_CPUFlow[2], g_CPUFlow[3], g_CPUFlow[4], g_CPUFlow[5], g_CPUFlow[6], g_CPUFlow[7]);
-		cnt	+= 8 + 1;
+		for (int i=0; i < g_CPUFlowCnt; i++)
+		{
+			g_CPUFlow[i] = atoi(argv[2 + i]);
+			cnt++;
+
+			fprintf(stderr, "%i ", g_CPUFlow[i]); 
+		}
+		fprintf(stderr, "\n");
 	}
 	if (strcmp(argv[0], "--cpu-output") == 0)
 	{
@@ -592,6 +609,7 @@ static void ProfileDump(struct Output_t* Out)
 	u64 FlowCntSnapshot		= 0;
 	u64 PktCntSnapshot 		= 0;
 	u64 FlowCntTotal 		= 0;
+	float FlowDepthMean		= 0;
 	float FlowCPUDecode 	= 0;
 	float FlowCPUHash 		= 0;
 	float FlowCPUOutput 	= 0;
@@ -605,6 +623,7 @@ static void ProfileDump(struct Output_t* Out)
 				&FlowCntSnapshot, 
 				&PktCntSnapshot, 
 				&FlowCntTotal, 
+				&FlowDepthMean, 
 				&FlowCPUDecode, 
 				&FlowCPUHash, 
 				&FlowCPUOutput, 
@@ -684,7 +703,11 @@ int main(int argc, u8* argv[])
 	// print cpu mapping
 	fprintf(stderr, "CPU Mapping\n");
 	fprintf(stderr, "  Core   %i %i\n", g_CPUCore[0], g_CPUCore[1]);
-	fprintf(stderr, "  Flow   %i %i %i %i %i %i %i %i\n", g_CPUFlow[0], g_CPUFlow[1], g_CPUFlow[2], g_CPUFlow[3], g_CPUFlow[4], g_CPUFlow[5], g_CPUFlow[6], g_CPUFlow[7]);
+
+	fprintf(stderr, "  Flow   (%i) ", g_CPUFlowCnt);
+	for (int i=0; i < g_CPUFlowCnt; i++) fprintf(stderr, "%i ", g_CPUFlow[i]);
+	fprintf(stderr, "\n");
+
 	fprintf(stderr, "  Output %i %i %i %i\n", g_CPUOutput[0], g_CPUOutput[1], g_CPUOutput[2], g_CPUOutput[3]);
 
 	// set cpu affinity
@@ -796,6 +819,7 @@ int main(int argc, u8* argv[])
 		assert(SHMRingHeader->Version == OUTPUT_VERSION_1_00);
 
 		// reset get heade
+		assert(sizeof(OutputHeader_t) == 8*16*2);
 		SHMRingData	= (u8*)(SHMRingHeader + 1);
 
 		fprintf(stderr, "SHM Initial State Put:%08x Get:%08x\n", SHMRingHeader->Get, SHMRingHeader->Put);
@@ -816,7 +840,7 @@ int main(int argc, u8* argv[])
 	}
 
 	// init flow state
-	Flow_Open(Out, g_CPUFlow, g_FlowIndexDepth, g_FlowMax, g_FlowTemplate);
+	Flow_Open(Out, g_CPUFlowCnt, g_CPUFlow, g_FlowIndexDepth, g_FlowMax, g_FlowTemplate);
 
 	u64 PacketTSFirst 	= 0;
 	u64 PacketTSLast  	= 0;
@@ -828,6 +852,8 @@ int main(int argc, u8* argv[])
 	u64 PacketTSLastSample = 0;
 	u64 DecodeTimeLast 	= 0;
 	u64 DecodeTimeTSC 	= 0;
+
+	u32 PayloadCRC		= 0;
 
 
 	while (!feof(FileIn))
@@ -866,9 +892,10 @@ int main(int argc, u8* argv[])
 
 			u64 FlowCntSnapshot;	
 			float FlowCPU;
-			Flow_Stats(false, &FlowCntSnapshot, NULL, NULL, &FlowCPU, NULL, NULL, NULL, NULL, NULL, NULL, NULL);
+			float FlowDepthMedian;
+			Flow_Stats(false, &FlowCntSnapshot, NULL, NULL, &FlowDepthMedian, &FlowCPU, NULL, NULL, NULL, NULL, NULL, NULL, NULL);
 
-			fprintf(stderr, "[%s] %.3f/%.3f GB %.2f Mpps %.2f Gbps | cat %6.f MB %.2f %.2f %.2f | Flows/Snap: %6i FlowCPU:%.2f | ESPush:%6lli %6.2fK ESErr %4lli | OutCPU:%.2f OutPush: %.2f MB OutQueue:%6.1fMB %.3f Gbps\n", 
+			fprintf(stderr, "[%s] %.3f/%.3f GB %.2f Mpps %.2f Gbps | cat %6.f MB %.2f %.2f %.2f | Flows/Snap: %6i:%4.f FlowCPU:%.2f | ESPush:%6lli %6.2fK ESErr %4lli | OutCPU:%.2f OutPush: %.2f MB OutQueue:%6.1fMB %.3f Gbps\n", 
 
 								FormatTS(PacketTSLast),
 
@@ -883,6 +910,7 @@ int main(int argc, u8* argv[])
 								s_StreamCAT_CPUSend,
 
 								FlowCntSnapshot, 
+								FlowDepthMedian,
 								FlowCPU,
 								Output_ESPushCnt(Out),
 								lps/1e3,
@@ -1015,6 +1043,11 @@ int main(int argc, u8* argv[])
 				break;
 			}
 
+			for (int i=0; i < Header.Length; i++)
+			{
+				PayloadCRC += PktBlock->Buffer[i];
+			}
+
 			PktCnt		= Header.PktCnt; 
 			ByteWire	= Header.BytesWire;
 			ByteCapture	= Header.BytesCapture;
@@ -1039,28 +1072,47 @@ int main(int argc, u8* argv[])
 
 		if (IsFMADRING)
 		{
-
 			fProfile_Start(5, "PacketFetch_Ring");
 
 			// wait foe new data
 			bool IsExit = false;
-			while (SHMRingHeader->Get == SHMRingHeader->Put)
+			do
 			{
+				// update consumer HB
+				SHMRingHeader->HBGetTSC = rdtsc();
+
+				// check producer is alive still & producer did not
+				// exit due to end of stream
+				s64 dTSC = rdtsc() - SHMRingHeader->HBPutTSC;
+				if ((dTSC > 60e9) && (SHMRingHeader->End == -1))
+				{
+					fprintf(stderr, "producer timeout: %lli\n", dTSC);
+					IsExit = true;
+					break;
+				}
+
+				// there is data
+				if (SHMRingHeader->Get != SHMRingHeader->Put) break;
+
+				// check for end of stream
 				if (SHMRingHeader->End == SHMRingHeader->Get)
 				{
 					fprintf(stderr, "end of capture End:%08x Put:%08x Get:%08x\n", SHMRingHeader->End, SHMRingHeader->Put, SHMRingHeader->Get);
 					IsExit = true;
 					break;
 				}
+
+				// wait a bit for a block to become ready
 				//usleep(0);
-				ndelay(100);
-			}
+				ndelay(250);
+
+			} while (SHMRingHeader->Get == SHMRingHeader->Put);
+
 			fProfile_Stop(5);
 
 			if (IsExit) break;
 
 			// get the chunk header info
-
 			u32 Index 	= SHMRingHeader->Get & SHMRingHeader->Mask;	
 			FMADHeader_t* Header = (FMADHeader_t*)(SHMRingData + Index * SHMRingHeader->ChunkSize);
 
@@ -1072,14 +1124,33 @@ int main(int argc, u8* argv[])
 			Offset		= Header->Length;
 
 			// copy to local buffer
+			assert(Header->Length < PktBlock->BufferMax);
 	 		memcpy(PktBlock->Buffer, Header + 1, Header->Length);
+
+			/*
+			u32 CRC = 0;
+			u8* D8 = (u8*)(Header + 1);
+			for (int i=0; i < Header->Length; i++)
+			{
+				//CRC += PktBlock->Buffer[i];
+
+				CRC += D8[i]; 
+			}
+
+			//u16 CRC16 = (CRC & 0xffff) ^ (CRC >> 16); 
+			//if (CRC16 != Header->CRC16)
+			//{
+			//	fprintf(stderr, "CRC16 error Found:%04x Expect %04x Length:%i Put:%08x Get:%08x\n", CRC16, Header->CRC16, Header->Length, SHMRingHeader->Put, SHMRingHeader->Get);
+			//	assert(false);
+			//}
+			PayloadCRC += CRC;
+			*/
 
 			// copy stream cat stats
 			s_StreamCAT_BytePending = Header->BytePending;
 			s_StreamCAT_CPUActive   = Header->CPUActive / (float)0x10000;
 			s_StreamCAT_CPUFetch    = Header->CPUFetch / (float)0x10000;
 			s_StreamCAT_CPUSend     = Header->CPUSend / (float)0x10000;
-
 
 			// signal its been consued to stream_cat
 			SHMRingHeader->Get++;
@@ -1118,6 +1189,9 @@ int main(int argc, u8* argv[])
 	fProfile_Stop(6);
 	fProfile_Stop(0);
 
+	fprintf(stderr, "pipe exit\n");
+
+
 	// flush any remaining flows
 	Flow_Close(Out, PacketTSLast);
 
@@ -1142,6 +1216,7 @@ int main(int argc, u8* argv[])
 
 	float PCAPWallTime = (PacketTSLast - PacketTSFirst) / 1e9;
 	fprintf(stderr, "PCAPWall time: %.2f sec ProcessTime %.2f sec (%.3f)\n", PCAPWallTime, dT, dT / PCAPWallTime);
+	fprintf(stderr, "Ingress TotalPkt:%lli TotalCapture:%lli TotalWire:%lli PayloadCRC:%08x\n", s_TotalPkt, s_TotalByteCapture, s_TotalByteWire, PayloadCRC); 
 
 	fprintf(stderr, "Total Time: %.2f sec RawInput[Wire %.3f Gbps Capture %.3f Gbps %.3f Mpps] Output[%.3f Gbps] TotalLine:%lli %.f Line/Sec\n", 
 			dT, 
@@ -1152,6 +1227,7 @@ int main(int argc, u8* argv[])
 			obps / 1e9, 
 			TotalLine, 
 			lps); 
+	fprintf(stderr, "SHMRing Put %i Get %i\n", SHMRingHeader->Put, SHMRingHeader->Get);
 }
 
 /* vim: set ts=4 sts=4 */
