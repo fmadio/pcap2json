@@ -161,6 +161,7 @@ static void* Output_Worker(void * user);
 
 extern bool 			g_Verbose;
 extern u32				g_ESTimeout;
+extern bool				g_Output_Keepalive;
 
 static volatile bool	s_Exit 			= false;
 static u32				s_MergeMax		= 64;					// merge up to 64 x 1MB buffers for 1 bulk upload
@@ -803,6 +804,7 @@ void BulkUpload(OutputThread_t *T, u32 BufferIndex, u32 BufferCnt, u32 CPUID)
 			close(T->Sock);
 			T->Sock = -1;
 		}
+		if (g_Output_Keepalive == true)
 		{
 			// read all the data from Sock otherwise it may hurt the subsequent send
 			u8 tmp[10240];
@@ -811,6 +813,12 @@ void BulkUpload(OutputThread_t *T, u32 BufferIndex, u32 BufferCnt, u32 CPUID)
 				int rlen = recv(T->Sock, tmp, sizeof(tmp), 0);
 				if (rlen <= 0) break;
 			}
+		}
+		else
+		{
+			// If not keep-alive then everytime we will make a new connection
+			close(T->Sock);
+			T->Sock = -1;
 		}
 	}
 
