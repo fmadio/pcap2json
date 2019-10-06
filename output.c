@@ -417,6 +417,8 @@ static void Hexdump(u8* Desc, u8* Buffer, s32 Length)
 	fprintf(stderr, "\n");
 }
 
+//-------------------------------------------------------------------------------------------
+// calcuuated the next ES Host to send bulk updload to
 static u32 FindESHostPos(Output_t* Out)
 {
 	sync_lock(&Out->ESHostLock, 50);
@@ -440,52 +442,54 @@ static u32 FindESHostPos(Output_t* Out)
 	return ESHostPos;
 }
 
+//-------------------------------------------------------------------------------------------
+// Connect tcp socket to the specified ES host 
 static int ConnectToES(u8* IPAddress, u32 Port)
 {
-		int Sock = socket(AF_INET, SOCK_STREAM, 0);
-		assert(Sock > 0);
+	int Sock = socket(AF_INET, SOCK_STREAM, 0);
+	assert(Sock > 0);
 
-		// listen address
-		struct sockaddr_in	BindAddr;					// bind address for acks
-		memset((char *) &BindAddr, 0, sizeof(BindAddr));
+	// listen address
+	struct sockaddr_in	BindAddr;					// bind address for acks
+	memset((char *) &BindAddr, 0, sizeof(BindAddr));
 
-		BindAddr.sin_family 		= AF_INET;
-		BindAddr.sin_port 			= htons(Port);
-		BindAddr.sin_addr.s_addr 	= inet_addr(IPAddress);
+	BindAddr.sin_family 		= AF_INET;
+	BindAddr.sin_port 			= htons(Port);
+	BindAddr.sin_addr.s_addr 	= inet_addr(IPAddress);
 
-		// connect call should not hang for longer duration
-		struct timeval tv = { g_ESTimeout / 1000, (g_ESTimeout % 1000)*1000 }; // 2 seconds
-		setsockopt(Sock, SOL_SOCKET, SO_RCVTIMEO, (struct timeval *)&tv, sizeof(struct timeval));
-		setsockopt(Sock, SOL_SOCKET, SO_SNDTIMEO, (struct timeval *)&tv, sizeof(struct timeval));
+	// connect call should not hang for longer duration
+	struct timeval tv = { g_ESTimeout / 1000, (g_ESTimeout % 1000)*1000 }; // 2 seconds
+	setsockopt(Sock, SOL_SOCKET, SO_RCVTIMEO, (struct timeval *)&tv, sizeof(struct timeval));
+	setsockopt(Sock, SOL_SOCKET, SO_SNDTIMEO, (struct timeval *)&tv, sizeof(struct timeval));
 
-		// retry connection a few times
-		int ret = -1;
-		for (int r=0; r < 10; r++)
-		{
-			//bind socket to port
-			ret = connect(Sock, (struct sockaddr*)&BindAddr, sizeof(BindAddr));
-			if (ret >= 0) break;
+	// retry connection a few times
+	int ret = -1;
+	for (int r=0; r < 10; r++)
+	{
+		//bind socket to port
+		ret = connect(Sock, (struct sockaddr*)&BindAddr, sizeof(BindAddr));
+		if (ret >= 0) break;
 
-			fprintf(stderr, "Connection to [%s:%i] timed out... retry\n", IPAddress, Port);
+		fprintf(stderr, "Connection to [%s:%i] timed out... retry\n", IPAddress, Port);
 
-			// connection timed out
-			usleep(100e3);
-		}
-		if (ret < 0)
-		{
-			fprintf(stderr, "connect failed: %i %i : %s : %s:%i\n", ret, errno, strerror(errno), IPAddress, Port);
-			close(Sock);
-			return -1;
-		}
+		// connection timed out
+		usleep(100e3);
+	}
+	if (ret < 0)
+	{
+		fprintf(stderr, "connect failed: %i %i : %s : %s:%i\n", ret, errno, strerror(errno), IPAddress, Port);
+		close(Sock);
+		return -1;
+	}
 
-		// set timeout for connect
-		int timeout = g_ESTimeout;  // user timeout in milliseconds [ms]
-		ret = setsockopt (Sock, SOL_TCP, TCP_USER_TIMEOUT, (char*) &timeout, sizeof (timeout));
-		if (ret < 0)
-		{
-			fprintf(stderr, "TCP_USER_TIMEOUT failed: %i %i %s\n", ret, errno, strerror(errno));
-		}
-		return Sock;
+	// set timeout for connect
+	int timeout = g_ESTimeout;  // user timeout in milliseconds [ms]
+	ret = setsockopt (Sock, SOL_TCP, TCP_USER_TIMEOUT, (char*) &timeout, sizeof (timeout));
+	if (ret < 0)
+	{
+		fprintf(stderr, "TCP_USER_TIMEOUT failed: %i %i %s\n", ret, errno, strerror(errno));
+	}
+	return Sock;
 }
 
 //-------------------------------------------------------------------------------------------
