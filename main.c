@@ -687,7 +687,7 @@ int main(int argc, u8* argv[])
 	u8 ClockStr[128];
 	clock_str(ClockStr, clock_date() );
 
-	sprintf(g_CaptureName, "%s_%s", g_DeviceName, ClockStr); 
+	sprintf(g_CaptureName, "%s-pcap2json_%s", g_DeviceName, ClockStr); 
 	for (int i=1; i < argc; i++)
 	{
 		// config file was specified 
