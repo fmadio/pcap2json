@@ -1993,10 +1993,10 @@ void Flow_PacketQueue(PacketBuffer_t* Pkt)
 
 		// time to dump the index
 		s64 dTS = Pkt->TSLast - s_FlowSampleTSLast;
-		if (g_Verbose)
-		{
-			fprintf(stderr, "next %lli %lli %lli\n", dTS, Pkt->TSLast, s_FlowSampleTSLast);
-		}
+		//if (g_Verbose)
+		//{
+		//	fprintf(stderr, "next %lli %lli %lli\n", dTS, Pkt->TSLast, s_FlowSampleTSLast);
+		//}
 
 		if (dTS > g_FlowSampleRate)
 		{

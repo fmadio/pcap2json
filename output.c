@@ -162,6 +162,7 @@ static void* Output_Worker(void * user);
 extern bool 			g_Verbose;
 extern u32				g_ESTimeout;
 extern bool				g_Output_Keepalive;
+extern bool				g_Output_FilterPath;
 
 static volatile bool	s_Exit 			= false;
 static u32				s_MergeMax		= 64;					// merge up to 64 x 1MB buffers for 1 bulk upload
@@ -633,7 +634,8 @@ void BulkUpload(OutputThread_t *T, u32 BufferIndex, u32 BufferCnt, u32 CPUID)
 		FooterPos += sprintf(Footer + FooterPos, "\r\n");
 
 		// HTTP request
-		HeaderPos += sprintf(Header + HeaderPos, "POST /_bulk HTTP/1.1\r\n");
+		if (g_Output_FilterPath)HeaderPos += sprintf(Header + HeaderPos, "POST /_bulk?filter_path=took,errors HTTP/1.1\r\n");
+		else 					HeaderPos += sprintf(Header + HeaderPos, "POST /_bulk HTTP/1.1\r\n");
 
 		HeaderPos += sprintf(Header + HeaderPos, "Content-Type: application/x-ndjson\r\n");
 
@@ -751,7 +753,7 @@ void BulkUpload(OutputThread_t *T, u32 BufferIndex, u32 BufferCnt, u32 CPUID)
 		{
 			u32 c = RecvBuffer[RecvPos];
 			if (c == '\"') continue;				// fields are well defined
-			if (c == ',')
+			if ((c == ',') || (c == '}'))
 			{
 				JSONStr[JSONStrCnt][JSONStrPos] = 0; 
 				JSONStrCnt++;
@@ -772,17 +774,20 @@ void BulkUpload(OutputThread_t *T, u32 BufferIndex, u32 BufferCnt, u32 CPUID)
 		u8* TookStr 	= JSONStr[0];
 		u8* ErrorStr 	= JSONStr[1];
 
+		// print hexdump of send buffer
+
 		// verbose logging
 		//printf("%s:%i Raw:%8i Pak:%8i(x%5.2f) Lines:%10i [%-16s] [%s]\n", IPAddress, Port, RawLength, BulkLength, RawLength * inverse(BulkLength), B->BufferLine, TookStr, ErrorStr);
+		//printf("%s\n", RecvBuffer);
 		//fflush(stdout);
 
 		// check for errors
 		if (strcmp(ErrorStr, "errors:false") != 0)
 		{
-			printf("ERROR: %i %i SendLen:%i\n", RecvBufferLen, strlen(RecvBuffer), BulkLength );
+			printf("ERROR Rx: %i %i SendLen:%i\n", RecvBufferLen, strlen(RecvBuffer), BulkLength );
 			for (int i=0; i < 8; i++)
 			{
-				printf("ERROR:  %i [%s]\n", i, JSONStr[i]);
+				printf("ERROR Rx:  %i [%s]\n", i, JSONStr[i]);
 			}
 
 			// print full error response

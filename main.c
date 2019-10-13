@@ -113,6 +113,7 @@ bool			g_Output_STDOUT		= true;				// by default output to stdout
 bool			g_Output_ESPush		= false;			// direct ES HTTP Push 
 u32				g_Output_BufferCnt	= 64;				// number of output buffers
 bool			g_Output_Keepalive	= false;			// ES connection would be keepalive/persistent
+bool			g_Output_FilterPath	= false;			// use filter_path to return only took,errors on _bulk upload 
 
 u32				g_ESHostCnt 		= 0;				// number of active ES Hosts
 u32				g_ESTimeout 		= 10000;				// ES host connect/read/write timeout value in milliseconds
@@ -168,7 +169,8 @@ static void help(void)
 	fprintf(stderr, " --output-stdout                    : writes output to STDOUT\n");
 	fprintf(stderr, " --output-espush                    : writes output directly to ES HTTP POST \n");
 	fprintf(stderr, " --output-buffercnt <pow2 cnt>      : number of output buffers (default is 64)\n");
-  fprintf(stderr, " --output-keepalive                 : enable keep alive (persistent) ES connection\n");
+	fprintf(stderr, " --output-keepalive                 : enable keep alive (persistent) ES connection\n");
+	fprintf(stderr, " --output-filterpath                : reduce data back from the ES cluster\n");
 
 	fprintf(stderr, "\n");
 	fprintf(stderr, "Flow specific options\n");
@@ -303,6 +305,13 @@ static bool ParseCommandLine(u8* argv[])
 		fprintf(stderr, "  ES Keepalive Enabled\n");
 		cnt	+= 1;
 	}
+	if (strcmp(argv[0], "--output-filterpath") == 0)
+	{
+		g_Output_FilterPath = true;
+		fprintf(stderr, "  ES filter_path enabled\n");
+		cnt	+= 1;
+	}
+
 
 	// ES specific 
 	if (strcmp(argv[0], "--es-host") == 0)
