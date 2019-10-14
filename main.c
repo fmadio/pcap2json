@@ -671,6 +671,9 @@ static void ProfileDump(struct Output_t* Out)
 	// packet size histogram
 	Flow_PktSizeHisto();
 
+	// dump ES output histogram
+	Output_ESHisto(Out);
+
 	fflush(stdout);
 	fflush(stderr);
 }

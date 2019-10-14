@@ -98,8 +98,15 @@ typedef struct
 
 typedef struct OutputThread_t
 {
-	int 			Sock;										// Thread specific ES server connection socket fd
-	void* 			Out;										// Output_t structure reference pointer
+	int 				Sock;									// Thread specific ES server connection socket fd
+	void* 				Out;									// Output_t structure reference pointer
+
+	u32					ESHistoMax;								// maxium index depth
+	u32					ESHistoBinTx;							// time divisor in nanoseconds Tx side
+	u32					ESHistoBinRx;							// time divisor in nanoseconds Rx side
+	u16					ESHistoRx[1024];						// histogram of latency from ES  
+	u16					ESHistoTx[1024];						// histogram of latency to ES 
+
 } OutputThread_t;
 
 
@@ -142,6 +149,7 @@ typedef struct Output_t
 
 	bool				IsCompress;								// enable compression
 
+	u32					OutputThreadCnt;						// number of active threads
 	OutputThread_t		OutputThread[128];						// thread specific data
 	pthread_t   		PushThread[128];						// worker thread list
 
@@ -340,15 +348,23 @@ Output_t* Output_Create(bool IsNULL,
 
 	// create 32 worker threads
 	u32 CoreCnt = 4;				// assume 4 cores for the output
-	u32 CPUCnt 	= 0;
 	for (int i=0; i < 32; i++)
 	{
 		O->OutputThread[i].Sock = -1;
 		O->OutputThread[i].Out  = O;
+
+		// reset histogram
+		O->OutputThread[i].ESHistoMax 	= 1024;
+		O->OutputThread[i].ESHistoBinTx = 10e6;
+		O->OutputThread[i].ESHistoBinRx = 1e9;
+
+		memset(O->OutputThread[i].ESHistoTx, 0, sizeof(O->OutputThread[i].ESHistoTx) );
+		memset(O->OutputThread[i].ESHistoRx, 0, sizeof(O->OutputThread[i].ESHistoRx) );
+
 		pthread_create(&O->PushThread[i], NULL, Output_Worker, (void*)&O->OutputThread[i]);
-		CPUCnt++;
+		O->OutputThreadCnt++;
 	}
-	for (int i=0; i < CPUCnt; i++)
+	for (int i=0; i < O->OutputThreadCnt; i++)
 	{
 		s32 CPU = CPUMap[i % CoreCnt];
 		if (CPU < 0) continue;
@@ -830,6 +846,21 @@ void BulkUpload(OutputThread_t *T, u32 BufferIndex, u32 BufferCnt, u32 CPUID)
 	u64 TSC3 = rdtsc();
 	Out->WorkerTSCRecv[CPUID] += TSC3 - TSC2;
 
+
+	// update histogram 
+	float dTSTx  = tsc2ns(TSC2 - TSC1);
+	float dTSRx  = tsc2ns(TSC3 - TSC2);
+
+	u32 IndexTx = dTSTx / T->ESHistoBinTx;
+	u32 IndexRx = dTSRx / T->ESHistoBinRx;
+
+	IndexTx = min32(IndexTx, T->ESHistoMax - 1);
+	IndexRx = min32(IndexRx, T->ESHistoMax - 1);
+
+	T->ESHistoTx[IndexTx]++;
+	T->ESHistoRx[IndexRx]++;
+
+
 	// update counts
 	Out->ESPushTotal[CPUID] += 1;
 
@@ -1147,5 +1178,70 @@ void Output_Stats(	Output_t* Out,
 		Out->ESPushByte = 0;
 		Out->ESPushCnt 	= 0;
 		Out->ESPushTSC	= rdtsc();
+	}
+}
+
+//-------------------------------------------------------------------------------------------
+// not perfectly correct... aka very non thread safe, but its just hisograms
+// used for debuging / performance tuning
+void Output_ESHisto(Output_t* Out)
+{
+	u32 HistoTx[1024];
+	u32 HistoRx[1024];
+	memset(HistoTx, 0, sizeof(HistoTx));
+	memset(HistoRx, 0, sizeof(HistoRx));
+
+	fprintf(stderr, "Output Histogram\n");	
+
+	u32 HistoMax	= Out->OutputThread[0].ESHistoMax;
+	u32 HistoBinTx	= Out->OutputThread[0].ESHistoBinTx;
+	u32 HistoBinRx	= Out->OutputThread[0].ESHistoBinRx;
+
+	for (int i=0; i < Out->OutputThreadCnt; i++)
+	{
+		OutputThread_t* T = &Out->OutputThread[i];
+		for (int j=0; j < HistoMax; j++)
+		{
+			HistoTx[j] += T->ESHistoTx[j];
+			HistoRx[j] += T->ESHistoRx[j];
+		}
+		// not thread safe but dont care
+		memset(T->ESHistoTx, 0, sizeof(T->ESHistoTx) );
+		memset(T->ESHistoRx, 0, sizeof(T->ESHistoRx) );
+	}
+
+	// calc max
+
+	u32 HistoTxMax = 0;
+	u32 HistoTxTotal = 0;
+
+	u32 HistoRxMax = 0;
+	u32 HistoRxTotal = 0;
+
+	for (int i=0; i < HistoMax; i++)
+	{
+		HistoTxTotal 	+= HistoTx[i];
+		HistoTxMax 		= max32(HistoTxMax, HistoTx[i]);
+
+		HistoRxTotal 	+= HistoRx[i];
+		HistoRxMax 		= max32(HistoRxMax, HistoRx[i]);
+	}
+
+	fprintf(stderr, "HistoTx Total: %i\n", HistoTxTotal);
+	for (int i=0; i < HistoMax; i++)
+	{
+		if (HistoTx[i] == 0) continue;
+		fprintf(stderr, "    %6.f msec : %5i | ", ((float)i * HistoBinTx) / 1e6, HistoTx[i]);  
+		for (int j=0; j < (HistoTx[i] * 80) / HistoTxMax; j++) fprintf(stderr, "*");
+		fprintf(stderr, "\n");
+	}
+
+	fprintf(stderr, "HistoRx Total: %i\n", HistoRxTotal);
+	for (int i=0; i < HistoMax; i++)
+	{
+		if (HistoRx[i] == 0) continue;
+		fprintf(stderr, "    %6.f msec : %5i | ", ((float)i * HistoBinRx) / 1e6, HistoRx[i]);  
+		for (int j=0; j < (HistoRx[i] * 80) / HistoTxMax; j++) fprintf(stderr, "*");
+		fprintf(stderr, "\n");
 	}
 }

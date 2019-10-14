@@ -30,4 +30,6 @@ float 				Output_Stats		(struct Output_t* Out,
 										 u64* pPushSizeB,
 										 u64* pPushBps);
 
+void 				Output_ESHisto		(struct Output_t* Out);
+
 #endif
