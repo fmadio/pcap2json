@@ -171,6 +171,7 @@ extern bool 			g_Verbose;
 extern u32				g_ESTimeout;
 extern bool				g_Output_Keepalive;
 extern bool				g_Output_FilterPath;
+extern u32				g_Output_ThreadCnt;
 
 static volatile bool	s_Exit 			= false;
 static u32				s_MergeMax		= 64;					// merge up to 64 x 1MB buffers for 1 bulk upload
@@ -348,7 +349,7 @@ Output_t* Output_Create(bool IsNULL,
 
 	// create 32 worker threads
 	u32 CoreCnt = 4;				// assume 4 cores for the output
-	for (int i=0; i < 32; i++)
+	for (int i=0; i < g_Output_ThreadCnt; i++)
 	{
 		O->OutputThread[i].Sock = -1;
 		O->OutputThread[i].Out  = O;
