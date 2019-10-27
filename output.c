@@ -143,23 +143,23 @@ typedef struct Output_t
 	u8					ESHostName[ESHOST_MAX][256];			// ip host name of ES
 	u32					ESHostPort[ESHOST_MAX];					// port of ES
 	bool				ESHostIsNotWorking[ESHOST_MAX];			// set this if the host is found not working
-	u32					ESPushTotal[128];						// total number of ES pushes	
-	u32					ESPushError[128];						// total number of ES errors 
+	u32					ESPushTotal[256];						// total number of ES pushes	
+	u32					ESPushError[256];						// total number of ES errors 
 	u32					ESHostLock;								// ES host lock to update ESHostPos
 
 	bool				IsCompress;								// enable compression
 
 	u32					OutputThreadCnt;						// number of active threads
-	OutputThread_t		OutputThread[128];						// thread specific data
-	pthread_t   		PushThread[128];						// worker thread list
+	OutputThread_t		OutputThread[256];						// thread specific data
+	pthread_t   		PushThread[256];						// worker thread list
 
 	volatile u32		CPUActiveCnt;							// total number of active cpus
 
-	volatile u64		WorkerTSCTotal[128];					// total TSC 
-	volatile u64		WorkerTSCTop[128];						// cycles used for acutal data processing 
-	volatile u64		WorkerTSCCompress[128];					// cycles spent for compression 
-	volatile u64		WorkerTSCSend[128];						// cycles spent for tcp sending 
-	volatile u64		WorkerTSCRecv[128];						// cycles spent for tcp recv
+	volatile u64		WorkerTSCTotal[256];					// total TSC 
+	volatile u64		WorkerTSCTop[256];						// cycles used for acutal data processing 
+	volatile u64		WorkerTSCCompress[256];					// cycles spent for compression 
+	volatile u64		WorkerTSCSend[256];						// cycles spent for tcp sending 
+	volatile u64		WorkerTSCRecv[256];						// cycles spent for tcp recv
 
 } Output_t;
 
@@ -172,9 +172,10 @@ extern u32				g_ESTimeout;
 extern bool				g_Output_Keepalive;
 extern bool				g_Output_FilterPath;
 extern u32				g_Output_ThreadCnt;
+extern u32				g_Output_MergeMin;
+extern u32				g_Output_MergeMax;
 
 static volatile bool	s_Exit 			= false;
-static u32				s_MergeMax		= 64;					// merge up to 64 x 1MB buffers for 1 bulk upload
 static bool				s_IsESNULL 		= false;				// debug flag to remove the ES output stall
 
 //-------------------------------------------------------------------------------------------
@@ -992,7 +993,7 @@ u64 Output_BufferAdd(Output_t* Out, u8* Buffer, u32 BufferLen, u32 LineCnt)
 
 			// check theres space at head
 			bool IsStall 	= false;
-			if ((Put - Out->BufferFin) > (Out->BufferMax - Out->CPUActiveCnt - s_MergeMax))
+			if ((Put - Out->BufferFin) > (Out->BufferMax - Out->CPUActiveCnt - g_Output_MergeMax))
 			{
 				IsStall = true;
 			}
@@ -1067,8 +1068,8 @@ static void* Output_Worker(void * user)
 			u32 BufferBase 	= Out->BufferGet;
 			Get 			= BufferBase; 
 
-			// merge up to a 64MB bulk upload size 
-			for (int b=0; b < s_MergeMax; b++)	
+			// merge up to MergeMax bulk uploads at a time
+			for (int b=0; b < g_Output_MergeMax; b++)	
 			{
 				// reached end of chain 
 				if (Get == Out->BufferPut) break;
@@ -1083,16 +1084,23 @@ static void* Output_Worker(void * user)
 				Get++;
 			}
 
-			// update new get ptr
-			Out->BufferGet = Get;
+			// total number of output buffers
+			u32 BufferCnt = Get - BufferBase;
+
+			// got enough buffers to flush?
+			bool IsOutput = false;
+			if (BufferCnt >= g_Output_MergeMin)
+			{
+				IsOutput = true;
+		 		Out->BufferGet = Get;
+			}
 
 			sync_unlock(&Out->MergeLock);
 
-			// total number of output buffers
-			u32 BufferCnt = Get - BufferBase;
-			if (BufferCnt > 0)
+			// flush and upload
+			if (IsOutput)
 			{
-				//if (BufferCnt > 1) printf("merge: %i\n", BufferCnt);
+				printf("merge: %i\n", BufferCnt);
 
 				// bulk upload
 				u64 TSC2 = rdtsc();

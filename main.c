@@ -115,6 +115,8 @@ u32				g_Output_BufferCnt	= 64;				// number of output buffers
 bool			g_Output_Keepalive	= false;			// ES connection would be keepalive/persistent
 bool			g_Output_FilterPath	= false;			// use filter_path to return only took,errors on _bulk upload 
 u32				g_Output_ThreadCnt  = 32;				// number of worker threads to use for ES push
+u32				g_Output_MergeMin	= 1;				// minimum number of blocks to merge on output 
+u32				g_Output_MergeMax	= 64;				// maximum number of blocks to merge on output 
 
 u32				g_ESHostCnt 		= 0;				// number of active ES Hosts
 u32				g_ESTimeout 		= 10000;				// ES host connect/read/write timeout value in milliseconds
@@ -173,6 +175,8 @@ static void help(void)
 	fprintf(stderr, " --output-keepalive                 : enable keep alive (persistent) ES connection\n");
 	fprintf(stderr, " --output-filterpath                : reduce data back from the ES cluster\n");
 	fprintf(stderr, " --output-threadcnt                 : number of worker threads for ES push (default is 32)\n");
+	fprintf(stderr, " --output-mergemin                  : minimum number of blocks to merge on output\n");
+	fprintf(stderr, " --output-mergemax                  : maximum number of blocks to merge on output\n");
 
 	fprintf(stderr, "\n");
 	fprintf(stderr, "Flow specific options\n");
@@ -319,6 +323,19 @@ static bool ParseCommandLine(u8* argv[])
 		fprintf(stderr, "  ES Output worker thread count: %i\n", g_Output_ThreadCnt);
 		cnt	+= 2;
 	}
+	if (strcmp(argv[0], "--output-mergemin") == 0)
+	{
+		g_Output_MergeMin = atoi(argv[1]);;
+		fprintf(stderr, "  Output Merge Min: %i\n", g_Output_MergeMin);
+		cnt	+= 2;
+	}
+	if (strcmp(argv[0], "--output-mergemax") == 0)
+	{
+		g_Output_MergeMax = atoi(argv[1]);;
+		fprintf(stderr, "  Output Merge Max: %i\n", g_Output_MergeMax);
+		cnt	+= 2;
+	}
+
 
 	// ES specific 
 	if (strcmp(argv[0], "--es-host") == 0)
