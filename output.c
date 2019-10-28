@@ -899,6 +899,11 @@ cleanup:
 
 void Output_Close(Output_t* Out)
 {
+	fprintf(stderr, "Output close\n");
+
+	// override imnimum output size to flush buffers on exit 
+	g_Output_MergeMin = 1;
+
 	// wait for workers to output 
 	while (Out->BufferGet != Out->BufferPut)
 	{
@@ -1100,7 +1105,7 @@ static void* Output_Worker(void * user)
 			// flush and upload
 			if (IsOutput)
 			{
-				printf("merge: %i\n", BufferCnt);
+				//printf("merge: %i\n", BufferCnt);
 
 				// bulk upload
 				u64 TSC2 = rdtsc();
@@ -1117,6 +1122,8 @@ static void* Output_Worker(void * user)
 		Out->WorkerTSCTotal[CPUID] += TSC1 - TSC0;
 	}
 	close(T->Sock);
+
+	fprintf(stderr, "   Output Worker: %i\n", CPUID);
 	return NULL;
 }
 
