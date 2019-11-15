@@ -1263,7 +1263,12 @@ int main(int argc, u8* argv[])
 			obps / 1e9, 
 			TotalLine, 
 			lps); 
-	fprintf(stderr, "SHMRing Put %i Get %i\n", SHMRingHeader->Put, SHMRingHeader->Get);
+
+	// dump final SHM ring header stats
+	if (IsFMADRING)
+	{
+		fprintf(stderr, "SHMRing Put %i Get %i\n", SHMRingHeader->Put, SHMRingHeader->Get);
+	}
 }
 
 /* vim: set ts=4 sts=4 */
