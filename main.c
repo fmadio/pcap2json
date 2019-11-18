@@ -137,6 +137,8 @@ float			s_StreamCAT_CPUActive 	= 0;			// stream_cat cpu active pct
 float			s_StreamCAT_CPUFetch 	= 0;			// stream_cat cpu fetch from stroage utilization 
 float			s_StreamCAT_CPUSend 	= 0;			// stream_cat cpu send down pipe utilization 
 
+bool			g_Output_Histogram	= false;			// generate histograms file 
+FILE			*g_Histogram_FP		= NULL;
 //---------------------------------------------------------------------------------------------
 
 
@@ -171,6 +173,7 @@ static void help(void)
 	fprintf(stderr, "Output Mode\n");
 	fprintf(stderr, " --output-stdout                    : writes output to STDOUT\n");
 	fprintf(stderr, " --output-espush                    : writes output directly to ES HTTP POST \n");
+	fprintf(stderr, " --output-histogram <filename>      : Enable histogram output and writes it to file\n");
 	fprintf(stderr, " --output-buffercnt <pow2 cnt>      : number of output buffers (default is 64)\n");
 	fprintf(stderr, " --output-keepalive                 : enable keep alive (persistent) ES connection\n");
 	fprintf(stderr, " --output-filterpath                : reduce data back from the ES cluster\n");
@@ -287,6 +290,21 @@ static bool ParseCommandLine(u8* argv[])
 		g_Output_ESPush = true;
 		fprintf(stderr, "  Output to ES HTTP Push\n");
 		cnt	+= 1;
+	}
+	if (strcmp(argv[0], "--output-histogram") == 0)
+	{
+		g_Histogram_FP	= fopen(argv[1], "w+");
+		if (g_Histogram_FP != NULL)
+		{
+			g_Output_Histogram	= true;
+			fprintf(stderr, "  Output histogram is enabled [%s]\n", argv[1]);
+		}
+		else
+		{
+			fprintf(stderr, "  Failed to open output-histogram file '%s'\n", argv[1]);
+			exit(-1);
+		}
+		cnt	+= 2;
 	}
 	if (strcmp(argv[0], "--output-buffercnt") == 0)
 	{
@@ -1268,6 +1286,11 @@ int main(int argc, u8* argv[])
 	if (IsFMADRING)
 	{
 		fprintf(stderr, "SHMRing Put %i Get %i\n", SHMRingHeader->Put, SHMRingHeader->Get);
+	}
+	if (g_Output_Histogram == true)
+	{
+		fclose(g_Histogram_FP);
+		g_Histogram_FP = NULL;
 	}
 }
 
