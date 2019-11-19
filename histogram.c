@@ -28,41 +28,44 @@
 #include "histogram.h"
 
 
-PacketInfoBulk_t* PktInfoBulk_Alloc(u32 MaxPkts)
+PacketInfoBulk_t* PktInfo_BulkAlloc(u32 MaxPkts)
 {
 	PacketInfoBulk_t *p = malloc(sizeof(PacketInfoBulk_t));
 
 	assert(p != NULL);
 
 	p->Max		= MaxPkts;
-	p->Head		= 0;
+	p->Pos		= 0;
 	p->PktInfo	= malloc(sizeof(PacketInfo_t) * p->Max);
 	p->Next		= NULL;
 
 	return p;
 }
 
-void PktInfo_Insert(PacketInfoBulk_t *P, uint16_t Len, uint32_t Tdiff)
+void PktInfo_Insert(PacketInfoBulk_t **pB, uint16_t Len, uint32_t Tdiff)
 {
-	assert(P != NULL);
-
-	PacketInfoBulk_t *last = P;
-
-	for (; last->Next != NULL; last = last->Next);
-
-	if (last->Max == last->Head)
+	if (*pB == NULL)
 	{
 		// allocate space for 1024 pkts histograms to avoid frequent malloc
-		last->Next	= PktInfoBulk_Alloc(1024);
-		last		= last->Next;
+		*pB = PktInfo_BulkAlloc(1024);
 	}
-	(last->PktInfo + last->Head)->TSDiff	= Tdiff;
-	(last->PktInfo + last->Head)->PktSize	= Len;
+	PacketInfoBulk_t *P = *pB;
 
-	last->Head++;
+	if (P->Max == P->Pos)
+	{
+		// adding the new allocated node to the start of the list
+		PacketInfoBulk_t *P	= PktInfo_BulkAlloc(1024);
+		P->Next	= *pB;
+		*pB		= P;
+	}
+
+	(P->PktInfo + P->Pos)->TSDiff	= Tdiff;
+	(P->PktInfo + P->Pos)->PktSize	= Len;
+
+	P->Pos++;
 }
 
-int Histogram_Print(FILE *FP, HistogramDump_t *HD, PacketInfoBulk_t *PktInfoB)
+int PktInfo_HistogramPrint(FILE *FP, HistogramDump_t *HD, PacketInfoBulk_t *PktInfoB)
 {
 	static u32 count = 0;
 	u8 *Buffer = malloc(sizeof(HistogramDump_t) + HD->TotalPkt*sizeof(PacketInfo_t) + 128);
@@ -78,7 +81,7 @@ int Histogram_Print(FILE *FP, HistogramDump_t *HD, PacketInfoBulk_t *PktInfoB)
 	PacketInfoBulk_t *p = PktInfoB;
 	for (; p; p=p->Next)
 	{
-		for (u32 i = 0; i < p->Head; i++)
+		for (u32 i = 0; i < p->Pos; i++)
 		{
 			PD->TSDiff	= (p->PktInfo + i)->TSDiff;
 			PD->PktSize	= (p->PktInfo + i)->PktSize;

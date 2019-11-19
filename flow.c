@@ -270,7 +270,7 @@ extern u8				g_FlowTopNdMac[MAX_TOPN_MAC][6];
 
 extern bool				g_Output_ESPush;
 extern bool				g_Output_Histogram;
-extern FILE				*g_Histogram_FP;
+extern FILE				*g_Output_Histogram_FP;
 
 extern u8 				g_CaptureName[256];
 extern u8				g_DeviceName[128];
@@ -588,12 +588,7 @@ static void FlowInsert(u32 CPUID, FlowIndex_t* FlowIndex, FlowRecord_t* FlowPkt,
 
 	F->TotalFCS		+= FlowPkt->TotalFCS;
 
-	if (F->PktInfoB == NULL)
-	{
-		// allocate space for 1024 pkts histograms to avoid frequent malloc
-		F->PktInfoB = PktInfoBulk_Alloc(1024);
-	}
-	PktInfo_Insert(F->PktInfoB, Length, TS - F->FirstTS);
+	PktInfo_Insert(&F->PktInfoB, Length, TS - F->FirstTS);
 
 	if (F->IPProto == IPv4_PROTO_TCP)
 	{
@@ -1363,7 +1358,7 @@ static u32 FlowDump(u8* OutputStr, u64 TS, FlowRecord_t* Flow, u32 FlowID)
 		H.FirstTS		= Flow->FirstTS;
 		H.TotalPkt		= Flow->TotalPkt;
 
-		Histogram_Print(g_Histogram_FP, &H, Flow->PktInfoB);
+		PktInfo_HistogramPrint(g_Output_Histogram_FP, &H, Flow->PktInfoB);
 	}
 
 	return s_FlowTemplateLen; 

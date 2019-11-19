@@ -20,7 +20,7 @@ typedef struct PacketInfo_t
 typedef struct PacketInfoBulk_t
 {
 	u16						Max;
-	u16						Head;
+	u16						Pos;
 	PacketInfo_t			*PktInfo;
 	struct PacketInfoBulk_t	*Next;
 } PacketInfoBulk_t;
@@ -40,8 +40,8 @@ typedef struct HistogramDump_t
 	PacketInfo_t	pad[0];
 } __attribute__((packed)) HistogramDump_t;
 
-PacketInfoBulk_t* PktInfoBulk_Alloc(u32 MaxPkts);
-void PktInfo_Insert(PacketInfoBulk_t *p, uint16_t len, uint32_t tdiff);
-int Histogram_Print(FILE *FP, HistogramDump_t *H, PacketInfoBulk_t *P);
+PacketInfoBulk_t* PktInfo_BulkAlloc(u32 MaxPkts);
+void PktInfo_Insert(PacketInfoBulk_t **p, uint16_t len, uint32_t tdiff);
+int PktInfo_HistogramPrint(FILE *FP, HistogramDump_t *H, PacketInfoBulk_t *P);
 
 #endif

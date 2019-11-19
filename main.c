@@ -137,8 +137,8 @@ float			s_StreamCAT_CPUActive 	= 0;			// stream_cat cpu active pct
 float			s_StreamCAT_CPUFetch 	= 0;			// stream_cat cpu fetch from stroage utilization 
 float			s_StreamCAT_CPUSend 	= 0;			// stream_cat cpu send down pipe utilization 
 
-bool			g_Output_Histogram	= false;			// generate histograms file 
-FILE			*g_Histogram_FP		= NULL;
+bool			g_Output_Histogram		= false;		// generate histograms file
+FILE			*g_Output_Histogram_FP	= NULL;			// histogram file pointer
 //---------------------------------------------------------------------------------------------
 
 
@@ -293,8 +293,8 @@ static bool ParseCommandLine(u8* argv[])
 	}
 	if (strcmp(argv[0], "--output-histogram") == 0)
 	{
-		g_Histogram_FP	= fopen(argv[1], "w+");
-		if (g_Histogram_FP != NULL)
+		g_Output_Histogram_FP = fopen(argv[1], "w+");
+		if (g_Output_Histogram_FP != NULL)
 		{
 			g_Output_Histogram	= true;
 			fprintf(stderr, "  Output histogram is enabled [%s]\n", argv[1]);
@@ -1287,10 +1287,10 @@ int main(int argc, u8* argv[])
 	{
 		fprintf(stderr, "SHMRing Put %i Get %i\n", SHMRingHeader->Put, SHMRingHeader->Get);
 	}
-	if (g_Output_Histogram == true)
+	if (g_Output_Histogram)
 	{
-		fclose(g_Histogram_FP);
-		g_Histogram_FP = NULL;
+		fclose(g_Output_Histogram_FP);
+		g_Output_Histogram_FP = NULL;
 	}
 }
 
