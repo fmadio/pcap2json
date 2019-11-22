@@ -303,6 +303,15 @@ static inline s32 sign32(const s32 a)
 	return (a > 0) ? 1 : -1;
 }
 
+// min only when not 0
+static inline u64 min64ne0(const u64 a, const u64 b)
+{
+	if (a == 0) return b;
+	if (b == 0) return a;
+
+	return (a < b) ? a : b;
+}
+
 static inline u64 min64(const u64 a, const u64 b)
 {
 	return (a < b) ? a : b;

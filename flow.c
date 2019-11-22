@@ -1541,7 +1541,7 @@ static void FlowMerge(FlowIndex_t* IndexOut, FlowIndex_t* IndexRoot, u32 IndexCn
 
 			F->TotalPkt 	+= Flow->TotalPkt;
 			F->TotalByte 	+= Flow->TotalByte;
-			F->FirstTS 		= min64(F->FirstTS, Flow->FirstTS);
+			F->FirstTS 		= min64ne0(F->FirstTS, Flow->FirstTS);
 			F->LastTS 		= max64(F->LastTS, Flow->LastTS);
 			F->TotalFCS 	+= Flow->TotalFCS;	
 
