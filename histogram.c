@@ -42,7 +42,7 @@ PacketInfoBulk_t* PktInfo_BulkAlloc(u32 MaxPkts)
 	return p;
 }
 
-void PktInfo_Insert(PacketInfoBulk_t **pB, uint16_t Len, uint32_t Tdiff)
+void PktInfo_Insert(PacketInfoBulk_t **pB, u16 Len, u64 Tdiff)
 {
 	if (*pB == NULL)
 	{
@@ -59,7 +59,17 @@ void PktInfo_Insert(PacketInfoBulk_t **pB, uint16_t Len, uint32_t Tdiff)
 		*pB		= P;
 	}
 
-	(P->PktInfo + P->Pos)->TSDiff	= Tdiff;
+	// TS calculation:
+	// HistogramDump_t  will have FirstTS
+	// and each pkt will have TS diff wrt previous pkt.
+	// If it's 1st pkt then TSDiff will be 0.
+	// [Header] | [ pkt1 |  pkt2  |  pkt3  | ... | pktN       ]
+	// [  TS  ] | [   0  |TS-p1_TS|TS-p2_TS| ... |TS-p(N-1)_TS]
+	// NOTE: If TSDIff > 4.294 seconds then it  will be rounded off to ~4.294 seconds (u32 max limitation)
+	if (Tdiff >= UINT32_MAX)
+		(P->PktInfo + P->Pos)->TSDiff	= UINT32_MAX-1;
+	else
+		(P->PktInfo + P->Pos)->TSDiff	= (u32)Tdiff;
 	(P->PktInfo + P->Pos)->PktSize	= Len;
 
 	P->Pos++;

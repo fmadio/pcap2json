@@ -25,6 +25,11 @@ typedef struct PacketInfoBulk_t
 	struct PacketInfoBulk_t	*Next;
 } PacketInfoBulk_t;
 
+#define SET_VLAN_BIT(H, VLANIdx)	((H)->VLAN = ((H)->VLAN | (1 << VLANIdx)))
+#define GET_VLAN_BIT(H, VLANIdx)	(((H)->VLAN >> VLANIdx) & 1)
+#define SET_MPLS_BIT(H, MPLSIdx)	((H)->MPLS = ((H)->MPLS | (1 << MPLSIdx)))
+#define GET_MPLS_BIT(H, MPLSIdx)	(((H)->MPLS >> MPLSIdx) & 1)
+
 #define HISTOGRAM_SIG_V1 0x01010101
 
 typedef struct HistogramDump_t
@@ -34,6 +39,9 @@ typedef struct HistogramDump_t
 	u16				MACProto;
 	u8				IPProto;
 	u8				IPDSCP;
+	u8				VLAN:3;				// bits for VLAN0, VLAN1 and VLAN2
+	u8				MPLS:3;				// bits for MPLS0, MPLS1 and MPLS2
+	u8				Flags:2;			// unused for now
 	u64				FirstTS;
 	u64				TotalPkt;
 
@@ -41,7 +49,7 @@ typedef struct HistogramDump_t
 } __attribute__((packed)) HistogramDump_t;
 
 PacketInfoBulk_t* PktInfo_BulkAlloc(u32 MaxPkts);
-void PktInfo_Insert(PacketInfoBulk_t **p, uint16_t len, uint32_t tdiff);
+void PktInfo_Insert(PacketInfoBulk_t **p, u16 Len, u64 Tdiff);
 int PktInfo_HistogramPrint(FILE *FP, HistogramDump_t *H, PacketInfoBulk_t *P);
 
 #endif

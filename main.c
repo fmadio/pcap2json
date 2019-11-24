@@ -297,7 +297,8 @@ static bool ParseCommandLine(u8* argv[])
 		if (g_Output_Histogram_FP != NULL)
 		{
 			g_Output_Histogram	= true;
-			fprintf(stderr, "  Output histogram is enabled [%s]\n", argv[1]);
+			g_CPUFlowCnt		= 1;
+			fprintf(stderr, "  Output histogram is enabled [%s]. Forcing cpu-flow count to 1\n", argv[1]);
 		}
 		else
 		{

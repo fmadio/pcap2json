@@ -580,6 +580,14 @@ static void FlowInsert(u32 CPUID, FlowIndex_t* FlowIndex, FlowRecord_t* FlowPkt,
 	FlowRecord_t* F = FlowAdd(FlowIndex, FlowPkt, SHA1);
 	assert(F != NULL);
 
+	if (g_Output_Histogram)
+	{
+		if (F->LastTS == 0)
+			PktInfo_Insert(&F->PktInfoB, Length, 0);
+		else
+			PktInfo_Insert(&F->PktInfoB, Length, TS - F->LastTS);
+	}
+
 	// update flow stats
 	F->TotalPkt		+= 1;
 	F->TotalByte	+= Length;
@@ -587,8 +595,6 @@ static void FlowInsert(u32 CPUID, FlowIndex_t* FlowIndex, FlowRecord_t* FlowPkt,
 	F->LastTS		=  TS;
 
 	F->TotalFCS		+= FlowPkt->TotalFCS;
-
-	PktInfo_Insert(&F->PktInfoB, Length, TS - F->FirstTS);
 
 	if (F->IPProto == IPv4_PROTO_TCP)
 	{
@@ -1357,6 +1363,13 @@ static u32 FlowDump(u8* OutputStr, u64 TS, FlowRecord_t* Flow, u32 FlowID)
 		H.IPDSCP		= Flow->IPDSCP;
 		H.FirstTS		= Flow->FirstTS;
 		H.TotalPkt		= Flow->TotalPkt;
+
+		if (Flow->VLAN[0] != 0) SET_VLAN_BIT(&H, 0);
+		if (Flow->VLAN[1] != 0) SET_VLAN_BIT(&H, 1);
+		if (Flow->VLAN[2] != 0) SET_VLAN_BIT(&H, 2);
+		if (Flow->MPLS0 != 0) SET_MPLS_BIT(&H, 0);
+		if (Flow->MPLS1 != 0) SET_MPLS_BIT(&H, 1);
+		if (Flow->MPLS2 != 0) SET_MPLS_BIT(&H, 2);
 
 		PktInfo_HistogramPrint(g_Output_Histogram_FP, &H, Flow->PktInfoB);
 	}
