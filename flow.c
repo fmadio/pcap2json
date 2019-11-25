@@ -144,6 +144,7 @@
 #include "fProfile.h"
 #include "output.h"
 #include "flow.h"
+#include "histogram.h"
 
 void sha1_compress(uint32_t state[static 5], const uint8_t block[static 64]);
 
@@ -221,6 +222,7 @@ typedef struct FlowRecord_t
 
 	u8						SortDone;			// for top talkers, if this entry has been consumed
 
+	PacketInfoBulk_t		*PktInfoB;
 	struct FlowRecord_t*	Next;				// next flow record
 	struct FlowRecord_t*	Prev;				// previous flow record
 
@@ -267,6 +269,8 @@ extern u8				g_FlowTopNsMac[MAX_TOPN_MAC][6];
 extern u8				g_FlowTopNdMac[MAX_TOPN_MAC][6];
 
 extern bool				g_Output_ESPush;
+extern bool				g_Output_Histogram;
+extern FILE				*g_Output_Histogram_FP;
 
 extern u8 				g_CaptureName[256];
 extern u8				g_DeviceName[128];
@@ -575,6 +579,14 @@ static void FlowInsert(u32 CPUID, FlowIndex_t* FlowIndex, FlowRecord_t* FlowPkt,
 	// create/fetch the flow entry
 	FlowRecord_t* F = FlowAdd(FlowIndex, FlowPkt, SHA1);
 	assert(F != NULL);
+
+	if (g_Output_Histogram)
+	{
+		if (F->LastTS == 0)
+			PktInfo_Insert(&F->PktInfoB, Length, 0);
+		else
+			PktInfo_Insert(&F->PktInfoB, Length, TS - F->LastTS);
+	}
 
 	// update flow stats
 	F->TotalPkt		+= 1;
@@ -1339,6 +1351,29 @@ static u32 FlowDump(u8* OutputStr, u64 TS, FlowRecord_t* Flow, u32 FlowID)
 	}
 	//printf("%s\n", OutputStr);
 
+	if (g_Output_Histogram)
+	{
+		HistogramDump_t	H;
+
+		memset(&H, 0, sizeof(H));
+		H.signature		= HISTOGRAM_SIG_V1;
+		H.FlowID		= FlowID;
+		H.MACProto		= Flow->EtherProto;
+		H.IPProto		= Flow->IPProto;
+		H.IPDSCP		= Flow->IPDSCP;
+		H.FirstTS		= Flow->FirstTS;
+		H.TotalPkt		= Flow->TotalPkt;
+
+		if (Flow->VLAN[0] != 0) SET_VLAN_BIT(&H, 0);
+		if (Flow->VLAN[1] != 0) SET_VLAN_BIT(&H, 1);
+		if (Flow->VLAN[2] != 0) SET_VLAN_BIT(&H, 2);
+		if (Flow->MPLS0 != 0) SET_MPLS_BIT(&H, 0);
+		if (Flow->MPLS1 != 0) SET_MPLS_BIT(&H, 1);
+		if (Flow->MPLS2 != 0) SET_MPLS_BIT(&H, 2);
+
+		PktInfo_HistogramPrint(g_Output_Histogram_FP, &H, Flow->PktInfoB);
+	}
+
 	return s_FlowTemplateLen; 
 #endif
 
@@ -1544,6 +1579,19 @@ static void FlowMerge(FlowIndex_t* IndexOut, FlowIndex_t* IndexRoot, u32 IndexCn
 			F->FirstTS 		= min64ne0(F->FirstTS, Flow->FirstTS);
 			F->LastTS 		= max64(F->LastTS, Flow->LastTS);
 			F->TotalFCS 	+= Flow->TotalFCS;	
+
+			if (F->PktInfoB)
+			{
+				PacketInfoBulk_t *last	= F->PktInfoB;
+
+				for (; last->Next != NULL; last = last->Next);
+
+				last->Next	= Flow->PktInfoB;
+			}
+			else
+				F->PktInfoB = Flow->PktInfoB;
+
+			Flow->PktInfoB = NULL;
 
 			// TCP stats
 			if (F->IPProto == IPv4_PROTO_TCP)
