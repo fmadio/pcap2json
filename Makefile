@@ -5,6 +5,7 @@ OBJS += sha1.o
 OBJS += output.o
 OBJS += miniz.o
 OBJS += fProfile.o
+OBJS += histogram.o
 
 DEF = 
 DEF += -O3 
