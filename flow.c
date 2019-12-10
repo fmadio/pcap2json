@@ -270,7 +270,7 @@ extern u8				g_FlowTopNdMac[MAX_TOPN_MAC][6];
 
 extern bool				g_Output_ESPush;
 extern bool				g_Output_Histogram;
-extern FILE				*g_Output_Histogram_FP;
+extern FILE*			g_Output_Histogram_FP;
 
 extern u8 				g_CaptureName[256];
 extern u8				g_DeviceName[128];
@@ -582,10 +582,8 @@ static void FlowInsert(u32 CPUID, FlowIndex_t* FlowIndex, FlowRecord_t* FlowPkt,
 
 	if (g_Output_Histogram)
 	{
-		if (F->LastTS == 0)
-			PktInfo_Insert(&F->PktInfoB, Length, 0);
-		else
-			PktInfo_Insert(&F->PktInfoB, Length, TS - F->LastTS);
+		s64 dTS = (F->LastTS == 0) ? 0 : (TS - F->LastTS);
+		PktInfo_Insert(&F->PktInfoB, Length, dTS);
 	}
 
 	// update flow stats
@@ -632,6 +630,7 @@ static void FlowInsert(u32 CPUID, FlowIndex_t* FlowIndex, FlowRecord_t* FlowPkt,
 			F->TCPAckNo = TCPAckNo;
 		}
 */
+
 		// count SACKs per flow
 		if (FlowPkt->TCPIsSACK) F->TCPSACKCnt	+= 1; 
 
