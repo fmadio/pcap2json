@@ -909,6 +909,21 @@ void Output_Close(Output_t* Out)
 	{
 		usleep(0);
 	}
+
+	// wait for final send to complete.
+	// Get only means a worker pulled it off the queue
+	// does not mean it finished to completion. if s_Exit is set here
+	// then SendBuffer() will early exit out and not fully send
+	// the entries to ES
+	fprintf(stderr, "Output Fin wait Put:%x Get:%x Fin:%x\n", Out->BufferPut, Out->BufferGet, Out->BufferFin);
+	u32 Timeout = 0;
+	while (Out->BufferPut != Out->BufferFin)
+	{
+		usleep(1);
+		assert(Timeout++ < 1e6);
+	}
+
+	// signal workers to revolt
 	s_Exit = true;
 
 	fprintf(stderr, "Output Join\n");
