@@ -1221,7 +1221,7 @@ int main(int argc, u8* argv[])
 
 		// wall time calcs
 		if (PacketTSFirst == 0) PacketTSFirst = TSFirst;
-		PacketTSLast 	= TSLast;
+		if (TSLast != 0) 		PacketTSLast 	= TSLast;
 
 		fProfile_Stop(6);
 		u64 TSC0 		= rdtsc();
@@ -1229,7 +1229,7 @@ int main(int argc, u8* argv[])
 		fProfile_Start(8, "PacketQueue");
 
 		// queue the packet for processing 
-		Flow_PacketQueue(PktBlock);
+		Flow_PacketQueue(PktBlock, false);
 
 		fProfile_Stop(8);
 
@@ -1244,8 +1244,7 @@ int main(int argc, u8* argv[])
 	fProfile_Stop(6);
 	fProfile_Stop(0);
 
-	fprintf(stderr, "pipe exit\n");
-
+	fprintf(stderr, "pipe exit %s %lli\n", FormatTS(PacketTSLast), PacketTSLast);
 
 	// flush any remaining flows
 	Flow_Close(Out, PacketTSLast);

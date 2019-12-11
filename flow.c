@@ -1983,7 +1983,7 @@ void DecodePacket(	u32 CPUID,
 //---------------------------------------------------------------------------------------------
 // queue a packet for processing 
 static FlowIndex_t* s_FlowIndexQueue = NULL;
-void Flow_PacketQueue(PacketBuffer_t* Pkt)
+void Flow_PacketQueue(PacketBuffer_t* Pkt, bool IsFlush)
 {
 	// multi-core version
 	if (!g_IsFlowNULL)
@@ -2057,6 +2057,16 @@ void Flow_PacketQueue(PacketBuffer_t* Pkt)
 			s_FlowIndexQueue = NULL;
 		}
 
+		// force flush, for final output
+		if (IsFlush)
+		{
+			Pkt->IsFlowIndexDump	= true;
+			Pkt->TSSnapshot	 		= s_FlowSampleTSLast;
+
+			// force new allocation on next Queue 
+			s_FlowIndexQueue = NULL;
+		}
+
 		s_DecodeQueuePut++;
 		s_PacketQueueCnt++;
 	}
@@ -2111,6 +2121,8 @@ void* Flow_Worker(void* User)
 // back pressure testing
 //u32 delay =  ((u64)rand() * 100000000ULL) / (u64)RAND_MAX; 
 //ndelay(delay);
+
+
 				u64 TSC2 = rdtsc();
 
 				// ensure no sync problems
@@ -2201,6 +2213,7 @@ void* Flow_Worker(void* User)
 					}
 
 					u64 TSC2 = rdtsc();
+
 
 					// dump flows
 					u64 StallTSC = 0;
@@ -2480,20 +2493,26 @@ void Flow_Open(struct Output_t* Out, u32 CPUMapCnt, s32* CPUMap, u32 FlowIndexDe
 // shutdown / flush
 void Flow_Close(struct Output_t* Out, u64 LastTS)
 {
+	fprintf(stderr, "flow close %x\n", s_DecodeQueuePut);
+
 	// push a flush packet
 	// this ensures the last flow data gets flushed to the output queue
 	// in a fully pipelined manner 
 	PacketBuffer_t*	PktBlock 	= Flow_PacketAlloc();
-	PktBlock->IsFlowIndexDump	= false;
-	Flow_PacketQueue(PktBlock);
+	PktBlock->PktCnt			= 0;
+	Flow_PacketQueue(PktBlock, true);
 
 	// wait for all queues to drain
 	u32 Timeout = 0;
 	while (s_DecodeQueuePut != s_DecodeQueueGet)
 	{
-		usleep(0);
+		fprintf(stderr, "flow close wait %x %x\n", s_DecodeQueuePut, s_DecodeQueueGet);
+
+		usleep(100e3);
 		assert(Timeout++ < 1e6);
 	}
+	fprintf(stderr, "close finish %x %x\n", s_DecodeQueuePut, s_DecodeQueueGet);
+
 	s_Exit = true;
 
 	fprintf(stderr, "QueueCnt : %lli\n", s_PacketQueueCnt);	
