@@ -93,8 +93,7 @@ s32				g_CPUFlowCnt		= 4;					// total number of cpus for flow calcuiatoin
 s32				g_CPUFlow[128]		= { 19, 20, 21, 22};	// cpu mapping for flow threads
 s32				g_CPUOutput[128]	= { 25, 26, 27, 28, 25, 26, 27, 28};	// cpu mappings for output threads 
 
-bool			g_IsJSONPacket		= false;			// output JSON packet format
-bool			g_IsJSONFlow		= false;			// output JSON flow format
+bool			g_IsJSONFlow		= true;			// output JSON flow format
 
 s64				g_FlowSampleRate	= 100e6;			// default to flow sample rate of 100msec
 bool			g_IsFlowNULL		= false;			// benchmarking NULL flow rate 
@@ -249,8 +248,11 @@ static bool ParseCommandLine(u8* argv[])
 	if (strcmp(argv[0], "--json-packet") == 0)
 	{
 		fprintf(stderr, "  Write JSON Packet meta data\n");
-		g_IsJSONPacket = true;	
+		//g_IsJSONPacket = true;	
 		cnt	+= 1;
+
+		fprintf(stderr, "packet mode depreciated\n");
+		assert(false);
 	}
 	// output json flow data 
 	if (strcmp(argv[0], "--json-flow") == 0)

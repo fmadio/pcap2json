@@ -255,7 +255,7 @@ typedef struct FlowIndex_t
 
 //---------------------------------------------------------------------------------------------
 // command line parameters, see main.c for descriptions
-extern bool				g_IsJSONPacket;
+//extern bool				g_IsJSONPacket;
 extern bool				g_IsJSONFlow;
 
 extern  s64				g_FlowSampleRate;
@@ -1964,13 +1964,14 @@ void DecodePacket(	u32 CPUID,
 	s_DecodeThreadTSCHash[CPUID] += TSC1 - TSC0;
 
 	// packet mode then print record as a packet 
-	if (g_IsJSONPacket)
-	{
-		u8 JSONBuffer[16*1024];
-		u32 JSONBufferLen = FlowDump(JSONBuffer, PktHeader->TS, FlowPkt, 0);
+	//if (g_IsJSONPacket)
+	//{
+	//	u8 JSONBuffer[16*1024];
+	//	u32 JSONBufferLen = FlowDump(JSONBuffer, PktHeader->TS, FlowPkt, 0);
+	//
+	//	Output_BufferAdd(s_Output, JSONBuffer, JSONBufferLen, 1);
+	//}
 
-		Output_BufferAdd(s_Output, JSONBuffer, JSONBufferLen, 1);
-	}
 	// update the flow records
 	if (g_IsJSONFlow)
 	{

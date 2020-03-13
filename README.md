@@ -113,3 +113,10 @@ Using FMADIO 20Gv2 Packet Capture system uses 12 CPUs
 1M Flows @ 64B per packet 36Mpps. Using a 96 CPU + 384GB RAM m5.metal machine (Blue is reference running on FMADIO 20G Gen2 system)
 
 ![Alt text](http://fmad.io/pcap2json/20190316_pcap2json_scaling_96cpu.JPG "pcap to json 1500B packet rate")
+
+# Profile Snaphot 
+
+Generating a profile snapshot as follows
+
+sudo stream_cat -v --time-start 20:00:00 --time-stop 21:00:00 --ignore_fcs  mycapture_20200313_1712  | ./pcap2json  --json-flow --output-histogram mycapture_20200313_2000.profile
+
