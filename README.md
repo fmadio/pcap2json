@@ -116,7 +116,7 @@ Using FMADIO 20Gv2 Packet Capture system uses 12 CPUs
 
 # Profile Snaphot 
 
-Generating a profile snapshot as follows
+Generating a profile snapshot as follows. 5 minute (300e9 nanosec) profile sample
 
-sudo stream_cat -v --time-start 20:00:00 --time-stop 21:00:00 --ignore_fcs  mycapture_20200313_1712  | ./pcap2json  --json-flow --output-histogram mycapture_20200313_2000.profile
+sudo stream_cat -v --time-start 20:00:00 --time-stop 20:05:00 --ignore_fcs  mycapture_20200313_1712  | ./pcap2json  --json-flow --flow-samplerate 300e9 --output-null --output-histogram mycapture_20200313_2000.profile
 
