@@ -306,6 +306,11 @@ static bool ParseCommandLine(u8* argv[])
 			exit(-1);
 		}
 		cnt	+= 2;
+
+		// disable 
+		g_Output_NULL 	= true;
+		g_Output_ESPush = false;
+		g_Output_STDOUT = false;
 	}
 	if (strcmp(argv[0], "--output-buffercnt") == 0)
 	{

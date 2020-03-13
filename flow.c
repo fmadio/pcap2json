@@ -2121,8 +2121,6 @@ void* Flow_Worker(void* User)
 // back pressure testing
 //u32 delay =  ((u64)rand() * 100000000ULL) / (u64)RAND_MAX; 
 //ndelay(delay);
-
-
 				u64 TSC2 = rdtsc();
 
 				// ensure no sync problems
@@ -2648,7 +2646,6 @@ void Flow_PktSizeHisto(void)
 		fprintf(stderr, "\n");
 	}
 	fprintf(stderr, "\n");
-
 
 	// merge flow histo
 	u32 FlowDepthHisto[128];

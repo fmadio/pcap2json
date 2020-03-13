@@ -27,6 +27,7 @@
 #include "fProfile.h"
 #include "histogram.h"
 
+//---------------------------------------------------------------------------------------------
 
 PacketInfoBulk_t* PktInfo_BulkAlloc(u32 MaxPkts)
 {
@@ -41,6 +42,8 @@ PacketInfoBulk_t* PktInfo_BulkAlloc(u32 MaxPkts)
 
 	return p;
 }
+
+//---------------------------------------------------------------------------------------------
 
 void PktInfo_Insert(PacketInfoBulk_t **pB, u16 Len, u64 Tdiff)
 {
@@ -75,6 +78,8 @@ void PktInfo_Insert(PacketInfoBulk_t **pB, u16 Len, u64 Tdiff)
 	P->Pos++;
 }
 
+//---------------------------------------------------------------------------------------------
+
 int PktInfo_HistogramPrint(FILE *FP, HistogramDump_t *HD, PacketInfoBulk_t *PktInfoB)
 {
 	static u32 count = 0;
@@ -82,10 +87,8 @@ int PktInfo_HistogramPrint(FILE *FP, HistogramDump_t *HD, PacketInfoBulk_t *PktI
 
 	HistogramDump_t	*H = (HistogramDump_t *)Buffer;
 	memcpy(H, HD, sizeof(HistogramDump_t));
-	//H->signature	= HISTOGRAM_SIG_V1;
 
-	//fprintf(stderr, "Histogram: %u %d %d %d %llu %llu\n", H->FlowID, H->MACProto, H->IPProto, H->IPDSCP, H->FirstTS, H->TotalPkt);
-
+	//fprintf(stderr, "Histogram: %6u %08x %08x %4d %llu %6llu\n", H->FlowID, H->MACProto, H->IPProto, H->IPDSCP, H->FirstTS, H->TotalPkt);
 	PacketInfo_t	*PD = (PacketInfo_t*)(H+1);
 
 	PacketInfoBulk_t *p = PktInfoB;
@@ -103,3 +106,5 @@ int PktInfo_HistogramPrint(FILE *FP, HistogramDump_t *HD, PacketInfoBulk_t *PktI
 	//fprintf(stderr, "size: %ld count: %u\n", (u8 *)PD - Buffer, count);
 	free(Buffer);
 }
+
+//---------------------------------------------------------------------------------------------
