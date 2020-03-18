@@ -151,7 +151,7 @@ static bool JSONLint(u8* Buffer, u32 Length)
 
 		/*
 		if (B->Buffer[i] == '{')
-		{
+		{p7
 			if (InString) IsError = true;
 		}
 		if (B->Buffer[i] == '}')
@@ -172,37 +172,57 @@ static bool JSONLint(u8* Buffer, u32 Length)
 
 Output_t* Output_Create(bool IsNULL, 
 						bool IsSTDOUT, 
-						bool IsESOut, 
-						bool IsCompress, 
-						bool IsESNULL, 
-						u32 Output_BufferCnt,
-						u8* QueuePath,
+						u8*  PipeName,
 						s32* CPUMap)
 {
 
 	fprintf(stderr, "OutputBuffer Config\n");
 	fprintf(stderr, "   IsNULL        : %i\n", IsNULL); 
 	fprintf(stderr, "   IsStdOut      : %i\n", IsSTDOUT); 
-	fprintf(stderr, "   IsESNULL      : %i\n", IsESNULL); 
-	fprintf(stderr, "   IsESPush      : %i\n", IsESOut); 
-	fprintf(stderr, "   IsCompress    : %i\n", IsCompress); 
-	fprintf(stderr, "   QueuePath     : %s\n", QueuePath); 
+	fprintf(stderr, "   PipeName      : %s\n", PipeName); 
 
 	Output_t* O = memalign(4096, sizeof(Output_t));
 	memset(O, 0, sizeof(Output_t));	
 
-	// enable stdout writing 
-	if (IsSTDOUT)
+	O->FileTXT		= stdout;
+
+	// write to a named pipe
+	if (PipeName)
 	{
-		O->FileTXT		= stdout;
+		// check if exists
+		struct stat s;
+		if (stat(PipeName, &s) <  0)
+		{
+			fprintf(stderr, "pipe missing creating\n");
+
+			//if (unlink(PipeName) < 0)
+			//{
+			//	fprintf(stderr, "failed to remove pipe %i %s\n", errno, strerror(errno) ); 
+			//	return NULL;
+			//}
+
+			int fd = mkfifo(PipeName, 0777);
+			if (fd < 0)
+			{
+				fprintf(stderr, "fifo fd: %i %s\n", errno, strerror(errno) );
+				return NULL;
+			}
+			assert(fd >= 0);
+		}
+
+		O->FileTXT = fopen(PipeName, "r+");
+		if (!O->FileTXT)
+		{
+			fprintf(stderr, "failed to open output pipe [%s] %i %s\n", PipeName, errno, strerror(errno) );
+			return NULL;
+		}
 	}
+
+	// override with null output
 	if (IsNULL)
 	{
 		O->FileTXT		= fopen("/dev/null", "w");
 	}
-
-	// ER null target
-	s_IsESNULL = IsESNULL;
 
 	return O;
 }
@@ -299,8 +319,8 @@ void Output_Stats(	Output_t* Out,
 					float* pRecv,
 					u64*   pTotalCycle,
 					u64*   pPendingB,
-					u64*   pPushSizeB,
-					u64*   pPushBps
+					u64*   pOutputLps,
+					u64*   pOutputBps
 ){
 	/*
 	u64 Total 	= 0;
@@ -336,8 +356,6 @@ void Output_Stats(	Output_t* Out,
 	if (pRecv) 			pRecv[0] 		= Recv * inverse(Total);
 	if (pTotalCycle)	pTotalCycle[0]	= Total;
 
-	// time since last print
-	float dT		= tsc2ns(rdtsc() - Out->ESPushTSC) / 1e9;
 
 	// how much output data is pending
 	u64 BytePending = Out->ByteQueued - Out->ByteComplete;
@@ -358,6 +376,25 @@ void Output_Stats(	Output_t* Out,
 		Out->ESPushTSC	= rdtsc();
 	}
 	*/
+
+	// time since last print
+
+	static u64 LastTotalByte 	= 0;
+	static u64 LastTotalLine 	= 0;
+	static u64 LastTS			= 0;
+
+	u64 TS 		= tsc2ns( rdtsc() );
+	float dT 	= (TS - LastTS) / 1e9;
+
+	float bps	= (8ULL*(Out->TotalByte - LastTotalByte)) * inverse(dT);
+	float lps	= (Out->TotalLine - LastTotalLine) / dT; 
+
+	if (pOutputBps) pOutputBps[0] = bps;
+	if (pOutputLps) pOutputLps[0] = lps; 
+
+	LastTotalLine 	= Out->TotalLine;
+	LastTotalByte 	= Out->TotalByte;
+	LastTS			= TS;
 }
 
 //-------------------------------------------------------------------------------------------

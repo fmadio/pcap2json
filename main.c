@@ -109,6 +109,7 @@ bool			g_Output_FilterPath	= false;			// use filter_path to return only took,err
 u32				g_Output_ThreadCnt  = 32;				// number of worker threads to use for ES push
 u32				g_Output_MergeMin	= 1;				// minimum number of blocks to merge on output 
 u32				g_Output_MergeMax	= 64;				// maximum number of blocks to merge on output 
+u8*				g_Output_PipeName	= NULL;				// name of pipe to output to
 
 u8 				g_CaptureName[256];						// name of the capture / index to push to
 u8				g_DeviceName[128];						// name of the device this is sourced from
@@ -271,21 +272,13 @@ static bool ParseCommandLine(u8* argv[])
 		fprintf(stderr, "  Output to STDOUT\n");
 		cnt	+= 1;
 	}
-	if (strcmp(argv[0], "--output-buffercnt") == 0)
+	// write to a named pipe 
+	if (strcmp(argv[0], "--output-pipe") == 0)
 	{
-		g_Output_BufferCnt = atoi(argv[1]);
-		if (g_Output_BufferCnt & (g_Output_BufferCnt  -1))
-		{
-			fprintf(stderr, "  Output Buffer Cnt must be Power of 2: %i\n", g_Output_BufferCnt);
-			return false;
-		}
-		if (g_Output_BufferCnt > 16*1024)
-		{
-			fprintf(stderr, "  Output Buffer Cnt maximum of 16384: %i\n", g_Output_BufferCnt);
-			return false;
-		}
-
-		fprintf(stderr, "  Output Buffer Cnt: %i\n", g_Output_BufferCnt);
+		g_Output_NULL 		= false;
+		g_Output_STDOUT 	= true;
+		g_Output_PipeName	= strdup(argv[1]);
+		fprintf(stderr, "  Output to Pipe (%s)\n", g_Output_PipeName);
 		cnt	+= 2;
 	}
 	// flow specific
@@ -750,12 +743,9 @@ int main(int argc, u8* argv[])
 	// output + add all the ES targets
 	struct Output_t* Out = Output_Create(	g_Output_NULL,
 											g_Output_STDOUT, 
-											g_Output_ESPush, 
-											0, // g_ESCompress, 
-											0, // g_ESNULL, 
-											0, //g_Output_BufferCnt,
-											NULL, //g_ESQueuePath,
-											g_CPUOutput); 
+											g_Output_PipeName //"/opt/fmadio/queue/json_pcap2json_0"
+										);
+													
 	// init flow state
 	Flow_Open(Out, g_CPUFlowCnt, g_CPUFlow, g_FlowIndexDepth, g_FlowMax, g_FlowTemplate);
 
@@ -803,16 +793,16 @@ int main(int argc, u8* argv[])
 			float OutputWorkerCPU;
 			float OutputWorkerCPURecv;
 			u64 OutputPendingB;
-			u64 OutputPushSizeB;
-			u64 OutputPushBps;
-			Output_Stats(Out, true,  &OutputWorkerCPU, NULL, NULL, &OutputWorkerCPURecv, NULL, &OutputPendingB, &OutputPushSizeB, &OutputPushBps);
+			u64 OutputLps;
+			u64 OutputBps;
+			Output_Stats(Out, true,  &OutputWorkerCPU, NULL, NULL, &OutputWorkerCPURecv, NULL, &OutputPendingB, &OutputLps, &OutputBps);
 
 			u64 FlowCntSnapshot;	
 			float FlowCPU;
 			float FlowDepthMedian;
 			Flow_Stats(false, &FlowCntSnapshot, NULL, NULL, &FlowDepthMedian, &FlowCPU, NULL, NULL, NULL, NULL, NULL, NULL, NULL);
 
-			fprintf(stderr, "[%s] %.3f/%.3f GB %.2f Mpps %.2f Gbps | cat %6.f MB %.2f %.2f %.2f | Flows/Snap: %6i:%4.f FlowCPU:%.2f | ESPush:%6lli %6.2fK ESErr %4lli | OutCPU:%.2f OutPush: %.2f MB OutQueue:%6.1fMB %.3f Gbps\n", 
+			fprintf(stderr, "[%s] %.3f/%.3f GB %8.2f Mpps %8.2f Gbps | cat %6.f MB %.2f %.2f %.2f | Flows/Snap: %6i:%4.f FlowCPU:%.2f | Output %.3f K Lines/sec %.3f Gbps\n", 
 
 								FormatTS(PacketTSLast),
 
@@ -829,13 +819,8 @@ int main(int argc, u8* argv[])
 								FlowCntSnapshot, 
 								FlowDepthMedian,
 								FlowCPU,
-								0, // Output_ESPushCnt(Out),
-								lps/1e3,
-								0 ,//Output_ESErrorCnt(Out),
-								OutputWorkerCPU,
-								OutputPushSizeB / (float)kMB(1),
-								OutputPendingB / (float)kMB(1) ,
-								(float)(OutputPushBps / 1e9)
+								(float)(OutputLps / 1e3),
+								(float)(OutputBps / 1e9)
 							);
 			fflush(stderr);
 
