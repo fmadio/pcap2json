@@ -1,6 +1,12 @@
 # pcap2json
 High Speed PCAP2JSON conversion utility  for importing PCAP network data into Elastic Search / ELK
 
+***DEPRECIATED***
+
+Branch is for original combinded PCAP ES conversion utility
+
+***DEPRECIATED***
+
 
 ![Alt text](http://fmad.io/analytics/logo_pcap2json.png "fmadio flow analyzer logo")
 
