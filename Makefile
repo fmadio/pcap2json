@@ -3,7 +3,6 @@ OBJS += main.o
 OBJS += flow.o
 OBJS += sha1.o
 OBJS += output.o
-OBJS += miniz.o
 OBJS += fProfile.o
 OBJS += histogram.o
 

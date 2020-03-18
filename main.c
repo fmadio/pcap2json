@@ -55,13 +55,6 @@
 
 double TSC2Nano = 0;
 
-typedef struct
-{
-	u8						HostName[256];		// ES Host name
-	u32						HostPort;			// ES Port name
-
-} ESHost_t;
-
 #define OUTPUT_VERSION_1_00		0x100		// initial version
 typedef struct
 {
@@ -116,13 +109,6 @@ bool			g_Output_FilterPath	= false;			// use filter_path to return only took,err
 u32				g_Output_ThreadCnt  = 32;				// number of worker threads to use for ES push
 u32				g_Output_MergeMin	= 1;				// minimum number of blocks to merge on output 
 u32				g_Output_MergeMax	= 64;				// maximum number of blocks to merge on output 
-
-u32				g_ESHostCnt 		= 0;				// number of active ES Hosts
-u32				g_ESTimeout 		= 10000;				// ES host connect/read/write timeout value in milliseconds
-ESHost_t		g_ESHost[128];							// list fo ES Hosts to output to
-bool			g_ESCompress		= false;			// elastic push enable compression 
-bool			g_ESNULL			= false;			// ues ES NULL Host 
-u8*				g_ESQueuePath		= NULL;				// if using file backed ES Queue
 
 u8 				g_CaptureName[256];						// name of the capture / index to push to
 u8				g_DeviceName[128];						// name of the device this is sourced from
@@ -285,35 +271,6 @@ static bool ParseCommandLine(u8* argv[])
 		fprintf(stderr, "  Output to STDOUT\n");
 		cnt	+= 1;
 	}
-	if (strcmp(argv[0], "--output-espush") == 0)
-	{
-		g_Output_NULL 	= false;
-		g_Output_STDOUT = false;
-		g_Output_ESPush = true;
-		fprintf(stderr, "  Output to ES HTTP Push\n");
-		cnt	+= 1;
-	}
-	if (strcmp(argv[0], "--output-histogram") == 0)
-	{
-		g_Output_Histogram_FP = fopen(argv[1], "w+");
-		if (g_Output_Histogram_FP != NULL)
-		{
-			g_Output_Histogram	= true;
-			g_CPUFlowCnt		= 1;
-			fprintf(stderr, "  Output histogram is enabled [%s]. Forcing cpu-flow count to 1\n", argv[1]);
-		}
-		else
-		{
-			fprintf(stderr, "  Failed to open output-histogram file '%s'\n", argv[1]);
-			exit(-1);
-		}
-		cnt	+= 2;
-
-		// disable 
-		g_Output_NULL 	= true;
-		g_Output_ESPush = false;
-		g_Output_STDOUT = false;
-	}
 	if (strcmp(argv[0], "--output-buffercnt") == 0)
 	{
 		g_Output_BufferCnt = atoi(argv[1]);
@@ -331,102 +288,6 @@ static bool ParseCommandLine(u8* argv[])
 		fprintf(stderr, "  Output Buffer Cnt: %i\n", g_Output_BufferCnt);
 		cnt	+= 2;
 	}
-	if (strcmp(argv[0], "--output-keepalive") == 0)
-	{
-		g_Output_Keepalive = true;
-		fprintf(stderr, "  ES Keepalive Enabled\n");
-		cnt	+= 1;
-	}
-	if (strcmp(argv[0], "--output-filterpath") == 0)
-	{
-		g_Output_FilterPath = true;
-		fprintf(stderr, "  ES filter_path enabled\n");
-		cnt	+= 1;
-	}
-	if (strcmp(argv[0], "--output-threadcnt") == 0)
-	{
-		g_Output_ThreadCnt = atoi(argv[1]);
-		fprintf(stderr, "  ES Output worker thread count: %i\n", g_Output_ThreadCnt);
-		cnt	+= 2;
-	}
-	if (strcmp(argv[0], "--output-mergemin") == 0)
-	{
-		g_Output_MergeMin = atoi(argv[1]);;
-		fprintf(stderr, "  Output Merge Min: %i\n", g_Output_MergeMin);
-		cnt	+= 2;
-	}
-	if (strcmp(argv[0], "--output-mergemax") == 0)
-	{
-		g_Output_MergeMax = atoi(argv[1]);;
-		fprintf(stderr, "  Output Merge Max: %i\n", g_Output_MergeMax);
-		cnt	+= 2;
-	}
-
-
-	// ES specific 
-	if (strcmp(argv[0], "--es-host") == 0)
-	{
-		// split into host/port from <hostname:port>
-		u32 StrPos = 0;
-		u8 StrList[2][256];
-		u32 Len = 0;
-
-		u8* HostPort = argv[1];
-		for (int j=0; j < strlen(HostPort); j++)
-		{
-			u32 c = HostPort[j];	
-			if ((c == ':') || (c == 0))
-			{
-				StrList[StrPos][Len] = 0;
-				StrPos++;
-				Len = 0;
-			}
-			else
-			{
-				StrList[StrPos][Len++] = c;
-			}
-		}
-		StrList[StrPos][Len] = 0;
-		StrPos++;
-
-		if (StrPos != 2)
-		{
-			fprintf(stderr, "  Format incorrect\n--es-host <hostname:port> found %i\n", StrPos);
-			return false;
-		}
-
-		ESHost_t* Host = &g_ESHost[g_ESHostCnt++];
-
-		strncpy(Host->HostName, StrList[0], sizeof(Host->HostName));
-		Host->HostPort = atoi(StrList[1]);
-		fprintf(stderr, "  ES[%i] HostName [%s]  HostPort:%i\n", g_ESHostCnt, Host->HostName, Host->HostPort);
-		cnt	+= 2;
-	}
-	if (strcmp(argv[0], "--es-timeout") == 0)
-	{
-		g_ESTimeout = atoi(argv[1]);
-		fprintf(stderr, "  ES timeout %i\n", g_ESTimeout);
-		cnt	+= 2;
-	}
-	if (strcmp(argv[0], "--es-compress") == 0)
-	{
-		g_ESCompress = true;
-		fprintf(stderr, "  ES Compression Enabled\n");
-		cnt	+= 1;
-	}
-	if (strcmp(argv[0], "--es-null") == 0)
-	{
-		g_ESNULL = true;
-		fprintf(stderr, "  ES NULL Target\n");
-		cnt	+= 1;
-	}
-	if (strcmp(argv[0], "--es-queue-path") == 0)
-	{
-		g_ESQueuePath = strdup(argv[1]);
-		fprintf(stderr, "  ES Queue Path [%s]\n", g_ESQueuePath);
-		cnt	+= 2;
-	}
-
 	// flow specific
 	if (strcmp(argv[0], "--flow-samplerate") == 0)
 	{
@@ -636,7 +497,7 @@ static void ProfileDump(struct Output_t* Out)
 {
 	fProfile_Dump(0);
 	fprintf(stderr, "\n");
-
+/*
 	float	OutputWorkerCPU;
 	float	OutputWorkerCPUCompress;
 	float	OutputWorkerCPUSend;
@@ -664,6 +525,8 @@ static void ProfileDump(struct Output_t* Out)
 	fprintf(stderr, "  PushSize : %.2f MB\n", OutputPushSizeByte / (float)kMB(1)); 
 	fprintf(stderr, "  PushSpeed: %.2f Gbps\n", OutputPushBps / 1e9); 
 	fprintf(stderr, "\n");
+
+*/
 
 	u64 FlowCntSnapshot		= 0;
 	u64 PktCntSnapshot 		= 0;
@@ -720,9 +583,6 @@ static void ProfileDump(struct Output_t* Out)
 
 	// packet size histogram
 	Flow_PktSizeHisto();
-
-	// dump ES output histogram
-	Output_ESHisto(Out);
 
 	fflush(stdout);
 	fflush(stderr);
@@ -891,16 +751,11 @@ int main(int argc, u8* argv[])
 	struct Output_t* Out = Output_Create(	g_Output_NULL,
 											g_Output_STDOUT, 
 											g_Output_ESPush, 
-											g_ESCompress, 
-											g_ESNULL, 
-											g_Output_BufferCnt,
-											g_ESQueuePath,
+											0, // g_ESCompress, 
+											0, // g_ESNULL, 
+											0, //g_Output_BufferCnt,
+											NULL, //g_ESQueuePath,
 											g_CPUOutput); 
-	for (int i=0; i < g_ESHostCnt; i++)
-	{
-		Output_ESHostAdd(Out, g_ESHost[i].HostName, g_ESHost[i].HostPort);
-	}
-
 	// init flow state
 	Flow_Open(Out, g_CPUFlowCnt, g_CPUFlow, g_FlowIndexDepth, g_FlowMax, g_FlowTemplate);
 
@@ -974,9 +829,9 @@ int main(int argc, u8* argv[])
 								FlowCntSnapshot, 
 								FlowDepthMedian,
 								FlowCPU,
-								Output_ESPushCnt(Out),
+								0, // Output_ESPushCnt(Out),
 								lps/1e3,
-								Output_ESErrorCnt(Out),
+								0 ,//Output_ESErrorCnt(Out),
 								OutputWorkerCPU,
 								OutputPushSizeB / (float)kMB(1),
 								OutputPendingB / (float)kMB(1) ,
