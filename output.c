@@ -170,9 +170,12 @@ static bool JSONLint(u8* Buffer, u32 Length)
 
 //-------------------------------------------------------------------------------------------
 
-Output_t* Output_Create(bool IsNULL, 
-						bool IsSTDOUT, 
-						u8*  PipeName,
+Output_t* Output_Create(bool 	IsNULL, 
+						bool 	IsSTDOUT, 
+						bool 	IsBINARY, 
+						u8*  	PipeName,
+						u8*		StructName,
+						u32		StructSize,
 						s32* CPUMap)
 {
 
@@ -216,6 +219,10 @@ Output_t* Output_Create(bool IsNULL,
 			fprintf(stderr, "failed to open output pipe [%s] %i %s\n", PipeName, errno, strerror(errno) );
 			return NULL;
 		}
+
+		// if a binary transport
+		// write the header
+		fprintf(O->FileTXT, "BBBB %-40s %8i\n", StructName, StructSize); 
 	}
 
 	// override with null output
@@ -296,7 +303,8 @@ u64 Output_BufferAdd(Output_t* Out, u8* Buffer, u32 BufferLen, u32 LineCnt)
 	// write to a text file
 	if (Out->FileTXT)
 	{
-		fprintf(Out->FileTXT, Buffer);
+		//fprintf(Out->FileTXT, Buffer);
+		fwrite(Buffer, 1, BufferLen, Out->FileTXT);
 	}
 
 	// update total line stats

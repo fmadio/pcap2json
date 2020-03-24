@@ -3,9 +3,13 @@
 
 struct Output_t;
 
-struct Output_t* 	Output_Create		(	bool IsNULL, 
-											bool IsSTDOUT, 
-											u8* PipeName
+struct Output_t* 	Output_Create		(	bool 	IsNULL, 
+											bool 	IsSTDOUT, 
+											bool 	IsBINARY, 
+											u8* 	PipeName,
+											u8*		StructName,
+											u32		StructSize,
+											s32* 	CPUMap
 										);
 
 u64 				Output_BufferAdd	(struct Output_t* Out, u8* Buffer, u32 BufferLen, u32 LineCnt);

@@ -149,8 +149,8 @@ static void help(void)
 	fprintf(stderr, " --config <confrig file>            : read from config file\n");
 	fprintf(stderr, "\n");
 	fprintf(stderr, " --cpu-core   <cpu no>              : cpu map for core thread\n"); 
-	fprintf(stderr, " --cpu-flow   <n> <cpu0.. cpu n-1>  : cpu count and map for flow threads\n"); 
-	fprintf(stderr, " --cpu-output <cpu0 .. cpu3>        : cpu map for output threads\n"); 
+	fprintf(stderr, " --cpu-flow   <n> <cpu0..cpu n-1>   : cpu count and map for flow threads\n"); 
+	fprintf(stderr, " --cpu-output <n> <cpu0..cpu n-1>   : cpu map for output threads\n"); 
 	fprintf(stderr, "\n");
 	fprintf(stderr, " --json-packet                      : write JSON packet data\n");
 	fprintf(stderr, " --json-flow                        : write JSON flow data\n");
@@ -223,13 +223,15 @@ static bool ParseCommandLine(u8* argv[])
 	}
 	if (strcmp(argv[0], "--cpu-output") == 0)
 	{
-		g_CPUOutput[0] = atoi(argv[1]);
-		g_CPUOutput[1] = atoi(argv[2]);
-		g_CPUOutput[2] = atoi(argv[3]);
-		g_CPUOutput[3] = atoi(argv[4]);
+		u32 Cnt = atoi(argv[1]);
+
+		g_CPUOutput[0] = atoi(argv[2]);
+		g_CPUOutput[1] = atoi(argv[3]);
+		g_CPUOutput[2] = atoi(argv[4]);
+		g_CPUOutput[3] = atoi(argv[5]);
 		fprintf(stderr, "  Output on CPU %i %i %i %i\n", 
 							g_CPUOutput[0], g_CPUOutput[1], g_CPUOutput[2], g_CPUOutput[3] );
-		cnt	+= 4 + 1;
+		cnt	+= 4 + 1 + 1;
 	}
 	// output json packet data 
 	if (strcmp(argv[0], "--json-packet") == 0)
@@ -362,16 +364,6 @@ static bool ParseCommandLine(u8* argv[])
 		fprintf(stderr, "  UID [%s]\n", uid); 
 		cnt	+= 2;
 	}
-
-	// allow custom device name
-	if (strcmp(argv[0], "--device-name") == 0)
-	{
-		u8* Name = argv[1];
-		strncpy(g_DeviceName, Name, sizeof(g_DeviceName));
-		fprintf(stderr, "  Device Name [%s]\n", Name);
-		cnt     += 2;
-	}
-
 	if (strcmp(argv[0], "--help") == 0)
 	{
 		help();
@@ -743,7 +735,11 @@ int main(int argc, u8* argv[])
 	// output + add all the ES targets
 	struct Output_t* Out = Output_Create(	g_Output_NULL,
 											g_Output_STDOUT, 
-											g_Output_PipeName //"/opt/fmadio/queue/json_pcap2json_0"
+											1,
+											g_Output_PipeName,
+											"FlowRecord_t",
+											sizeof(FlowRecord_t),	
+											g_CPUOutput
 										);
 													
 	// init flow state
@@ -761,8 +757,6 @@ int main(int argc, u8* argv[])
 	u64 DecodeTimeTSC 	= 0;
 
 	u32 PayloadCRC		= 0;
-
-
 	while (!feof(FileIn))
 	{
 		u64 TSC = rdtsc();

@@ -150,84 +150,6 @@ void sha1_compress(uint32_t state[static 5], const uint8_t block[static 64]);
 
 //---------------------------------------------------------------------------------------------
 
-typedef struct FlowRecord_t 
-{
-	u16						EtherProto;			// ethernet protocol
-	u8						EtherSrc[6];		// ethernet src mac
-	u8						EtherDst[6];		// ethernet dst mac
-
-	u16						VLAN[4];			// vlan tags
-
-
-	u16						MPLS1;				// MPLS 1 tags
-	u16						MPLStc1;			// MPLS 1 traffic class 
-
-	u16						MPLS2;				// MPLS 1 tags
-	u16						MPLStc2;			// MPLS 1 traffic class 
-
-	u16						MPLS3;				// MPLS 2 tags
-	u16						MPLStc3;			// MPLS 2 traffic class 
-
-	u8						IPSrc[4];			// source IP
-	u8						IPDst[4];			// source IP
-
-	u8						IPProto;			// IP protocol
-	u8						IPDSCP;				// IP DSCP flag
-
-	u16						PortSrc;			// tcp/udp port source
-	u16						PortDst;			// tcp/udp port source
-
-	u8						pad[16];			// SHA1 calcuated on the first 64B
-
-	//----------------------------------------------------------------------------
-	// anything above the line is used for unique per flow hash
-
-
-	u16						TCPACKCnt;			// TCP ACK count within the time period	
-	u16						TCPFINCnt;			// TCP FIN count within the time period	
-	u16						TCPSYNCnt;			// TCP SYN count within the time period	
-	u16						TCPPSHCnt;			// TCP PSH count within the time period	
-	u16						TCPRSTCnt;			// TCP RST count within the time period	
-	u16						TCPWindowMin;		// TCP Window Minimum 
-	u16						TCPWindowMax;		// TCP Window Maximum 
-
-	u16						TCPACKDupCnt;		// number of TCP duplicate acks seen
-	u16						TCPSACKCnt;			// number of TCP SACK acknowledgements 
-
-	u32						TCPSeqNo;			// last TCP Seq no seen
-	u32						TCPAckNo;			// last TCP Ack no seen
-	u32						TCPAckNoCnt;		// number of acks for this seq no 
-	u16						TCPLength;			// tcp payload length
-	u8						TCPIsSACK;			// if this packet is SACK
-	u32						TCPWindowScale;		// tcp window scaling factor
-
-	u16						MPLS0;				// MPLS 0 tags
-	u16						MPLStc0;			// MPLS 0 traffic class 
-												// NOTE: request the outer MPLS tag
-												//       not be included in the hash calculation
-												// 		 see https://github.com/fmadio/pcap2json/issues/15 
-
-	//-------------------------------------------------------------------------------
-	
-	u32						SHA1[5];			// SHA of the flow
-
-	u64						FirstTS;			// first TS seen
-	u64						LastTS;				// last TS seen 
-
-	u64						TotalPkt;			// total packets
-	u64						TotalByte;			// total bytes
-	u64						TotalFCS;			// total number of FCS errors
-
-	TCPHeader_t				TCPHeader;			// copy of the TCP Header
-
-	u8						SortDone;			// for top talkers, if this entry has been consumed
-
-	PacketInfoBulk_t		*PktInfoB;
-	struct FlowRecord_t*	Next;				// next flow record
-	struct FlowRecord_t*	Prev;				// previous flow record
-
-} __attribute__((packed)) FlowRecord_t;
-
 // top level flow index
 typedef struct FlowIndex_t
 {
@@ -268,7 +190,6 @@ extern u8				g_FlowTopNMac;
 extern u8				g_FlowTopNsMac[MAX_TOPN_MAC][6];
 extern u8				g_FlowTopNdMac[MAX_TOPN_MAC][6];
 
-extern bool				g_Output_ESPush;
 extern bool				g_Output_Histogram;
 extern FILE*			g_Output_Histogram_FP;
 
@@ -743,15 +664,6 @@ static u32 FlowTemplate(void)
 	memset(s_FlowTemplate, 0, 16*1024);
 
 	u8* Output = s_FlowTemplate;
-
-	// only ouput ES header if in ES push mode
-	if (g_Output_ESPush)
-	{
-		// 2019/8/7: depcreiate tpye field for ES 7.xx
-		//Output += sprintf(Output, "{\"index\":{\"_index\":\"%s\",\"_type\":\"flow_record\",\"_score\":null}}\n", g_CaptureName);
-		Output += sprintf(Output, "{\"index\":{\"_index\":\"%s\",\"_score\":null}}\n", g_CaptureName);
-	}
-
 	fprintf(stderr, "Source [%s]\n", s_FlowTemplateDefault); 
 
 	// parse the formatting string
@@ -1195,7 +1107,123 @@ static inline void FlowTemplate_WriteIPv4(u8* Base, u32 Index, u8* Value)
 static u32 FlowDump(u8* OutputStr, u64 TS, FlowRecord_t* Flow, u32 FlowID) 
 {
 	u8* Output 		= OutputStr;
+
 #if 1
+
+	// set snapshot timestamp
+	Flow->SnapshotTS = TS;
+
+	// output human readable Ether protocol info
+	switch (Flow->EtherProto)
+	{
+	case ETHER_PROTO_ARP:
+		strcpy(Flow->StrProtoMAC, "ARP");
+		break;
+	case ETHER_PROTO_IPV4:
+		strcpy(Flow->StrProtoMAC, "IPv4");
+		break;
+	case ETHER_PROTO_IPV6:
+		strcpy(Flow->StrProtoMAC, "IPv6");
+		break;
+	case ETHER_PROTO_VLAN:
+		strcpy(Flow->StrProtoMAC, "VLAN");
+		break;
+	case ETHER_PROTO_VNTAG:
+		strcpy(Flow->StrProtoMAC, "VNTAG");
+		break;
+	case ETHER_PROTO_MPLS:
+		strcpy(Flow->StrProtoMAC, "MPLS");
+		break;
+	default:
+		sprintf(Flow->StrProtoMAC, "%04x", Flow->EtherProto);
+		break;
+	}
+
+	// IPv4 proto info
+	if (Flow->EtherProto ==  ETHER_PROTO_IPV4)
+	{
+		// convert to readable names for common protocols 
+		switch (Flow->IPProto) 
+		{
+		case IPv4_PROTO_UDP:	strcpy(Flow->StrProtoIP, "UDP");	break;
+		case IPv4_PROTO_TCP:	strcpy(Flow->StrProtoIP, "TCP");	break;
+		case IPv4_PROTO_IGMP:	strcpy(Flow->StrProtoIP, "IGMP"); 	break;
+		case IPv4_PROTO_ICMP:	strcpy(Flow->StrProtoIP, "ICMP"); 	break;
+		case IPv4_PROTO_GRE:	strcpy(Flow->StrProtoIP, "GRE"); 	break;
+		case IPv4_PROTO_VRRP:	strcpy(Flow->StrProtoIP, "VRRP"); 	break;
+		default:
+			sprintf(Flow->StrProtoIP, "%02x", Flow->IPProto);
+			break;
+		}
+
+		switch (Flow->IPDSCP)
+		{
+		case 0x2e: strcpy(Flow->StrDSCP, "EF"); break;
+
+		// from wiki https://en.wikipedia.org/wiki/Differentiated_services
+		case 0x0a: strcpy(Flow->StrDSCP, "AF11"); break;
+		case 0x0c: strcpy(Flow->StrDSCP, "AF12"); break;
+		case 0x0e: strcpy(Flow->StrDSCP, "AF13"); break;
+		case 0x12: strcpy(Flow->StrDSCP, "AF21"); break;
+		case 0x14: strcpy(Flow->StrDSCP, "AF22"); break;
+		case 0x16: strcpy(Flow->StrDSCP, "AF23"); break;
+		case 0x1a: strcpy(Flow->StrDSCP, "AF31"); break;
+		case 0x1c: strcpy(Flow->StrDSCP, "AF32"); break;
+		case 0x1e: strcpy(Flow->StrDSCP, "AF33"); break;
+		case 0x22: strcpy(Flow->StrDSCP, "AF41"); break;
+		case 0x24: strcpy(Flow->StrDSCP, "AF42"); break;
+		case 0x26: strcpy(Flow->StrDSCP, "AF43"); break;
+
+		// from https://www.cisco.com/c/en/us/td/docs/switches/datacenter/nexus1000/sw/4_0/qos/configuration/guide/nexus1000v_qos/qos_6dscp_val.pdf
+		case 0x08: strcpy(Flow->StrDSCP, "CS1"); break;
+		case 0x10: strcpy(Flow->StrDSCP, "CS2"); break;
+		case 0x18: strcpy(Flow->StrDSCP, "CS3"); break;
+		case 0x20: strcpy(Flow->StrDSCP, "CS4"); break;
+		case 0x28: strcpy(Flow->StrDSCP, "CS5"); break;
+		case 0x30: strcpy(Flow->StrDSCP, "CS6"); break;
+		case 0x38: strcpy(Flow->StrDSCP, "CS7"); break;
+		default:
+			sprintf(Flow->StrDSCP, "%02x", Flow->IPDSCP);	
+			break;
+		}
+
+/*
+		// per protocol info
+		switch (Flow->IPProto)
+		{
+		case IPv4_PROTO_UDP:
+		{
+			FlowTemplate_WriteU64	(OutputStr, FLOW_TEMPLATE_UDP_PORT_SRC, Flow->PortSrc);
+			FlowTemplate_WriteU64	(OutputStr, FLOW_TEMPLATE_UDP_PORT_DST, Flow->PortDst);
+		}
+		break;
+
+		case IPv4_PROTO_TCP:
+		{
+			FlowTemplate_WriteU64	(OutputStr, FLOW_TEMPLATE_TCP_PORT_SRC, 	Flow->PortSrc);
+			FlowTemplate_WriteU64	(OutputStr, FLOW_TEMPLATE_TCP_PORT_DST, 	Flow->PortDst);
+
+			FlowTemplate_WriteU64	(OutputStr, FLOW_TEMPLATE_TCP_FIN, 			Flow->TCPFINCnt); 
+			FlowTemplate_WriteU64	(OutputStr, FLOW_TEMPLATE_TCP_SYN, 			Flow->TCPSYNCnt); 
+			FlowTemplate_WriteU64	(OutputStr, FLOW_TEMPLATE_TCP_RST, 			Flow->TCPRSTCnt); 
+			FlowTemplate_WriteU64	(OutputStr, FLOW_TEMPLATE_TCP_PSH, 			Flow->TCPPSHCnt); 
+			FlowTemplate_WriteU64	(OutputStr, FLOW_TEMPLATE_TCP_ACK, 			Flow->TCPACKCnt); 
+			FlowTemplate_WriteU64	(OutputStr, FLOW_TEMPLATE_TCP_WIN_MIN,		Flow->TCPWindowMin); 
+			FlowTemplate_WriteU64	(OutputStr, FLOW_TEMPLATE_TCP_WIN_MAX,		Flow->TCPWindowMax); 
+			FlowTemplate_WriteU64	(OutputStr, FLOW_TEMPLATE_TCP_SACK,			Flow->TCPSACKCnt); 
+		}
+		break;
+		}
+*/
+	}
+
+
+	memcpy(Output, Flow, sizeof(FlowRecord_t) );
+	return sizeof(FlowRecord_t);
+
+#endif
+
+#if 0
 	memcpy(Output, s_FlowTemplate, s_FlowTemplateLen);
 	Output[s_FlowTemplateLen] = 0;
 
@@ -1963,15 +1991,6 @@ void DecodePacket(	u32 CPUID,
 	u64 TSC1 = rdtsc();
 	s_DecodeThreadTSCHash[CPUID] += TSC1 - TSC0;
 
-	// packet mode then print record as a packet 
-	//if (g_IsJSONPacket)
-	//{
-	//	u8 JSONBuffer[16*1024];
-	//	u32 JSONBufferLen = FlowDump(JSONBuffer, PktHeader->TS, FlowPkt, 0);
-	//
-	//	Output_BufferAdd(s_Output, JSONBuffer, JSONBufferLen, 1);
-	//}
-
 	// update the flow records
 	if (g_IsJSONFlow)
 	{
@@ -2233,7 +2252,6 @@ void* Flow_Worker(void* User)
 
 							JSONBufferOffset += FlowDump(JSONBuffer + JSONBufferOffset, PktBlock->TSSnapshot, Flow, i);
 							JSONLineCnt++;
-
 							// flush to output 
 							if (JSONBufferOffset > FlowIndexRoot->JSONBufferMax - kKB(16))
 							{
