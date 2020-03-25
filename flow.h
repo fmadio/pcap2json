@@ -105,7 +105,7 @@ typedef struct FlowRecord_t
 	u8						StrProtoIP[8];		// text description of IP protocol 
 	u8						StrDSCP[8];			// text description of DSCP 
 
-	u8						SortDone;			// for top talkers, if this entry has been consumed
+	u8						IsFlush;			// final entry for this timestamp 
 
 	struct PacketInfoBulk_t	*PktInfoB;
 	struct FlowRecord_t*	Next;				// next flow record

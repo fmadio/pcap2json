@@ -2106,11 +2106,11 @@ void* Flow_Worker(void* User)
 	FlowIndex_t* FlowIndexLast = NULL;
 
 
-	u8	SortListCount = ((g_FlowTopNMac) ? g_FlowTopNMac + 1 : 1);
-	u32	SortListCnt[SortListCount];
-	u32* SortList[SortListCount];
+	u8	SortListDepth = ((g_FlowTopNMac) ? g_FlowTopNMac + 1 : 1);
+	u32	SortListCnt[SortListDepth];
+	u32* SortList[SortListDepth];
 
-	for (int i=0 ; i<SortListCount ; i++)
+	for (int i=0; i < SortListDepth; i++)
 	{
 		SortList[i] = malloc(sizeof(u64) * s_FlowMax * 3);
 		assert(SortList[i] != NULL);
@@ -2243,15 +2243,20 @@ void* Flow_Worker(void* User)
 					
 					u32 FlowDepthTotal		 = 0;
 
-					for (int j=0; j < SortListCount; j++)
+					for (int j=0; j < SortListDepth; j++)
 					{
 						for (int i=0; i < SortListCnt[j]; i++)
 						{
 							u32 FIndex =  SortList[j][i];
 							FlowRecord_t* Flow = &FlowIndex->FlowList[ FIndex ];	
 
+							// is this the last entry?
+							Flow->IsFlush = (j == SortListDepth-1) && (i == SortListCnt[j]-1);
+
+							// dump the flow
 							JSONBufferOffset += FlowDump(JSONBuffer + JSONBufferOffset, PktBlock->TSSnapshot, Flow, i);
 							JSONLineCnt++;
+
 							// flush to output 
 							if (JSONBufferOffset > FlowIndexRoot->JSONBufferMax - kKB(16))
 							{
