@@ -300,6 +300,8 @@ u64 Output_BufferAdd(Output_t* Out, u8* Buffer, u32 BufferLen, u32 LineCnt)
 	// drop null buffers
 	if (BufferLen == 0) return 0;
 
+	u64 TSC0 = rdtsc();
+
 	// write to a text file
 	if (Out->FileTXT)
 	{
@@ -313,7 +315,7 @@ u64 Output_BufferAdd(Output_t* Out, u8* Buffer, u32 BufferLen, u32 LineCnt)
 	// total bytes queued
 	__sync_fetch_and_add(&Out->TotalByte, BufferLen);
 
-	return 0;
+	return rdtsc() - TSC0;
 }
 
 //-------------------------------------------------------------------------------------------

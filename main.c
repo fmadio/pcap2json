@@ -794,9 +794,10 @@ int main(int argc, u8* argv[])
 			u64 FlowCntSnapshot;	
 			float FlowCPU;
 			float FlowDepthMedian;
-			Flow_Stats(false, &FlowCntSnapshot, NULL, NULL, &FlowDepthMedian, &FlowCPU, NULL, NULL, NULL, NULL, NULL, NULL, NULL);
+			float FlowCPUOutputStall;
+			Flow_Stats(false, &FlowCntSnapshot, NULL, NULL, &FlowDepthMedian, &FlowCPU, NULL, NULL, &FlowCPUOutputStall, NULL, NULL, NULL, NULL);
 
-			fprintf(stderr, "[%s] %.3f/%.3f GB %8.2f Mpps %8.2f Gbps | cat %6.f MB %.2f %.2f %.2f | Flows/Snap: %6i:%4.f FlowCPU:%.2f | Output %.3f K Lines/sec %.3f Gbps\n", 
+			fprintf(stderr, "[%s] %.3f/%.3f GB %8.2f Mpps %8.2f Gbps | cat %6.f MB %.2f %.2f %.2f | Flows/Snap: %6i:%4.f FlowCPU:%.2f %.2f | Output %9.3f K Lines/sec %6.3f Gbps\n", 
 
 								FormatTS(PacketTSLast),
 
@@ -813,6 +814,7 @@ int main(int argc, u8* argv[])
 								FlowCntSnapshot, 
 								FlowDepthMedian,
 								FlowCPU,
+								FlowCPUOutputStall,
 								(float)(OutputLps / 1e3),
 								(float)(OutputBps / 1e9)
 							);
