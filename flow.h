@@ -100,12 +100,14 @@ typedef struct FlowRecord_t
 
 	TCPHeader_t				TCPHeader;			// copy of the TCP Header
 
-	u8						StrProtoMAC[8];		// text description of MAC rptocol 
-	u8						StrProtoFlow[8];	// text description of protocol 
-	u8						StrProtoIP[8];		// text description of IP protocol 
-	u8						StrDSCP[8];			// text description of DSCP 
+	//u8					StrProtoMAC[8];		// text description of MAC rptocol 
+	//u8					StrProtoFlow[8];	// text description of protocol 
+	//u8					StrProtoIP[8];		// text description of IP protocol 
+	//u8					StrDSCP[8];			// text description of DSCP 
 
-	u8						IsFlush;			// final entry for this timestamp 
+	u8						FlowInstance;		// generation instance number		
+	u32						FlowNo;				// flow ID in this snapshot 
+	u32						TotalFlows;			// total number of flows for this snapshot	
 
 	struct PacketInfoBulk_t	*PktInfoB;
 	struct FlowRecord_t*	Next;				// next flow record

@@ -1104,7 +1104,7 @@ static inline void FlowTemplate_WriteIPv4(u8* Base, u32 Index, u8* Value)
 // write a flow record out as a JSON file
 // this is designed for ES bulk data upload using the 
 // mappings.json file as the index 
-static u32 FlowDump(u8* OutputStr, u64 TS, FlowRecord_t* Flow, u32 FlowID) 
+static u32 FlowDump(u8* OutputStr, u64 TS, FlowRecord_t* Flow, u32 FlowID, u32 FlowTotal) 
 {
 	u8* Output 		= OutputStr;
 
@@ -1113,6 +1113,10 @@ static u32 FlowDump(u8* OutputStr, u64 TS, FlowRecord_t* Flow, u32 FlowID)
 	// set snapshot timestamp
 	Flow->SnapshotTS = TS;
 
+	Flow->FlowInstance 	= 0;
+	Flow->FlowNo 		= FlowID;
+	Flow->TotalFlows 	= FlowTotal;
+/*
 	// output human readable Ether protocol info
 	switch (Flow->EtherProto)
 	{
@@ -1138,7 +1142,6 @@ static u32 FlowDump(u8* OutputStr, u64 TS, FlowRecord_t* Flow, u32 FlowID)
 		sprintf(Flow->StrProtoMAC, "%04x", Flow->EtherProto);
 		break;
 	}
-
 	// IPv4 proto info
 	if (Flow->EtherProto ==  ETHER_PROTO_IPV4)
 	{
@@ -1187,7 +1190,6 @@ static u32 FlowDump(u8* OutputStr, u64 TS, FlowRecord_t* Flow, u32 FlowID)
 			break;
 		}
 
-/*
 		// per protocol info
 		switch (Flow->IPProto)
 		{
@@ -1214,9 +1216,10 @@ static u32 FlowDump(u8* OutputStr, u64 TS, FlowRecord_t* Flow, u32 FlowID)
 		}
 		break;
 		}
-*/
+
 	}
 
+*/
 
 	memcpy(Output, Flow, sizeof(FlowRecord_t) );
 	return sizeof(FlowRecord_t);
@@ -2241,8 +2244,20 @@ void* Flow_Worker(void* User)
 					u32 JSONBufferOffset 	= 0;
 					u32 JSONLineCnt			= 0;
 					
-					u32 FlowDepthTotal		 = 0;
 
+					// count total flows in this snapshot
+					u32 FlowTotal			= 0; 
+					for (int j=0; j < SortListDepth; j++)
+					{
+						for (int i=0; i < SortListCnt[j]; i++)
+						{
+							FlowTotal++;
+						}
+					}
+
+					// dump all flows
+					u32 FlowDepthTotal		 = 0;
+					u32 FlowCnt = 0;
 					for (int j=0; j < SortListDepth; j++)
 					{
 						for (int i=0; i < SortListCnt[j]; i++)
@@ -2250,11 +2265,8 @@ void* Flow_Worker(void* User)
 							u32 FIndex =  SortList[j][i];
 							FlowRecord_t* Flow = &FlowIndex->FlowList[ FIndex ];	
 
-							// is this the last entry?
-							Flow->IsFlush = (j == SortListDepth-1) && (i == SortListCnt[j]-1);
-
 							// dump the flow
-							JSONBufferOffset += FlowDump(JSONBuffer + JSONBufferOffset, PktBlock->TSSnapshot, Flow, i);
+							JSONBufferOffset += FlowDump(JSONBuffer + JSONBufferOffset, PktBlock->TSSnapshot, Flow, FlowCnt, FlowTotal);
 							JSONLineCnt++;
 
 							// flush to output 
@@ -2273,6 +2285,7 @@ void* Flow_Worker(void* User)
 							s_FlowDepthHisto	[CPUID][HIndex]++;
 							s_FlowDepthHistoCnt	[CPUID]++;
 							FlowDepthTotal++;
+							FlowCnt++;
 
 	//						Flow->TotalPkt 	= 0;
 	//						Flow->TotalByte = 0;
