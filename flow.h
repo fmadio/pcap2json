@@ -66,6 +66,7 @@ typedef struct FlowRecord_t
 	u16						TCPFINCnt;			// TCP FIN count within the time period	
 	u16						TCPSYNCnt;			// TCP SYN count within the time period	
 	u16						TCPSYNACKCnt;		// TCP SYNACK count within the time period	
+	u16						TCPSYNSACKCnt;		// TCP SYN and SACK enabled count within the time period	
 	u16						TCPPSHCnt;			// TCP PSH count within the time period	
 	u16						TCPRSTCnt;			// TCP RST count within the time period	
 	u16						TCPWindowMin;		// TCP Window Minimum 

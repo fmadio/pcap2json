@@ -556,6 +556,9 @@ static void FlowInsert(u32 CPUID, FlowIndex_t* FlowIndex, FlowRecord_t* FlowPkt,
 		// count SACKs per flow
 		if (FlowPkt->TCPIsSACK) F->TCPSACKCnt	+= 1; 
 
+		// count when SACK was set during SYN
+		if ((TCP_FLAG_SYN(TCPFlags) != 0) && FlowPkt->TCPIsSACK) F->TCPSYNSACKCnt	+= 1; 
+
 		// RST pkt window size is always 0, so we will not consider RST pkt
 		if (TCP_FLAG_RST(TCPFlags) == 0)
 		{
