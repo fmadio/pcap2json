@@ -519,9 +519,10 @@ static void FlowInsert(u32 CPUID, FlowIndex_t* FlowIndex, FlowRecord_t* FlowPkt,
 	{
 		// update TCP Flag counts
 		TCPHeader_t* TCP = &FlowPkt->TCPHeader; 
-		u16 TCPFlags = swap16(TCP->Flags);
+		u16 TCPFlags 	= swap16(TCP->Flags);
 		F->TCPFINCnt	+= (TCP_FLAG_FIN(TCPFlags) != 0);
 		F->TCPSYNCnt	+= (TCP_FLAG_SYN(TCPFlags) != 0);
+		F->TCPSYNACKCnt	+= ((TCP_FLAG_SYN(TCPFlags) != 0) && (TCP_FLAG_ACK(TCPFlags) != 0));
 		F->TCPRSTCnt	+= (TCP_FLAG_RST(TCPFlags) != 0);
 		F->TCPPSHCnt	+= (TCP_FLAG_PSH(TCPFlags) != 0);
 		F->TCPACKCnt	+= (TCP_FLAG_ACK(TCPFlags) != 0);
