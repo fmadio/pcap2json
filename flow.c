@@ -149,6 +149,11 @@
 void sha1_compress(uint32_t state[static 5], const uint8_t block[static 64]);
 
 //---------------------------------------------------------------------------------------------
+// SACK bit field
+#define TCP_SACK_ENABLE			(1<<0)
+#define TCP_SACK_GAP			(1<<1)
+
+//---------------------------------------------------------------------------------------------
 
 // top level flow index
 typedef struct FlowIndex_t
@@ -518,14 +523,18 @@ static void FlowInsert(u32 CPUID, FlowIndex_t* FlowIndex, FlowRecord_t* FlowPkt,
 	if (F->IPProto == IPv4_PROTO_TCP)
 	{
 		// update TCP Flag counts
-		TCPHeader_t* TCP = &FlowPkt->TCPHeader; 
-		u16 TCPFlags 	= swap16(TCP->Flags);
-		F->TCPFINCnt	+= (TCP_FLAG_FIN(TCPFlags) != 0);
-		F->TCPSYNCnt	+= (TCP_FLAG_SYN(TCPFlags) != 0);
-		F->TCPSYNACKCnt	+= ((TCP_FLAG_SYN(TCPFlags) != 0) && (TCP_FLAG_ACK(TCPFlags) != 0));
-		F->TCPRSTCnt	+= (TCP_FLAG_RST(TCPFlags) != 0);
-		F->TCPPSHCnt	+= (TCP_FLAG_PSH(TCPFlags) != 0);
-		F->TCPACKCnt	+= (TCP_FLAG_ACK(TCPFlags) != 0);
+		TCPHeader_t* TCP 	= &FlowPkt->TCPHeader; 
+
+		u16 TCPFlags 		= swap16(TCP->Flags);
+		F->TCPFINCnt		+= (TCP_FLAG_FIN(TCPFlags) != 0);
+
+		F->TCPSYNCnt		+= (TCP_FLAG_SYN(TCPFlags) != 0) && (TCP_FLAG_ACK(TCPFlags) == 0);
+		F->TCPSYNACKCnt		+= (TCP_FLAG_SYN(TCPFlags) != 0) && (TCP_FLAG_ACK(TCPFlags) != 0);
+		F->TCPSYNSACKCnt	+= (TCP_FLAG_SYN(TCPFlags) != 0) && (FlowPkt->TCPIsSACK & TCP_SACK_ENABLE);
+
+		F->TCPRSTCnt		+= (TCP_FLAG_RST(TCPFlags) != 0);
+		F->TCPPSHCnt		+= (TCP_FLAG_PSH(TCPFlags) != 0);
+		F->TCPACKCnt		+= (TCP_FLAG_ACK(TCPFlags) != 0);
 
 		// check for re-transmits
 		// works by checking for duplicate 0 payload acks
@@ -554,10 +563,7 @@ static void FlowInsert(u32 CPUID, FlowIndex_t* FlowIndex, FlowRecord_t* FlowPkt,
 */
 
 		// count SACKs per flow
-		if (FlowPkt->TCPIsSACK) F->TCPSACKCnt	+= 1; 
-
-		// count when SACK was set during SYN
-		if ((TCP_FLAG_SYN(TCPFlags) != 0) && FlowPkt->TCPIsSACK) F->TCPSYNSACKCnt	+= 1; 
+		if (FlowPkt->TCPIsSACK & TCP_SACK_GAP) F->TCPSACKCnt	+= 1; 
 
 		// RST pkt window size is always 0, so we will not consider RST pkt
 		if (TCP_FLAG_RST(TCPFlags) == 0)
@@ -567,7 +573,6 @@ static void FlowInsert(u32 CPUID, FlowIndex_t* FlowIndex, FlowRecord_t* FlowPkt,
 			F->TCPWindowMax = max32(F->TCPWindowMax, TCPWindow);
 		}
 	}
-
 }
 
 //---------------------------------------------------------------------------------------------
@@ -1630,11 +1635,14 @@ static void FlowMerge(FlowIndex_t* IndexOut, FlowIndex_t* IndexRoot, u32 IndexCn
 			// TCP stats
 			if (F->IPProto == IPv4_PROTO_TCP)
 			{
-				F->TCPFINCnt	+= Flow->TCPFINCnt; 
-				F->TCPSYNCnt	+= Flow->TCPSYNCnt; 
-				F->TCPRSTCnt	+= Flow->TCPRSTCnt; 
-				F->TCPPSHCnt	+= Flow->TCPPSHCnt; 
-				F->TCPACKCnt	+= Flow->TCPACKCnt; 
+				F->TCPFINCnt		+= Flow->TCPFINCnt; 
+				F->TCPSYNCnt		+= Flow->TCPSYNCnt; 
+				F->TCPSYNACKCnt		+= Flow->TCPSYNACKCnt; 
+				F->TCPSYNSACKCnt	+= Flow->TCPSYNSACKCnt; 
+				F->TCPRSTCnt		+= Flow->TCPRSTCnt; 
+				F->TCPPSHCnt		+= Flow->TCPPSHCnt; 
+				F->TCPACKCnt		+= Flow->TCPACKCnt; 
+				F->TCPSACKCnt		+= Flow->TCPSACKCnt; 
 
 				// Need work out tcp retransmit
 				F->TCPWindowMin = min32(F->TCPWindowMin, Flow->TCPWindowMin);
@@ -1922,7 +1930,9 @@ void DecodePacket(	u32 CPUID,
 							break;
 
 						// NOP 
-						case 0x1: break;
+						case 0x1: 
+							Len = 0;
+							break;
 
 						// MSS
 						case 0x2: break;
@@ -1933,7 +1943,15 @@ void DecodePacket(	u32 CPUID,
 							FlowPkt->TCPWindowScale = Options[2];
 							break;
 
-						// SACK
+						// SACK Enabled 
+						case 0x4:
+							{
+								// SACK is present 
+								FlowPkt->TCPIsSACK = TCP_SACK_ENABLE;
+							}
+							break;
+
+						// SACK Payload
 						case 0x5:
 							{
 								u32  *D32 = (u32*)(Options + 2);
@@ -1946,7 +1964,7 @@ void DecodePacket(	u32 CPUID,
 								// if there is gaps 
 								if (Delta > 1)
 								{
-									FlowPkt->TCPIsSACK = true;
+									FlowPkt->TCPIsSACK |= TCP_SACK_GAP;
 									//printf("SACK %i %08x %08x (%8i)\n", Len, D32[0], D32[1], Delta); 
 								}	
 							}
@@ -2111,7 +2129,6 @@ void* Flow_Worker(void* User)
 	u32 CPUID = __sync_fetch_and_add(&s_DecodeCPUActive, 1);
 
 	FlowIndex_t* FlowIndexLast = NULL;
-
 
 	u8	SortListDepth = ((g_FlowTopNMac) ? g_FlowTopNMac + 1 : 1);
 	u32	SortListCnt[SortListDepth];
