@@ -152,6 +152,7 @@ void sha1_compress(uint32_t state[static 5], const uint8_t block[static 64]);
 // SACK bit field
 #define TCP_SACK_ENABLE			(1<<0)
 #define TCP_SACK_GAP			(1<<1)
+#define TCP_SACK_OPTION			(1<<2)
 
 //---------------------------------------------------------------------------------------------
 
@@ -563,7 +564,7 @@ static void FlowInsert(u32 CPUID, FlowIndex_t* FlowIndex, FlowRecord_t* FlowPkt,
 */
 
 		// count SACKs per flow
-		if (FlowPkt->TCPIsSACK & TCP_SACK_GAP) F->TCPSACKCnt	+= 1; 
+		if (FlowPkt->TCPIsSACK & TCP_SACK_OPTION) F->TCPSACKCnt	+= 1; 
 
 		// RST pkt window size is always 0, so we will not consider RST pkt
 		if (TCP_FLAG_RST(TCPFlags) == 0)
@@ -1954,19 +1955,21 @@ void DecodePacket(	u32 CPUID,
 						// SACK Payload
 						case 0x5:
 							{
-								u32  *D32 = (u32*)(Options + 2);
+								// flag all packets with SACK
+								FlowPkt->TCPIsSACK |= TCP_SACK_OPTION;
 
+								//u32  *D32 = (u32*)(Options + 2);
 								// get 1st blocks byte delta
 								// ignore any subsiquent left/right blocks
 								// as only want to know if there was a gap, not how many 
-								s32 Delta = swap32(D32[1]) - swap32(D32[0]);
+								//s32 Delta = swap32(D32[1]) - swap32(D32[0]);
 
 								// if there is gaps 
-								if (Delta > 1)
-								{
-									FlowPkt->TCPIsSACK |= TCP_SACK_GAP;
-									//printf("SACK %i %08x %08x (%8i)\n", Len, D32[0], D32[1], Delta); 
-								}	
+								//if (Delta > 1)
+								//{
+								//	FlowPkt->TCPIsSACK |= TCP_SACK_GAP;
+								//	//printf("SACK %i %08x %08x (%8i)\n", Len, D32[0], D32[1], Delta); 
+								//}	
 							}
 							break;
 
