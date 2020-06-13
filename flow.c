@@ -1922,7 +1922,6 @@ void DecodePacket(	u32 CPUID,
 
 						u32 Cmd = Options[0];
 						u32 Len = Options[1];
-
 						switch (Cmd)
 						{
 						// end of list 
@@ -1932,11 +1931,12 @@ void DecodePacket(	u32 CPUID,
 
 						// NOP 
 						case 0x1: 
-							Len = 0;
+							Len = 1;
 							break;
 
 						// MSS
-						case 0x2: break;
+						case 0x2: 
+							break;
 
 						// Window Scale
 						case 0x3:
@@ -1957,6 +1957,7 @@ void DecodePacket(	u32 CPUID,
 							{
 								// flag all packets with SACK
 								FlowPkt->TCPIsSACK |= TCP_SACK_OPTION;
+
 
 								//u32  *D32 = (u32*)(Options + 2);
 								// get 1st blocks byte delta
@@ -1982,7 +1983,7 @@ void DecodePacket(	u32 CPUID,
 							//printf("option: %i : %i\n", Cmd, Len); 
 							break;
 						}
-						Options += 1 + Len;
+						Options += Len;
 					}
 				}
 			}
