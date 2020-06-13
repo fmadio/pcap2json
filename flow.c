@@ -2355,9 +2355,13 @@ void* Flow_Worker(void* User)
 					s_DecodeThreadTSCReset	[CPUID] += TSC5 - TSC4;
 					s_DecodeThreadTSCWorker	[CPUID] += TSC1 - TSC0;
 				}
-
-				// update pktblock count for the root index
-				__sync_fetch_and_add(&FlowIndexRoot->PktBlockCnt, 1);
+				else
+				{
+					// update pktblock count for the root index
+					// NOTE: as FlowIndexRoot is freeed on flush above, only increment the coutner
+					//       when there is no flush
+					__sync_fetch_and_add(&FlowIndexRoot->PktBlockCnt, 1);
+				}
 
 				// release buffer
 				Flow_PacketFree(PktBlock);
