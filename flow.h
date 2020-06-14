@@ -69,8 +69,7 @@ typedef struct FlowRecord_t
 	u16						TCPSYNSACKCnt;		// TCP SYN and SACK enabled count within the time period	
 	u16						TCPPSHCnt;			// TCP PSH count within the time period	
 	u16						TCPRSTCnt;			// TCP RST count within the time period	
-	u16						TCPWindowMin;		// TCP Window Minimum 
-	u16						TCPWindowMax;		// TCP Window Maximum 
+	u16						TCPWindowZero;		// TCP Window Zero packet 
 
 	u16						TCPACKDupCnt;		// number of TCP duplicate acks seen
 	u16						TCPSACKCnt;			// number of TCP SACK acknowledgements 
@@ -80,7 +79,6 @@ typedef struct FlowRecord_t
 	u32						TCPAckNoCnt;		// number of acks for this seq no 
 	u16						TCPLength;			// tcp payload length
 	u8						TCPIsSACK;			// if this packet is SACK
-	u32						TCPWindowScale;		// tcp window scaling factor
 
 	u16						MPLS0;				// MPLS 0 tags
 	u16						MPLStc0;			// MPLS 0 traffic class 

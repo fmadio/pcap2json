@@ -327,10 +327,6 @@ static FlowRecord_t* FlowAlloc(FlowIndex_t* FlowIndex, FlowRecord_t* F)
 	// copy per packet state
 	Flow->TCPLength = F->TCPLength;
 
-	// reset TCP window parameters
-	Flow->TCPWindowMin = (u16)-1;
-	Flow->TCPWindowMax = (u16)0;
-
 	return Flow;
 }
 
@@ -574,8 +570,7 @@ static void FlowInsert(u32 CPUID, FlowIndex_t* FlowIndex, FlowRecord_t* FlowPkt,
 		if (TCP_FLAG_RST(TCPFlags) == 0)
 		{
 			u32 TCPWindow = swap16(TCP->Window);
-			F->TCPWindowMin = min32(F->TCPWindowMin, TCPWindow);
-			F->TCPWindowMax = max32(F->TCPWindowMax, TCPWindow);
+			if (TCPWindow == 0) F->TCPWindowZero++;
 		}
 	}
 }
@@ -1648,10 +1643,7 @@ static void FlowMerge(FlowIndex_t* IndexOut, FlowIndex_t* IndexRoot, u32 IndexCn
 				F->TCPPSHCnt		+= Flow->TCPPSHCnt; 
 				F->TCPACKCnt		+= Flow->TCPACKCnt; 
 				F->TCPSACKCnt		+= Flow->TCPSACKCnt; 
-
-				// Need work out tcp retransmit
-				F->TCPWindowMin = min32(F->TCPWindowMin, Flow->TCPWindowMin);
-				F->TCPWindowMax = max32(F->TCPWindowMax, Flow->TCPWindowMax);
+				F->TCPWindowZero 	+= Flow->TCPWindowZero; 
 			}
 		}
 	}
@@ -1948,7 +1940,7 @@ void DecodePacket(	u32 CPUID,
 						// Window Scale
 						case 0x3:
 							//printf("Window Scale: %i\n", Options[2]);
-							FlowPkt->TCPWindowScale = Options[2];
+							//FlowPkt->TCPWindowScale = Options[2];
 							break;
 
 						// SACK Enabled 
