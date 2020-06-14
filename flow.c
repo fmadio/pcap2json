@@ -452,6 +452,7 @@ static FlowRecord_t* FlowAdd(FlowIndex_t* FlowIndex, FlowRecord_t* FlowPkt, u32*
 		F = FlowIndex->FlowList + FlowIndex->FlowHash[ Index ];
 
 		// iterate in search of the flow
+		u32 Timeout = 0; 
 		FlowRecord_t* FPrev = NULL;
 		while (F)
 		{
@@ -470,6 +471,8 @@ static FlowRecord_t* FlowAdd(FlowIndex_t* FlowIndex, FlowRecord_t* FlowPkt, u32*
 
 			FPrev = F;
 			F = F->Next;
+
+			assert(Timeout++ < 1e6);
 		}
 
 		// new flow
@@ -503,6 +506,7 @@ static FlowRecord_t* FlowAdd(FlowIndex_t* FlowIndex, FlowRecord_t* FlowPkt, u32*
 // assumption is this is mutually exclusive per FlowIndex
 static void FlowInsert(u32 CPUID, FlowIndex_t* FlowIndex, FlowRecord_t* FlowPkt, u32* SHA1, u32 Length, u64 TS)
 {
+
 	// create/fetch the flow entry
 	FlowRecord_t* F = FlowAdd(FlowIndex, FlowPkt, SHA1);
 	assert(F != NULL);
@@ -1914,6 +1918,7 @@ void DecodePacket(	u32 CPUID,
 				// check for options
 				if (TCPOffset > 20)
 				{
+					u32 Timeout = 0;
 					bool IsDone = false;
 					u8* Options = (u8*)(TCP + 1);	
 					while ( (Options - (u8*)TCP) < TCPOffset) 
@@ -1922,6 +1927,8 @@ void DecodePacket(	u32 CPUID,
 
 						u32 Cmd = Options[0];
 						u32 Len = Options[1];
+						//printf("%i %i\n", Cmd, Len);
+
 						switch (Cmd)
 						{
 						// end of list 
@@ -1984,6 +1991,15 @@ void DecodePacket(	u32 CPUID,
 							break;
 						}
 						Options += Len;
+
+						// invalid tcp option, length should always be > 0
+						// exit processing loop 
+						if ((!IsDone) && (Len == 0))
+						{
+							//printf("option: %i\n", Cmd);
+							break;
+						}
+						assert(Timeout++ < 1e6);
 					}
 				}
 			}
@@ -2166,9 +2182,11 @@ void* Flow_Worker(void* User)
 			// get the entry atomically 
 			if (__sync_bool_compare_and_swap(&s_DecodeQueueGet, Get, Get + 1))
 			{
+
 // back pressure testing
 //u32 delay =  ((u64)rand() * 100000000ULL) / (u64)RAND_MAX; 
 //ndelay(delay);
+
 				u64 TSC2 = rdtsc();
 
 				// ensure no sync problems
@@ -2379,6 +2397,8 @@ void* Flow_Worker(void* User)
 		u64 TSC1 = rdtsc();
 		s_DecodeThreadTSCTop[CPUID] += TSC1 - TSC0;
 	}
+
+	fprintf(stderr, "flow exit %i\n", CPUID);
 }
 
 //---------------------------------------------------------------------------------------------
@@ -2571,7 +2591,6 @@ void Flow_Close(struct Output_t* Out, u64 LastTS)
 	while (s_DecodeQueuePut != s_DecodeQueueGet)
 	{
 		fprintf(stderr, "flow close wait %x %x\n", s_DecodeQueuePut, s_DecodeQueueGet);
-
 		usleep(100e3);
 		assert(Timeout++ < 1e6);
 	}

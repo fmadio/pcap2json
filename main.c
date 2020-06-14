@@ -125,8 +125,8 @@ float			s_StreamCAT_CPUSend 	= 0;			// stream_cat cpu send down pipe utilization
 
 bool			g_Output_Histogram		= false;		// generate histograms file
 FILE			*g_Output_Histogram_FP	= NULL;			// histogram file pointer
-//---------------------------------------------------------------------------------------------
 
+//---------------------------------------------------------------------------------------------
 
 static void* Push_Worker(void* _User);
 
