@@ -566,11 +566,14 @@ static void FlowInsert(u32 CPUID, FlowIndex_t* FlowIndex, FlowRecord_t* FlowPkt,
 		// count SACKs per flow
 		if (FlowPkt->TCPIsSACK & TCP_SACK_OPTION) F->TCPSACKCnt	+= 1; 
 
-		// RST pkt window size is always 0, so we will not consider RST pkt
-		if (TCP_FLAG_RST(TCPFlags) == 0)
+		// RST pkt window size is always 0, and ignore SYN packets for zero window calcs
+		if ((TCP_FLAG_RST(TCPFlags) == 0) && (TCP_FLAG_SYN(TCPFlags) == 0))
 		{
 			u32 TCPWindow = swap16(TCP->Window);
-			if (TCPWindow == 0) F->TCPWindowZero++;
+			if (TCPWindow == 0)
+			{
+				F->TCPWindowZero++;
+			}
 		}
 	}
 }
