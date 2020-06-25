@@ -80,6 +80,8 @@ typedef struct FlowRecord_t
 	u16						TCPLength;			// tcp payload length
 	u8						TCPIsSACK;			// if this packet is SACK
 
+	u16						IP4FragCnt;			// number of fragmented IP4 packets
+
 	u16						MPLS0;				// MPLS 0 tags
 	u16						MPLStc0;			// MPLS 0 traffic class 
 												// NOTE: request the outer MPLS tag

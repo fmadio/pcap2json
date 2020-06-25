@@ -502,7 +502,6 @@ static FlowRecord_t* FlowAdd(FlowIndex_t* FlowIndex, FlowRecord_t* FlowPkt, u32*
 // assumption is this is mutually exclusive per FlowIndex
 static void FlowInsert(u32 CPUID, FlowIndex_t* FlowIndex, FlowRecord_t* FlowPkt, u32* SHA1, u32 Length, u64 TS)
 {
-
 	// create/fetch the flow entry
 	FlowRecord_t* F = FlowAdd(FlowIndex, FlowPkt, SHA1);
 	assert(F != NULL);
@@ -521,6 +520,10 @@ static void FlowInsert(u32 CPUID, FlowIndex_t* FlowIndex, FlowRecord_t* FlowPkt,
 
 	F->TotalFCS		+= FlowPkt->TotalFCS;
 
+	// potential IP4 fragmentation counts 
+	F->IP4FragCnt	+= FlowPkt->IP4FragCnt; 
+
+	// update tcp stats
 	if (F->IPProto == IPv4_PROTO_TCP)
 	{
 		// update TCP Flag counts
@@ -536,6 +539,7 @@ static void FlowInsert(u32 CPUID, FlowIndex_t* FlowIndex, FlowRecord_t* FlowPkt,
 		F->TCPRSTCnt		+= (TCP_FLAG_RST(TCPFlags) != 0);
 		F->TCPPSHCnt		+= (TCP_FLAG_PSH(TCPFlags) != 0);
 		F->TCPACKCnt		+= (TCP_FLAG_ACK(TCPFlags) != 0);
+
 
 		// check for re-transmits
 		// works by checking for duplicate 0 payload acks
@@ -1633,7 +1637,9 @@ static void FlowMerge(FlowIndex_t* IndexOut, FlowIndex_t* IndexRoot, u32 IndexCn
 			else
 				F->PktInfoB = Flow->PktInfoB;
 
-			Flow->PktInfoB = NULL;
+			Flow->PktInfoB 		= NULL;
+
+			F->IP4FragCnt		+= Flow->IP4FragCnt; 
 
 			// TCP stats
 			if (F->IPProto == IPv4_PROTO_TCP)
@@ -1757,7 +1763,6 @@ void DecodePacket(	u32 CPUID,
 	// assume single packet flow
 	FlowPkt->TotalPkt	 	= 1;
 	FlowPkt->TotalByte 		= PktHeader->LengthWire;
-
 	FlowPkt->TotalFCS		+= (PktHeader->Flag & FMAD_PACKET_FLAG_FCS) ? 1 : 0;
 
 	// ether header info
@@ -1791,7 +1796,7 @@ void DecodePacket(	u32 CPUID,
 		Payload 			= (u8*)(Proto + 1);
 
 		// first vlan tag
-		FlowPkt->VLAN[0]		= VLANTag_ID(Header);
+		FlowPkt->VLAN[0]	= VLANTag_ID(Header);
 
 		// VNTag unpack (BME) 
 		if (EtherProto == ETHER_PROTO_VNTAG)
@@ -1888,127 +1893,142 @@ void DecodePacket(	u32 CPUID,
 		FlowPkt->IPProto 	= IP4->Proto;
 		FlowPkt->IPDSCP		= (IP4->Service >> 2);
 
-		// IPv4 protocol decoders 
-		u32 IPOffset = (IP4->Version & 0x0f)*4; 
-		switch (IP4->Proto)
+		// drop the packet if its fragmented, as protocol header info
+		// likely to be bogus
+		u16 Frag = swap16(IP4->Frag); 
+		if ((Frag & 0x1fff) != 0)
 		{
-		case IPv4_PROTO_TCP:
+			// count ip fragmentation 
+			FlowPkt->IP4FragCnt++;
+		}
+		else
 		{
-			TCPHeader_t* TCP = (TCPHeader_t*)(Payload + IPOffset);
-
-			// ensure TCP data is valid and not hashing 
-			// random data in memeory
-			if (((u8*)TCP - (u8*)Ether) + sizeof(TCPHeader_t) < PktHeader->LengthCapture)
+			// IPv4 protocol decoders 
+			u32 IPOffset = (IP4->Version & 0x0f)*4; 
+			switch (IP4->Proto)
 			{
-				FlowPkt->PortSrc	= swap16(TCP->PortSrc);
-				FlowPkt->PortDst	= swap16(TCP->PortDst);
+			case IPv4_PROTO_TCP:
+			{
+				TCPHeader_t* TCP = (TCPHeader_t*)(Payload + IPOffset);
 
-				// make a copy of the tcp header 
-				FlowPkt->TCPHeader = TCP[0];
-
-				// payload length
-				u32 TCPOffset = ((TCP->Flags&0xf0)>>4)*4;
-				FlowPkt->TCPLength =  swap16(IP4->Len) - IPOffset - TCPOffset;
-
-				// check for options
-				if (TCPOffset > 20)
+				// ensure TCP data is valid and not hashing 
+				// random data in memeory
+				if (((u8*)TCP - (u8*)Ether) + sizeof(TCPHeader_t) < PktHeader->LengthCapture)
 				{
-					u32 Timeout = 0;
-					bool IsDone = false;
-					u8* Options = (u8*)(TCP + 1);	
-					while ( (Options - (u8*)TCP) < TCPOffset) 
+					FlowPkt->PortSrc	= swap16(TCP->PortSrc);
+					FlowPkt->PortDst	= swap16(TCP->PortDst);
+
+					// make a copy of the tcp header 
+					FlowPkt->TCPHeader = TCP[0];
+
+					// payload length
+					u32 TCPOffset = ((TCP->Flags&0xf0)>>4)*4;
+					FlowPkt->TCPLength =  swap16(IP4->Len) - IPOffset - TCPOffset;
+
+					// check for options
+					if (TCPOffset > 20)
 					{
-						if (IsDone) break;
-
-						u32 Cmd = Options[0];
-						u32 Len = Options[1];
-						//printf("%i %i\n", Cmd, Len);
-
-						switch (Cmd)
+						u32 Timeout = 0;
+						bool IsDone = false;
+						u8* Options = (u8*)(TCP + 1);	
+						while ( (Options - (u8*)TCP) < TCPOffset) 
 						{
-						// end of list 
-						case 0x0:
-							IsDone = true;
-							break;
+							if (IsDone) break;
 
-						// NOP 
-						case 0x1: 
-							Len = 1;
-							break;
-
-						// MSS
-						case 0x2: 
-							break;
-
-						// Window Scale
-						case 0x3:
-							//printf("Window Scale: %i\n", Options[2]);
-							//FlowPkt->TCPWindowScale = Options[2];
-							break;
-
-						// SACK Enabled 
-						case 0x4:
+							u32 Cmd = Options[0];
+							u32 Len = Options[1];
+							//printf("%i %i\n", Cmd, Len);
+							switch (Cmd)
 							{
-								// SACK is present 
-								FlowPkt->TCPIsSACK = TCP_SACK_ENABLE;
-							}
-							break;
+							// end of list 
+							case 0x0:
+								IsDone = true;
+								break;
 
-						// SACK Payload
-						case 0x5:
+							// NOP 
+							case 0x1: 
+								Len = 1;
+								break;
+
+							// MSS
+							case 0x2: 
+								break;
+
+							// Window Scale
+							case 0x3:
+								//printf("Window Scale: %i\n", Options[2]);
+								//FlowPkt->TCPWindowScale = Options[2];
+								break;
+
+							// SACK Enabled 
+							case 0x4:
+								{
+									// SACK is present 
+									FlowPkt->TCPIsSACK = TCP_SACK_ENABLE;
+								}
+								break;
+
+							// SACK Payload
+							case 0x5:
+								{
+									// ensure options length is valid (2 x 32 bit words)
+									if (Len > 1)
+									{
+
+										// flag all packets with SACK
+										FlowPkt->TCPIsSACK |= TCP_SACK_OPTION;
+
+
+										//u32  *D32 = (u32*)(Options + 2);
+										// get 1st blocks byte delta
+										// ignore any subsiquent left/right blocks
+										// as only want to know if there was a gap, not how many 
+										//s32 Delta = swap32(D32[1]) - swap32(D32[0]);
+
+										// if there is gaps 
+										//if (Delta > 1)
+										//{
+										//	FlowPkt->TCPIsSACK |= TCP_SACK_GAP;
+										//	//printf("SACK %i %08x %08x (%8i)\n", Len, D32[0], D32[1], Delta); 
+										//}	
+									}
+								}
+								break;
+
+							// TSOpt
+							case 0x8: 
+								//printf("TCP Option TS\n");
+								break;
+
+							default:
+								//printf("option: %i : %i\n", Cmd, Len); 
+								break;
+							}
+							Options += Len;
+
+							// invalid tcp option, length should always be > 0
+							// exit processing loop 
+							if ((!IsDone) && (Len == 0))
 							{
-								// flag all packets with SACK
-								FlowPkt->TCPIsSACK |= TCP_SACK_OPTION;
-
-
-								//u32  *D32 = (u32*)(Options + 2);
-								// get 1st blocks byte delta
-								// ignore any subsiquent left/right blocks
-								// as only want to know if there was a gap, not how many 
-								//s32 Delta = swap32(D32[1]) - swap32(D32[0]);
-
-								// if there is gaps 
-								//if (Delta > 1)
-								//{
-								//	FlowPkt->TCPIsSACK |= TCP_SACK_GAP;
-								//	//printf("SACK %i %08x %08x (%8i)\n", Len, D32[0], D32[1], Delta); 
-								//}	
+								//printf("option: %i\n", Cmd);
+								break;
 							}
-							break;
-
-						// TSOpt
-						case 0x8: 
-							//printf("TCP Option TS\n");
-							break;
-
-						default:
-							//printf("option: %i : %i\n", Cmd, Len); 
-							break;
+							assert(Timeout++ < 1e6);
 						}
-						Options += Len;
-
-						// invalid tcp option, length should always be > 0
-						// exit processing loop 
-						if ((!IsDone) && (Len == 0))
-						{
-							//printf("option: %i\n", Cmd);
-							break;
-						}
-						assert(Timeout++ < 1e6);
 					}
 				}
 			}
-		}
-		break;
+			break;
 
-		case IPv4_PROTO_UDP:
-		{
-			UDPHeader_t* UDP = (UDPHeader_t*)(Payload + IPOffset);
+			case IPv4_PROTO_UDP:
+			{
+				UDPHeader_t* UDP = (UDPHeader_t*)(Payload + IPOffset);
 
-			FlowPkt->PortSrc	= swap16(UDP->PortSrc);
-			FlowPkt->PortDst	= swap16(UDP->PortDst);
-		}
-		break;
+				FlowPkt->PortSrc	= swap16(UDP->PortSrc);
+				FlowPkt->PortDst	= swap16(UDP->PortDst);
+			}
+			break;
+			}
 		}
 	}
 
