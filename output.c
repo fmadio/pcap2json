@@ -38,55 +38,6 @@ typedef struct Output_t
 	u64					TotalByte;								// total number of bytes down the wire
 	u64					TotalLine;								// lines completed 
 
-	/*
-	volatile u32		BufferPut;								// buffers current put 
-	volatile u32		BufferGet;								// buffer current get
-	volatile u32		BufferFin;								// buffers finished 
-	u32					BufferMask;
-	u32					BufferMax;
-	u32					BufferLock;								// mutual exclusion lock
-	Buffer_t			BufferList[16*1024];					// buffer list 
-
-	u32					MergeLock;								// mutal exclusion to merge multiple output blocks
-
-
-	u64					ByteQueued;								// bytes pushed onto the queue
-	u64					ByteComplete;							// bytes sucessfully pushed 
-
-
-	u64					ESPushByte;								// stats on bytes pushed
-	u64					ESPushCnt;								// stats number of unique pushes 
-																// these get reset by Output_stats 
-	u64					ESPushTSC;								// TSC of last reset. allows bandwidth calcuation
-	*/
-
-
-	/*
-	bool				ESPush;									// enable direct ES push
-	u32					ESHostCnt;								// number of registered ES hosts
-	u32					ESHostPos;								// current ES push target
-	u8					ESHostName[ESHOST_MAX][256];			// ip host name of ES
-	u32					ESHostPort[ESHOST_MAX];					// port of ES
-	bool				ESHostIsNotWorking[ESHOST_MAX];			// set this if the host is found not working
-	u32					ESPushTotal[256];						// total number of ES pushes	
-	u32					ESPushError[256];						// total number of ES errors 
-	u32					ESHostLock;								// ES host lock to update ESHostPos
-
-	bool				IsCompress;								// enable compression
-
-	u32					OutputThreadCnt;						// number of active threads
-	OutputThread_t		OutputThread[256];						// thread specific data
-	pthread_t   		PushThread[256];						// worker thread list
-
-	volatile u32		CPUActiveCnt;							// total number of active cpus
-
-	volatile u64		WorkerTSCTotal[256];					// total TSC 
-	volatile u64		WorkerTSCTop[256];						// cycles used for acutal data processing 
-	volatile u64		WorkerTSCCompress[256];					// cycles spent for compression 
-	volatile u64		WorkerTSCSend[256];						// cycles spent for tcp sending 
-	volatile u64		WorkerTSCRecv[256];						// cycles spent for tcp recv
-	*/
-
 } Output_t;
 
 static void* Output_Worker(void * user);
@@ -102,7 +53,6 @@ extern bool 			g_Verbose;
 //extern u32				g_Output_MergeMax;
 
 static volatile bool	s_Exit 			= false;
-static bool				s_IsESNULL 		= false;				// debug flag to remove the ES output stall
 
 //-------------------------------------------------------------------------------------------
 // poormans mini linter

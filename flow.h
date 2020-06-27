@@ -117,7 +117,7 @@ typedef struct FlowRecord_t
 
 } __attribute__((packed)) FlowRecord_t;
 
-void 			Flow_Open				(struct Output_t* Out, u32 CPUMapCnt, s32* CPUMap, u32 FlowIndexDepth, u64 FlowMax, u8* FlowTemplate);
+void 			Flow_Open				(struct Output_t* Out, u32 CPUMapCnt, s32* CPUMap, u32 FlowIndexDepth, u64 FlowMax);
 void 			Flow_Close				(struct Output_t* Out, u64 LastTS);
 void 			Flow_Stats				(bool   IsReset,
 										 u64*   pFlowCntSnapShot,

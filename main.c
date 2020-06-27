@@ -86,7 +86,8 @@ s32				g_CPUFlowCnt		= 4;					// total number of cpus for flow calcuiatoin
 s32				g_CPUFlow[128]		= { 19, 20, 21, 22};	// cpu mapping for flow threads
 s32				g_CPUOutput[128]	= { 25, 26, 27, 28, 25, 26, 27, 28};	// cpu mappings for output threads 
 
-bool			g_IsJSONFlow		= true;			// output JSON flow format
+bool			g_IsJSONPacket		= false;			// output JSON packet info 
+bool			g_IsJSONFlow		= true;				// output JSON flow format
 
 s64				g_FlowSampleRate	= 100e6;			// default to flow sample rate of 100msec
 bool			g_IsFlowNULL		= false;			// benchmarking NULL flow rate 
@@ -98,18 +99,17 @@ u32				g_FlowTopNMax		= 1000;				// number of top flow to output
 u8				g_FlowTopNMac		= 0;				// count of topN flows for particuar MAC address
 u8				g_FlowTopNsMac[MAX_TOPN_MAC][6];		// topN source MAC
 u8				g_FlowTopNdMac[MAX_TOPN_MAC][6];		// topN destination MAC
-u8*				g_FlowTemplate		= NULL;				// custom flow template
 
 bool			g_Output_NULL		= false;			// benchmarking mode output to /dev/null 
 bool			g_Output_STDOUT		= true;				// by default output to stdout 
-bool			g_Output_ESPush		= false;			// direct ES HTTP Push 
+u8*				g_Output_PipeName	= NULL;				// name of pipe to output to
+
 u32				g_Output_BufferCnt	= 64;				// number of output buffers
 bool			g_Output_Keepalive	= false;			// ES connection would be keepalive/persistent
 bool			g_Output_FilterPath	= false;			// use filter_path to return only took,errors on _bulk upload 
 u32				g_Output_ThreadCnt  = 32;				// number of worker threads to use for ES push
 u32				g_Output_MergeMin	= 1;				// minimum number of blocks to merge on output 
 u32				g_Output_MergeMax	= 64;				// maximum number of blocks to merge on output 
-u8*				g_Output_PipeName	= NULL;				// name of pipe to output to
 
 u8 				g_CaptureName[256];						// name of the capture / index to push to
 u8				g_DeviceName[128];						// name of the device this is sourced from
@@ -237,17 +237,16 @@ static bool ParseCommandLine(u8* argv[])
 	if (strcmp(argv[0], "--json-packet") == 0)
 	{
 		fprintf(stderr, "  Write JSON Packet meta data\n");
-		//g_IsJSONPacket = true;	
+		g_IsJSONFlow 	= false;	
+		g_IsJSONPacket 	= true;	
 		cnt	+= 1;
-
-		fprintf(stderr, "packet mode depreciated\n");
-		assert(false);
 	}
 	// output json flow data 
 	if (strcmp(argv[0], "--json-flow") == 0)
 	{
 		fprintf(stderr, "  Write JSON Flow meta data\n");
-		g_IsJSONFlow = true;	
+		g_IsJSONFlow 	= true;	
+		g_IsJSONPacket 	= false;	
 		cnt	+= 1;
 	}
 	// capture name 
@@ -261,7 +260,6 @@ static bool ParseCommandLine(u8* argv[])
 	if (strcmp(argv[0], "--output-null") == 0)
 	{
 		g_Output_NULL 	= true;
-		g_Output_ESPush = false;
 		fprintf(stderr, "  Output to NULL\n");
 		cnt	+= 1;
 	}
@@ -270,7 +268,6 @@ static bool ParseCommandLine(u8* argv[])
 	{
 		g_Output_NULL 	= false;
 		g_Output_STDOUT = true;
-		g_Output_ESPush = false;
 		fprintf(stderr, "  Output to STDOUT\n");
 		cnt	+= 1;
 	}
@@ -278,7 +275,7 @@ static bool ParseCommandLine(u8* argv[])
 	if (strcmp(argv[0], "--output-pipe") == 0)
 	{
 		g_Output_NULL 		= false;
-		g_Output_STDOUT 	= true;
+		g_Output_STDOUT 	= false;
 		g_Output_PipeName	= strdup(argv[1]);
 		fprintf(stderr, "  Output to Pipe (%s)\n", g_Output_PipeName);
 		cnt	+= 2;
@@ -347,13 +344,6 @@ static bool ParseCommandLine(u8* argv[])
 		g_IsFlowNULL = true; 
 		fprintf(stderr, "  Flow NULL benchmarking\n"); 
 		cnt	+= 1;
-	}
-	// custom flow template 
-	if (strcmp(argv[0], "--flow-template") == 0)
-	{
-		g_FlowTemplate = argv[1];
-		fprintf(stderr, "  Flow template [%s]\n", g_FlowTemplate); 
-		cnt	+= 2;
 	}
 
 	// create a unique id so calling applications
@@ -639,6 +629,9 @@ int main(int argc, u8* argv[])
 		return 0;
 	}
 
+	// chunked fmad buffer
+	u8* FMADChunkBuffer = NULL; 
+
 	// work out the input file format
 	bool IsPCAP 	= false;
 	bool IsFMAD 	= false;
@@ -662,6 +655,9 @@ int main(int argc, u8* argv[])
 		fprintf(stderr, "FMAD Format Chunked\n");
 		TScale = 1; 
 		IsFMAD = true;
+
+		// allocate buffer
+		FMADChunkBuffer = malloc(1024*1024);
 		break;
 
 	case PCAPHEADER_MAGIC_FMADRING: 
@@ -743,7 +739,7 @@ int main(int argc, u8* argv[])
 										);
 													
 	// init flow state
-	Flow_Open(Out, g_CPUFlowCnt, g_CPUFlow, g_FlowIndexDepth, g_FlowMax, g_FlowTemplate);
+	Flow_Open(Out, g_CPUFlowCnt, g_CPUFlow, g_FlowIndexDepth, g_FlowMax);
 
 	u64 PacketTSFirst 	= 0;
 	u64 PacketTSLast  	= 0;
@@ -883,6 +879,7 @@ int main(int argc, u8* argv[])
 					break;
 				}
 				u64 TS = (u64)PktHeader->Sec * 1000000000ULL + (u64)PktHeader->NSec * TScale;
+
 				u32 LengthWire 		= PktHeader->LengthWire;
 				u32 LengthCapture 	= PktHeader->LengthCapture;
 				u32 PortNo			= 0;
@@ -905,6 +902,7 @@ int main(int argc, u8* argv[])
 				PktCnt		+= 1;
 				ByteWire	+= LengthWire; 
 				ByteCapture	+= LengthCapture;
+
 			}
 		}
 		// FMAD chunked format 

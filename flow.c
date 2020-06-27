@@ -183,10 +183,10 @@ typedef struct FlowIndex_t
 
 //---------------------------------------------------------------------------------------------
 // command line parameters, see main.c for descriptions
-//extern bool				g_IsJSONPacket;
+extern bool				g_IsJSONPacket;
 extern bool				g_IsJSONFlow;
 
-extern  s64				g_FlowSampleRate;
+extern s64				g_FlowSampleRate;
 extern bool				g_IsFlowNULL;
 
 extern bool				g_FlowTopNEnable;
@@ -203,6 +203,10 @@ extern u8 				g_CaptureName[256];
 extern u8				g_DeviceName[128];
 
 extern bool				g_Verbose;
+
+extern bool				g_Output_NULL;
+extern bool				g_Output_STDOUT;
+extern u8*				g_Output_PipeName;
 
 //---------------------------------------------------------------------------------------------
 // static
@@ -583,540 +587,6 @@ static void FlowInsert(u32 CPUID, FlowIndex_t* FlowIndex, FlowRecord_t* FlowPkt,
 }
 
 //---------------------------------------------------------------------------------------------
-
-static u8* 	s_FlowTemplate 			= NULL;
-static u32	s_FlowTemplateLen		= 0;
-
-//static u32	s_FlowTemplate_Key		[1024];		// start of key
-static u32	s_FlowTemplate_Value	[1024];		// start of value
-static u32	s_FlowTemplate_Length	[1024];
-
-#define FLOW_TEMPLATE_TIMESTAMP				0
-#define FLOW_TEMPLATE_TS					1
-#define FLOW_TEMPLATE_FLOWCNT				2
-#define FLOW_TEMPLATE_DEVICE				3
-
-#define FLOW_TEMPLATE_HASH					4
-#define FLOW_TEMPLATE_MAC_SRC				5
-#define FLOW_TEMPLATE_MAC_DST				6
-#define FLOW_TEMPLATE_MAC_PROTO				7
-
-#define FLOW_TEMPLATE_VLAN0					8
-#define FLOW_TEMPLATE_VLAN1					9
-
-#define FLOW_TEMPLATE_MPLS0_LABEL			10
-#define FLOW_TEMPLATE_MPLS0_TC				11	
-
-#define FLOW_TEMPLATE_MPLS1_LABEL			12
-#define FLOW_TEMPLATE_MPLS1_TC				13	
-
-#define FLOW_TEMPLATE_MPLS2_LABEL			14
-#define FLOW_TEMPLATE_MPLS2_TC				15	
-
-#define FLOW_TEMPLATE_IPV4_SRC				16
-#define FLOW_TEMPLATE_IPV4_DST				17
-#define FLOW_TEMPLATE_IPV4_PROTO			18
-#define FLOW_TEMPLATE_IPV4_DSCP				19
-
-#define FLOW_TEMPLATE_UDP_PORT_SRC			20
-#define FLOW_TEMPLATE_UDP_PORT_DST			21
-
-#define FLOW_TEMPLATE_TCP_PORT_SRC			22
-#define FLOW_TEMPLATE_TCP_PORT_DST			23
-#define FLOW_TEMPLATE_TCP_FIN				24
-#define FLOW_TEMPLATE_TCP_SYN				25
-#define FLOW_TEMPLATE_TCP_RST				26
-#define FLOW_TEMPLATE_TCP_PSH				27
-#define FLOW_TEMPLATE_TCP_ACK				28
-#define FLOW_TEMPLATE_TCP_SACK				29
-#define FLOW_TEMPLATE_TCP_FACK				30
-#define FLOW_TEMPLATE_TCP_WIN_MIN			31
-#define FLOW_TEMPLATE_TCP_WIN_MAX			32
-
-#define FLOW_TEMPLATE_TOTAL_PKT				33
-#define FLOW_TEMPLATE_TOTAL_BYTE			34
-#define FLOW_TEMPLATE_TOTAL_BIT				35
-#define FLOW_TEMPLATE_TOTAL_FCS				36
-
-//---------------------------------------------------------------------------------------------
-// create JSON field with a default value of NULL 
-/*
-static u32 FlowTemplate_Write(u8* Base, u8* Output, u32 Index, u8* Name, u32 Length)
-{
-	u8* OutputStart = Output;
-
-	// name
-	Output += sprintf(Output, "\"%s\":", Name);
-
-	s_FlowTemplate_Key[Index]   	= OutputStart - Base; 
-	s_FlowTemplate_Value[Index] 	= Output - Base; 
-	s_FlowTemplate_Length[Index] 	= Length; 
-
-	// write null as default
-	*Output++ = 'n';
-	*Output++ = 'u';
-	*Output++ = 'l';
-	*Output++ = 'l';
-
-	for (int i=4; i < Length; i++)
-	{
-		*Output++ = ' ';
-	}
-	*Output++ = ',';
-
-	return Output - OutputStart;
-}
-*/
-
-//---------------------------------------------------------------------------------------------
-//
-// build the initial template 
-//
-static u8* s_FlowTemplateDefault = "{\"timestamp\":@TIMESTAMP#16#,\"TS\":@TS#22#,\"FlowCnt\":@FLOWCNT#10#,\"Device\":@DEVICE#32#,\"hash\":@HASH#42#,\"TotalPkt\":@TOTALPKT#12#,\"TotalByte\":@TOTALBYTE#12#,\"TotalBits\":@TOTALBIT#12#,\"TotalFCS\":@TOTALFCS#8#,\"MACSrc\":@MACSRC#19#,\"MACDst\":@MACDST#19#,\"MACProto\":@MACPROTO#8#,\"VLAN.0\":@VLAN0#8#,\"VLAN.1\":@VLAN1#8#,\"MPLS.0.Label\":@MPLS0LABEL#8#,\"MPLS.0.TC\":@MPLS0TC#4#,\"MPLS.1.Label\":@MPLS1LABEL#8#,\"MPLS.1.TC\":@MPLS1TC#4#,\"MPLS.2.Label\":@MPLS2LABEL#8#,\"MPLS.2.TC\":@MPLS2TC#4#,\"IPv4.Src\":@IPV4SRC#20#,\"IPv4.Dst\":@IPV4DST#20#,\"IPv4.Proto\":@IPV4PROTO#8#,\"IPv4.DSCP\":@IPV4DSCP#8#,\"UDP.Port.Src\":@UDPPORTSRC#8#,\"UDP.Port.Dst\":@UDPPORTDST#8#,\"TCP.Port.Src\":@TCPPORTSRC#8#,\"TCP.Port.Dst\":@TCPPORTDST#8#,\"TCP.FIN\":@TCPFIN#8#,\"TCP.SYN\":@TCPSYN#8#,\"TCP.RST\":@TCPRST#8#,\"TCP.PSH\":@TCPPSH#8#,\"TCP.ACK\":@TCPACK#8#,\"TCP.WindowMin\":@TCPWINMIN#8#,\"TCP.WindowMax\":@TCPWINMAX#8#,\"TCP.SACK\":@TCPSACK#8#}";
-
-static u32 FlowTemplate(void)
-{
-	s_FlowTemplate = malloc(16*1024);
-	memset(s_FlowTemplate, 0, 16*1024);
-
-	u8* Output = s_FlowTemplate;
-	fprintf(stderr, "Source [%s]\n", s_FlowTemplateDefault); 
-
-	// parse the formatting string
-	for (int i=0; i < strlen(s_FlowTemplateDefault); i++)
-	{
-		int c = s_FlowTemplateDefault[i];
-
-		// search for tmplate
-		if (c == '@')
-		{
-			// skip the @ char
-			i++;
-
-			// first is template keyword name 
-			u8 TemplateName[32];
-			u8 TemplateNamePos = 0;
-
-			for (;i < strlen(s_FlowTemplateDefault); i++)
-			{
-				int c = s_FlowTemplateDefault[i];
-				if (c == '#') break;
-
-				TemplateName[TemplateNamePos++] = c;
-			}
-			TemplateName[TemplateNamePos++] = 0;
-
-			// skip the first #
-			i++;
-
-
-			// next is the depth
-			u8 TemplateLength[8];
-			u8 TemplateLengthPos = 0;
-
-			for (;i < strlen(s_FlowTemplateDefault); i++)
-			{
-				int c = s_FlowTemplateDefault[i];
-				if (c == '#') break;
-
-				TemplateLength[TemplateLengthPos++] = c;
-			}
-			TemplateLength[TemplateLengthPos++] = 0;
-
-			u32 Length = atoi(TemplateLength);
-
-			fprintf(stderr, "Template Pos:%3i Len:%3i [%s]\n", Output - s_FlowTemplate, Length, TemplateName);
-
-			Output[0] = 'n';
-			Output[1] = 'u';
-			Output[2] = 'l';
-			Output[3] = 'l';
-			for (int j=4; j < Length; j++)
-			{
-				Output[j] = ' ';
-			}
-
-			u32 Index = -1;
-			if (strcmp(TemplateName, "TIMESTAMP") 		== 0) Index		= FLOW_TEMPLATE_TIMESTAMP;
-			if (strcmp(TemplateName, "TS") 				== 0) Index		= FLOW_TEMPLATE_TS;
-			if (strcmp(TemplateName, "FLOWCNT") 		== 0) Index		= FLOW_TEMPLATE_FLOWCNT;
-			if (strcmp(TemplateName, "DEVICE") 			== 0) Index		= FLOW_TEMPLATE_DEVICE;
-			if (strcmp(TemplateName, "HASH")			== 0) Index		= FLOW_TEMPLATE_HASH;
-			if (strcmp(TemplateName, "TOTALPKT") 		== 0) Index		= FLOW_TEMPLATE_TOTAL_PKT;
-			if (strcmp(TemplateName, "TOTALBYTE") 		== 0) Index		= FLOW_TEMPLATE_TOTAL_BYTE;
-			if (strcmp(TemplateName, "TOTALBIT") 		== 0) Index		= FLOW_TEMPLATE_TOTAL_BIT;
-			if (strcmp(TemplateName, "TOTALFCS") 		== 0) Index		= FLOW_TEMPLATE_TOTAL_FCS;
-			if (strcmp(TemplateName, "MACSRC") 			== 0) Index		= FLOW_TEMPLATE_MAC_SRC;
-			if (strcmp(TemplateName, "MACDST") 			== 0) Index		= FLOW_TEMPLATE_MAC_DST;
-			if (strcmp(TemplateName, "MACPROTO") 		== 0) Index		= FLOW_TEMPLATE_MAC_PROTO;
-			if (strcmp(TemplateName, "VLAN0") 			== 0) Index		= FLOW_TEMPLATE_VLAN0;
-			if (strcmp(TemplateName, "VLAN1") 			== 0) Index		= FLOW_TEMPLATE_VLAN1;
-
-			if (strcmp(TemplateName, "MPLS0LABEL") 		== 0) Index		= FLOW_TEMPLATE_MPLS0_LABEL;
-			if (strcmp(TemplateName, "MPLS0TC") 		== 0) Index		= FLOW_TEMPLATE_MPLS0_TC;
-			if (strcmp(TemplateName, "MPLS1LABEL") 		== 0) Index		= FLOW_TEMPLATE_MPLS1_LABEL;
-			if (strcmp(TemplateName, "MPLS1TC") 		== 0) Index		= FLOW_TEMPLATE_MPLS1_TC;
-			if (strcmp(TemplateName, "MPLS2LABEL") 		== 0) Index		= FLOW_TEMPLATE_MPLS2_LABEL;
-			if (strcmp(TemplateName, "MPLS2TC") 		== 0) Index		= FLOW_TEMPLATE_MPLS2_TC;
-
-			if (strcmp(TemplateName, "IPV4SRC") 		== 0) Index		= FLOW_TEMPLATE_IPV4_SRC;
-			if (strcmp(TemplateName, "IPV4DST") 		== 0) Index		= FLOW_TEMPLATE_IPV4_DST;
-			if (strcmp(TemplateName, "IPV4PROTO") 		== 0) Index		= FLOW_TEMPLATE_IPV4_PROTO;
-			if (strcmp(TemplateName, "IPV4DSCP") 		== 0) Index		= FLOW_TEMPLATE_IPV4_DSCP;
-
-			if (strcmp(TemplateName, "UDPPORTSRC") 		== 0) Index		= FLOW_TEMPLATE_UDP_PORT_SRC;
-			if (strcmp(TemplateName, "UDPPORTDST") 		== 0) Index		= FLOW_TEMPLATE_UDP_PORT_DST;
-
-			if (strcmp(TemplateName, "TCPPORTSRC") 		== 0) Index		= FLOW_TEMPLATE_TCP_PORT_SRC;
-			if (strcmp(TemplateName, "TCPPORTDST") 		== 0) Index		= FLOW_TEMPLATE_TCP_PORT_DST;
-
-			if (strcmp(TemplateName, "TCPFIN") 			== 0) Index		= FLOW_TEMPLATE_TCP_FIN;
-			if (strcmp(TemplateName, "TCPSYN") 			== 0) Index		= FLOW_TEMPLATE_TCP_SYN;
-			if (strcmp(TemplateName, "TCPRST") 			== 0) Index		= FLOW_TEMPLATE_TCP_RST;
-			if (strcmp(TemplateName, "TCPPSH") 			== 0) Index		= FLOW_TEMPLATE_TCP_PSH;
-			if (strcmp(TemplateName, "TCPACK") 			== 0) Index		= FLOW_TEMPLATE_TCP_ACK;
-			if (strcmp(TemplateName, "TCPSACK") 		== 0) Index		= FLOW_TEMPLATE_TCP_SACK;
-			if (strcmp(TemplateName, "TCPWINMIN") 		== 0) Index		= FLOW_TEMPLATE_TCP_WIN_MIN;
-			if (strcmp(TemplateName, "TCPWINMAX") 		== 0) Index		= FLOW_TEMPLATE_TCP_WIN_MAX;
-
-			if (Index == -1)	
-			{
-				fprintf(stderr, "Uknown templat name (%s)\n", TemplateName); 
-				assert(false);
-			}
-
-			// update index
-			s_FlowTemplate_Value[Index] 	= Output - s_FlowTemplate; 
-			s_FlowTemplate_Length[Index] 	= Length; 
-
-			Output += Length; 
-		}
-		else
-		{
-
-			// convert ' to " as command line args must be encased in "" and cant use them without escape codes
-			if (c == '\'') c = '"';
-
-			*Output++ = c;
-		}
-	}
-
-/*
-
-	// actual payload
-	Output += sprintf(Output, "{");
-
-	Output += FlowTemplate_Write(s_FlowTemplate, Output, FLOW_TEMPLATE_TIMESTAMP, 		"timestamp", 	16); 
-	Output += FlowTemplate_Write(s_FlowTemplate, Output, FLOW_TEMPLATE_TS, 				"TS", 			22); 
-	Output += FlowTemplate_Write(s_FlowTemplate, Output, FLOW_TEMPLATE_FLOWCNT, 		"FlowCnt", 		10); 
-	Output += FlowTemplate_Write(s_FlowTemplate, Output, FLOW_TEMPLATE_DEVICE, 			"Device", 		32); 
-
-	// print flow info
-	Output += FlowTemplate_Write(s_FlowTemplate, Output, FLOW_TEMPLATE_HASH,			"hash", 		40+2);
-
-	// general stats
-	Output += FlowTemplate_Write(s_FlowTemplate, Output, FLOW_TEMPLATE_TOTAL_PKT, 		"TotalPkt",  	12);
-	Output += FlowTemplate_Write(s_FlowTemplate, Output, FLOW_TEMPLATE_TOTAL_BYTE, 		"TotalByte", 	12);
-	Output += FlowTemplate_Write(s_FlowTemplate, Output, FLOW_TEMPLATE_TOTAL_BIT, 		"TotalBits", 	12);
-	Output += FlowTemplate_Write(s_FlowTemplate, Output, FLOW_TEMPLATE_TOTAL_FCS, 		"TotalFCS", 	8);
-
-	Output += FlowTemplate_Write(s_FlowTemplate, Output, FLOW_TEMPLATE_MAC_SRC, 		"MACSrc", 		3*6+1);
-	Output += FlowTemplate_Write(s_FlowTemplate, Output, FLOW_TEMPLATE_MAC_DST, 		"MACDst", 		3*6+1);	 // +1 instead of +2 for quotes as the final : is removed in the mac address
-	Output += FlowTemplate_Write(s_FlowTemplate, Output, FLOW_TEMPLATE_MAC_PROTO, 		"MACProto", 	8);
-
-	// vlans
-	Output += FlowTemplate_Write(s_FlowTemplate, Output, FLOW_TEMPLATE_VLAN0, 			"VLAN.0", 		8);
-	Output += FlowTemplate_Write(s_FlowTemplate, Output, FLOW_TEMPLATE_VLAN1, 			"VLAN.1", 		8);
-
-	// MPLS info
-	Output += FlowTemplate_Write(s_FlowTemplate, Output, FLOW_TEMPLATE_MPLS0_LABEL, 	"MPLS.0.Label", 8);
-	Output += FlowTemplate_Write(s_FlowTemplate, Output, FLOW_TEMPLATE_MPLS0_TC, 		"MPLS.0.TC", 	4);
-
-	Output += FlowTemplate_Write(s_FlowTemplate, Output, FLOW_TEMPLATE_MPLS1_LABEL, 	"MPLS.1.Label", 8);
-	Output += FlowTemplate_Write(s_FlowTemplate, Output, FLOW_TEMPLATE_MPLS1_TC, 		"MPLS.1.TC", 	4);
-
-	Output += FlowTemplate_Write(s_FlowTemplate, Output, FLOW_TEMPLATE_MPLS2_LABEL, 	"MPLS.2.Label", 8);
-	Output += FlowTemplate_Write(s_FlowTemplate, Output, FLOW_TEMPLATE_MPLS2_TC, 		"MPLS.2.TC", 	4);
-
-	// ipv4 block
-	{
-		// IPv4 proto info
-		Output += FlowTemplate_Write(s_FlowTemplate, Output, FLOW_TEMPLATE_IPV4_SRC, 		"IPv4.Src", 	20);
-		Output += FlowTemplate_Write(s_FlowTemplate, Output, FLOW_TEMPLATE_IPV4_DST, 		"IPv4.Dst", 	20);
-		Output += FlowTemplate_Write(s_FlowTemplate, Output, FLOW_TEMPLATE_IPV4_PROTO, 		"IPv4.Proto", 	8);
-		Output += FlowTemplate_Write(s_FlowTemplate, Output, FLOW_TEMPLATE_IPV4_DSCP, 		"IPv4.DSCP", 	8);
-
-		// UDP 
-		{
-			Output += FlowTemplate_Write(s_FlowTemplate, Output, FLOW_TEMPLATE_UDP_PORT_SRC, 	"UDP.Port.Src", 8);
-			Output += FlowTemplate_Write(s_FlowTemplate, Output, FLOW_TEMPLATE_UDP_PORT_DST, 	"UDP.Port.Dst", 8);
-		}
-
-		// TCP 
-		{
-			Output += FlowTemplate_Write(s_FlowTemplate, Output, FLOW_TEMPLATE_TCP_PORT_SRC, 	"TCP.Port.Src", 8);
-			Output += FlowTemplate_Write(s_FlowTemplate, Output, FLOW_TEMPLATE_TCP_PORT_DST, 	"TCP.Port.Dst", 8);
-			Output += FlowTemplate_Write(s_FlowTemplate, Output, FLOW_TEMPLATE_TCP_FIN, 		"TCP.FIN", 		8);
-			Output += FlowTemplate_Write(s_FlowTemplate, Output, FLOW_TEMPLATE_TCP_SYN, 		"TCP.SYN", 		8);
-			Output += FlowTemplate_Write(s_FlowTemplate, Output, FLOW_TEMPLATE_TCP_RST, 		"TCP.RST", 		8);
-			Output += FlowTemplate_Write(s_FlowTemplate, Output, FLOW_TEMPLATE_TCP_PSH, 		"TCP.PSH", 		8);
-			Output += FlowTemplate_Write(s_FlowTemplate, Output, FLOW_TEMPLATE_TCP_ACK, 		"TCP.ACK", 		8);
-			Output += FlowTemplate_Write(s_FlowTemplate, Output, FLOW_TEMPLATE_TCP_WIN_MIN, 	"TCP.WindowMin", 8);
-			Output += FlowTemplate_Write(s_FlowTemplate, Output, FLOW_TEMPLATE_TCP_WIN_MAX, 	"TCP.WindowMax", 8);
-			Output += FlowTemplate_Write(s_FlowTemplate, Output, FLOW_TEMPLATE_TCP_SACK, 		"TCP.SACK", 8);
-			//Output += FlowTemplate_Write(s_FlowTemplate, Output, FLOW_TEMPLATE_TCP_ACKDup, 	"TCP.ACKDup", 8);
-		}
-	}
-
-	// remove last ","
-	Output--;
-*/
-
-	// terminate
-	Output += sprintf(Output, "\n");
-
-	s_FlowTemplateLen = strlen(s_FlowTemplate);
-	fprintf(stderr, "Template\n%s\n %i\n", s_FlowTemplate, strlen(s_FlowTemplate));
-}
-
-//---------------------------------------------------------------------------------------------
-// write an integer
-static inline void FlowTemplate_WriteU64(u8* Base, u32 Index, s64 Value)
-{
-	u32 ValueStrLen = 0;
-	u8 ValueStr[128];
-
-	bool IsNeg = false;
-	if (Value < 0)
-	{
-		IsNeg = true;
-		Value = -Value;
-	}
-
-	u64 v = Value;
-	while (true)
-	{
-		ValueStr[ValueStrLen++] = '0' + (v % 10);
-		v = v / 10;
-		if (v == 0) break;
-
-		if (ValueStrLen >= s_FlowTemplate_Length[Index])
-		{
-			fprintf(stderr, "value u64 overflow %lli %i %i\n", Value, ValueStrLen, s_FlowTemplate_Length[Index]);
-		}
-	}
-	// negative ?
-	if (IsNeg)
-	{
-		ValueStr[ValueStrLen++] = '-';
-	}
-
-	// length -1 as need space for the trailing "
-	u32 ValueLen 	= ValueStrLen; 
-	if (ValueLen > s_FlowTemplate_Length[Index])
-	{
-		fprintf(stderr, "value is clipped %i %lli\n", Index, Value);
-		// need to clip output
-		ValueLen = s_FlowTemplate_Length[Index];
-	}
-	u8* Output 		= Base + s_FlowTemplate_Value[Index];
-	for (int i=0; i < ValueLen; i++)
-	{
-		// reverse order
-		*Output++ = ValueStr[ValueLen - i - 1];
-	}
-	// minimum 4 char to overwrrite null 
-	for (int i=ValueLen; i < 4; i++)
-	{
-		*Output++ = ' '; 
-	}
-
-	// assume from the template any training space is filled with ' '
-}
-
-//---------------------------------------------------------------------------------------------
-// write a string encapsulated within quotes
-static inline void FlowTemplate_WriteString(u8* Base, u32 Index, u8* Value)
-{
-	// is field in the template?
-	if (s_FlowTemplate_Length[Index] == 0) return; 
-
-	// length - 2 as need space for the pre and post " quotes
-	u32 ValueLen 	= strlen(Value);
-	if (ValueLen > s_FlowTemplate_Length[Index] - 2)
-	{
-		fprintf(stderr, "string value is clipped %i %s\n", Index, Value);
-
-		// need to clip output
-		ValueLen = s_FlowTemplate_Length[Index] - 2;
-	}
-	u8* Output 		= Base + s_FlowTemplate_Value[Index];
-
-	*Output++ = '"';
-
-	for (int i=0; i < ValueLen; i++)
-	{
-		*Output++ = Value[i];
-	}
-	*Output++ = '"';
-
-	// assume from the template any training space is filled with ' '
-}
-
-//---------------------------------------------------------------------------------------------
-
-static inline u8 NibbleToHex(u32 Value)
-{
-	switch (Value)
-	{
-	case 0x0: return '0';
-	case 0x1: return '1';
-	case 0x2: return '2';
-	case 0x3: return '3';
-	case 0x4: return '4';
-	case 0x5: return '5';
-	case 0x6: return '6';
-	case 0x7: return '7';
-	case 0x8: return '8';
-	case 0x9: return '9';
-	case 0xa: return 'a';
-	case 0xb: return 'b';
-	case 0xc: return 'c';
-	case 0xd: return 'd';
-	case 0xe: return 'e';
-	case 0xf: return 'f';
-	}
-	return ' ';
-}
-
-
-static inline u8 Num2Char(u32 Value) 
-{
-	switch (Value)
-	{
-	case 0x0: return '0';
-	case 0x1: return '1';
-	case 0x2: return '2';
-	case 0x3: return '3';
-	case 0x4: return '4';
-	case 0x5: return '5';
-	case 0x6: return '6';
-	case 0x7: return '7';
-	case 0x8: return '8';
-	case 0x9: return '9';
-	}
-	return ' ';
-}
-
-
-//---------------------------------------------------------------------------------------------
-// write the 20B hash as a string
-static inline void FlowTemplate_WriteHash(u8* Base, u32 Index, u8* Value)
-{
-	u8* Output 		= Base + s_FlowTemplate_Value[Index];
-
-	*Output++ = '"'; 
-	for (int i=0; i < 20; i++)
-	{
-		u32 v = Value[i];
-
-		// reverse order
-		*Output++ = NibbleToHex( (v >> 4) & 0xF);
-		*Output++ = NibbleToHex( (v >> 0) & 0xF);
-	}
-	*Output++ = '"'; 
-}
-
-//---------------------------------------------------------------------------------------------
-// write the mac address
-static inline void FlowTemplate_WriteMAC(u8* Base, u32 Index, u8* Value)
-{
-	u8* Output 		= Base + s_FlowTemplate_Value[Index];
-
-	*Output++ = '"'; 
-	for (int i=0; i < 6; i++)
-	{
-		u32 v = Value[i];
-
-		// reverse order
-		*Output++ = NibbleToHex( (v >> 4) & 0xF);
-		*Output++ = NibbleToHex( (v >> 0) & 0xF);
-		*Output++ = ':'; 
-	}
-	Output--;	// chomp final :	
-
-	*Output++ = '"'; 
-}
-
-//---------------------------------------------------------------------------------------------
-// write IPv4 address
-static inline void FlowTemplate_WriteIPv4(u8* Base, u32 Index, u8* Value)
-{
-	u8* Output 		= Base + s_FlowTemplate_Value[Index];
-
-	*Output++ = '"';
-
-	{
-		u32 v0 =  Value[0] / 100;
-		u32 v1 = (Value[0] - v0 * 100) / 10;
-		u32 v2 = (Value[0] - v0 * 100 - v1 * 10);
-
-		if (v0 > 0) 				*Output++ = Num2Char(v0);
-		if ((v1 > 0) || (v0 > 0)) 	*Output++ = Num2Char(v1); 
-		*Output++ = Num2Char(v2);
-		*Output++ = '.';
-	}
-	{
-		u32 v0 =  Value[1] / 100;
-		u32 v1 = (Value[1] - v0 * 100) / 10;
-		u32 v2 = (Value[1] - v0 * 100 - v1 * 10);
-
-		if (v0 > 0) 				*Output++ = Num2Char(v0); 
-		if ((v1 > 0) || (v0 > 0))	*Output++ = Num2Char(v1);
-		*Output++ = Num2Char(v2);
-		*Output++ = '.';
-	}
-	{
-		u32 v0 =  Value[2] / 100;
-		u32 v1 = (Value[2] - v0 * 100) / 10;
-		u32 v2 = (Value[2] - v0 * 100 - v1 * 10);
-
-		if (v0 > 0) 				*Output++ = Num2Char(v0);
-		if ((v1 > 0) || (v0 > 0))	*Output++ = Num2Char(v1);
-		*Output++ = Num2Char(v2);
-		*Output++ = '.';
-	}
-	{
-		u32 v0 =  Value[3] / 100;
-		u32 v1 = (Value[3] - v0 * 100) / 10;
-		u32 v2 = (Value[3] - v0 * 100 - v1 * 10);
-
-		if (v0 > 0) 				*Output++ = Num2Char(v0);
-		if ((v1 > 0) || (v0 > 0))	*Output++ = Num2Char(v1);
-		*Output++ = Num2Char(v2); 
-	}
-
-	*Output++ = '"';
-}
-
-//---------------------------------------------------------------------------------------------
-// remove entry from JSON 
-//static inline void FlowTemplate_Clear(u8* Base, u32 Index)
-//{
-//	u8* Output 		= Base + s_FlowTemplate_Key[Index];
-//	u32 ClearLength = s_FlowTemplate_Value[Index] - s_FlowTemplate_Key[Index];
-//
-//	// need remove the previous ,
-//	Output--;
-//	ClearLength++;
-//
-//	for (int i=0; i < ClearLength; i++)
-//	{
-//		*Output++ = ' '; 
-//	}
-//}
-
-//---------------------------------------------------------------------------------------------
 // write a flow record out as a JSON file
 // this is designed for ES bulk data upload using the 
 // mappings.json file as the index 
@@ -1124,7 +594,6 @@ static u32 FlowDump(u8* OutputStr, u64 TS, FlowRecord_t* Flow, u32 FlowID, u32 F
 {
 	u8* Output 		= OutputStr;
 
-#if 1
 
 	// set snapshot timestamp
 	Flow->SnapshotTS = TS;
@@ -1132,474 +601,187 @@ static u32 FlowDump(u8* OutputStr, u64 TS, FlowRecord_t* Flow, u32 FlowID, u32 F
 	Flow->FlowInstance 	= 0;
 	Flow->FlowNo 		= FlowID;
 	Flow->TotalFlows 	= FlowTotal;
-/*
-	// output human readable Ether protocol info
-	switch (Flow->EtherProto)
+
+	// pipe output
+	if (g_Output_PipeName != NULL)
 	{
-	case ETHER_PROTO_ARP:
-		strcpy(Flow->StrProtoMAC, "ARP");
-		break;
-	case ETHER_PROTO_IPV4:
-		strcpy(Flow->StrProtoMAC, "IPv4");
-		break;
-	case ETHER_PROTO_IPV6:
-		strcpy(Flow->StrProtoMAC, "IPv6");
-		break;
-	case ETHER_PROTO_VLAN:
-		strcpy(Flow->StrProtoMAC, "VLAN");
-		break;
-	case ETHER_PROTO_VNTAG:
-		strcpy(Flow->StrProtoMAC, "VNTAG");
-		break;
-	case ETHER_PROTO_MPLS:
-		strcpy(Flow->StrProtoMAC, "MPLS");
-		break;
-	default:
-		sprintf(Flow->StrProtoMAC, "%04x", Flow->EtherProto);
-		break;
-	}
-	// IPv4 proto info
-	if (Flow->EtherProto ==  ETHER_PROTO_IPV4)
+		memcpy(Output, Flow, sizeof(FlowRecord_t) );
+		return sizeof(FlowRecord_t);
+	}	
+	else if (g_Output_STDOUT)
 	{
-		// convert to readable names for common protocols 
-		switch (Flow->IPProto) 
-		{
-		case IPv4_PROTO_UDP:	strcpy(Flow->StrProtoIP, "UDP");	break;
-		case IPv4_PROTO_TCP:	strcpy(Flow->StrProtoIP, "TCP");	break;
-		case IPv4_PROTO_IGMP:	strcpy(Flow->StrProtoIP, "IGMP"); 	break;
-		case IPv4_PROTO_ICMP:	strcpy(Flow->StrProtoIP, "ICMP"); 	break;
-		case IPv4_PROTO_GRE:	strcpy(Flow->StrProtoIP, "GRE"); 	break;
-		case IPv4_PROTO_VRRP:	strcpy(Flow->StrProtoIP, "VRRP"); 	break;
-		default:
-			sprintf(Flow->StrProtoIP, "%02x", Flow->IPProto);
-			break;
-		}
+		// ES header for bulk upload
+		Output += sprintf(Output, "{\"index\":{\"_index\":\"%s\",\"_type\":\"flow_record\",\"_score\":null}}\n", g_CaptureName);
 
-		switch (Flow->IPDSCP)
-		{
-		case 0x2e: strcpy(Flow->StrDSCP, "EF"); break;
+		// as its multi threaded FormatTS can not be used
+		u8 TStr[128];
+		FormatTSStr(TStr, TS);
 
-		// from wiki https://en.wikipedia.org/wiki/Differentiated_services
-		case 0x0a: strcpy(Flow->StrDSCP, "AF11"); break;
-		case 0x0c: strcpy(Flow->StrDSCP, "AF12"); break;
-		case 0x0e: strcpy(Flow->StrDSCP, "AF13"); break;
-		case 0x12: strcpy(Flow->StrDSCP, "AF21"); break;
-		case 0x14: strcpy(Flow->StrDSCP, "AF22"); break;
-		case 0x16: strcpy(Flow->StrDSCP, "AF23"); break;
-		case 0x1a: strcpy(Flow->StrDSCP, "AF31"); break;
-		case 0x1c: strcpy(Flow->StrDSCP, "AF32"); break;
-		case 0x1e: strcpy(Flow->StrDSCP, "AF33"); break;
-		case 0x22: strcpy(Flow->StrDSCP, "AF41"); break;
-		case 0x24: strcpy(Flow->StrDSCP, "AF42"); break;
-		case 0x26: strcpy(Flow->StrDSCP, "AF43"); break;
+		// actual payload
+		Output += sprintf(Output, "{\"timestamp\":%f,\"TS\":\"%s\",\"FlowCnt\":%lli,\"Device\":\"%s\"", TS/1e6, TStr, FlowID, g_DeviceName);
 
-		// from https://www.cisco.com/c/en/us/td/docs/switches/datacenter/nexus1000/sw/4_0/qos/configuration/guide/nexus1000v_qos/qos_6dscp_val.pdf
-		case 0x08: strcpy(Flow->StrDSCP, "CS1"); break;
-		case 0x10: strcpy(Flow->StrDSCP, "CS2"); break;
-		case 0x18: strcpy(Flow->StrDSCP, "CS3"); break;
-		case 0x20: strcpy(Flow->StrDSCP, "CS4"); break;
-		case 0x28: strcpy(Flow->StrDSCP, "CS5"); break;
-		case 0x30: strcpy(Flow->StrDSCP, "CS6"); break;
-		case 0x38: strcpy(Flow->StrDSCP, "CS7"); break;
-		default:
-			sprintf(Flow->StrDSCP, "%02x", Flow->IPDSCP);	
-			break;
-		}
+		// print flow info
+		Output += sprintf(Output, ",\"hash\":\"%08x%08x%08x%08x%08x\"",	Flow->SHA1[0],
+																		Flow->SHA1[1],
+																		Flow->SHA1[2],
+																		Flow->SHA1[3],
+																		Flow->SHA1[4]);
 
-		// per protocol info
-		switch (Flow->IPProto)
-		{
-		case IPv4_PROTO_UDP:
-		{
-			FlowTemplate_WriteU64	(OutputStr, FLOW_TEMPLATE_UDP_PORT_SRC, Flow->PortSrc);
-			FlowTemplate_WriteU64	(OutputStr, FLOW_TEMPLATE_UDP_PORT_DST, Flow->PortDst);
-		}
-		break;
+		Output += sprintf(Output, ",\"MACSrc\":\"%02x:%02x:%02x:%02x:%02x:%02x\",\"MACDst\":\"%02x:%02x:%02x:%02x:%02x:%02x\"",
 
-		case IPv4_PROTO_TCP:
-		{
-			FlowTemplate_WriteU64	(OutputStr, FLOW_TEMPLATE_TCP_PORT_SRC, 	Flow->PortSrc);
-			FlowTemplate_WriteU64	(OutputStr, FLOW_TEMPLATE_TCP_PORT_DST, 	Flow->PortDst);
+															Flow->EtherSrc[0],
+															Flow->EtherSrc[1],
+															Flow->EtherSrc[2],
+															Flow->EtherSrc[3],
+															Flow->EtherSrc[4],
+															Flow->EtherSrc[5],
 
-			FlowTemplate_WriteU64	(OutputStr, FLOW_TEMPLATE_TCP_FIN, 			Flow->TCPFINCnt); 
-			FlowTemplate_WriteU64	(OutputStr, FLOW_TEMPLATE_TCP_SYN, 			Flow->TCPSYNCnt); 
-			FlowTemplate_WriteU64	(OutputStr, FLOW_TEMPLATE_TCP_RST, 			Flow->TCPRSTCnt); 
-			FlowTemplate_WriteU64	(OutputStr, FLOW_TEMPLATE_TCP_PSH, 			Flow->TCPPSHCnt); 
-			FlowTemplate_WriteU64	(OutputStr, FLOW_TEMPLATE_TCP_ACK, 			Flow->TCPACKCnt); 
-			FlowTemplate_WriteU64	(OutputStr, FLOW_TEMPLATE_TCP_WIN_MIN,		Flow->TCPWindowMin); 
-			FlowTemplate_WriteU64	(OutputStr, FLOW_TEMPLATE_TCP_WIN_MAX,		Flow->TCPWindowMax); 
-			FlowTemplate_WriteU64	(OutputStr, FLOW_TEMPLATE_TCP_SACK,			Flow->TCPSACKCnt); 
-		}
-		break;
-		}
-
-	}
-
-*/
-
-	memcpy(Output, Flow, sizeof(FlowRecord_t) );
-	return sizeof(FlowRecord_t);
-
-#endif
-
-#if 0
-	memcpy(Output, s_FlowTemplate, s_FlowTemplateLen);
-	Output[s_FlowTemplateLen] = 0;
-
-	// as its multi threaded FormatTS can not be used
-	u8 TStr[128];
-	FormatTSStr(TStr, TS);
-
-	FlowTemplate_WriteU64		(OutputStr, FLOW_TEMPLATE_TIMESTAMP, 	TS / 1e6);
-	FlowTemplate_WriteString	(OutputStr, FLOW_TEMPLATE_TS, 			TStr);
-	FlowTemplate_WriteU64		(OutputStr, FLOW_TEMPLATE_FLOWCNT, 		FlowID);
-	FlowTemplate_WriteString	(OutputStr, FLOW_TEMPLATE_DEVICE, 		g_DeviceName);
-
-	FlowTemplate_WriteHash		(OutputStr, FLOW_TEMPLATE_HASH, 		(u8*)Flow->SHA1);
-
-	FlowTemplate_WriteU64		(OutputStr, FLOW_TEMPLATE_TOTAL_PKT,	Flow->TotalPkt); 
-	FlowTemplate_WriteU64		(OutputStr, FLOW_TEMPLATE_TOTAL_BYTE,	Flow->TotalByte); 
-	FlowTemplate_WriteU64		(OutputStr, FLOW_TEMPLATE_TOTAL_BIT,	Flow->TotalByte * 8ULL); 
-	FlowTemplate_WriteU64		(OutputStr, FLOW_TEMPLATE_TOTAL_FCS,	Flow->TotalFCS); 
-
-	FlowTemplate_WriteMAC		(OutputStr, FLOW_TEMPLATE_MAC_SRC, 		(u8*)Flow->EtherSrc);
-	FlowTemplate_WriteMAC		(OutputStr, FLOW_TEMPLATE_MAC_DST, 		(u8*)Flow->EtherDst);
-
-	// output human readable Ether protocol info
-	u8 MACProto[128];
-	switch (Flow->EtherProto)
-	{
-	case ETHER_PROTO_ARP:
-		strcpy(MACProto, "ARP");
-		break;
-	case ETHER_PROTO_IPV4:
-		strcpy(MACProto, "IPv4");
-		break;
-	case ETHER_PROTO_IPV6:
-		strcpy(MACProto, "IPv6");
-		break;
-	case ETHER_PROTO_VLAN:
-		strcpy(MACProto, "VLAN");
-		break;
-	case ETHER_PROTO_VNTAG:
-		strcpy(MACProto, "VNTAG");
-		break;
-	case ETHER_PROTO_MPLS:
-		strcpy(MACProto, "MPLS");
-		break;
-	default:
-		sprintf(MACProto, "%04x", Flow->EtherProto);
-		break;
-	}
-	FlowTemplate_WriteString	(OutputStr, FLOW_TEMPLATE_MAC_PROTO, MACProto);
-
-	// vlan 0 
-	if (Flow->VLAN[0] != 0) FlowTemplate_WriteU64	(OutputStr, FLOW_TEMPLATE_VLAN0, 		Flow->VLAN[0]);
-
-	// vlan 1
-	if (Flow->VLAN[1] != 0) FlowTemplate_WriteU64	(OutputStr, FLOW_TEMPLATE_VLAN1, 		Flow->VLAN[1]);
-
-	// mpls 0
-	if (Flow->MPLS0 != 0) FlowTemplate_WriteU64	(OutputStr, FLOW_TEMPLATE_MPLS0_LABEL, 	Flow->MPLS0);
-	if (Flow->MPLS0 != 0) FlowTemplate_WriteU64	(OutputStr, FLOW_TEMPLATE_MPLS0_TC, 	Flow->MPLStc0);
-
-	// mpls 1
-	if (Flow->MPLS1 != 0) FlowTemplate_WriteU64	(OutputStr, FLOW_TEMPLATE_MPLS1_LABEL, 	Flow->MPLS1);
-	if (Flow->MPLS1 != 0) FlowTemplate_WriteU64	(OutputStr, FLOW_TEMPLATE_MPLS1_TC, 	Flow->MPLStc1);
-
-	// mpls 2
-	if (Flow->MPLS2 != 0) FlowTemplate_WriteU64	(OutputStr, FLOW_TEMPLATE_MPLS2_LABEL, 	Flow->MPLS2);
-	if (Flow->MPLS2 != 0) FlowTemplate_WriteU64	(OutputStr, FLOW_TEMPLATE_MPLS2_TC, 	Flow->MPLStc2);
-
-	// IPv4 proto info
-	if (Flow->EtherProto ==  ETHER_PROTO_IPV4)
-	{
-
-		FlowTemplate_WriteIPv4	(OutputStr, FLOW_TEMPLATE_IPV4_SRC, Flow->IPSrc);
-		FlowTemplate_WriteIPv4	(OutputStr, FLOW_TEMPLATE_IPV4_DST, Flow->IPDst);
-
-		// convert to readable names for common protocols 
-		u8 IPProto[128];
-		switch (Flow->IPProto) 
-		{
-		case IPv4_PROTO_UDP:	strcpy(IPProto, "UDP");		break;
-		case IPv4_PROTO_TCP:	strcpy(IPProto, "TCP");		break;
-		case IPv4_PROTO_IGMP:	strcpy(IPProto, "IGMP"); 	break;
-		case IPv4_PROTO_ICMP:	strcpy(IPProto, "ICMP"); 	break;
-		case IPv4_PROTO_GRE:	strcpy(IPProto, "GRE"); 	break;
-		case IPv4_PROTO_VRRP:	strcpy(IPProto, "VRRP"); 	break;
-		default:
-			sprintf(IPProto, "%02x", Flow->IPProto);
-			break;
-		}
-		FlowTemplate_WriteString(OutputStr, FLOW_TEMPLATE_IPV4_PROTO, 	IPProto);
-
-		u8 DSCPStr[128];
-		switch (Flow->IPDSCP)
-		{
-		case 0x2e: strcpy(DSCPStr, "EF"); break;
-
-		// from wiki https://en.wikipedia.org/wiki/Differentiated_services
-		case 0x0a: strcpy(DSCPStr, "AF11"); break;
-		case 0x0c: strcpy(DSCPStr, "AF12"); break;
-		case 0x0e: strcpy(DSCPStr, "AF13"); break;
-		case 0x12: strcpy(DSCPStr, "AF21"); break;
-		case 0x14: strcpy(DSCPStr, "AF22"); break;
-		case 0x16: strcpy(DSCPStr, "AF23"); break;
-		case 0x1a: strcpy(DSCPStr, "AF31"); break;
-		case 0x1c: strcpy(DSCPStr, "AF32"); break;
-		case 0x1e: strcpy(DSCPStr, "AF33"); break;
-		case 0x22: strcpy(DSCPStr, "AF41"); break;
-		case 0x24: strcpy(DSCPStr, "AF42"); break;
-		case 0x26: strcpy(DSCPStr, "AF43"); break;
-
-		// from https://www.cisco.com/c/en/us/td/docs/switches/datacenter/nexus1000/sw/4_0/qos/configuration/guide/nexus1000v_qos/qos_6dscp_val.pdf
-		case 0x08: strcpy(DSCPStr, "CS1"); break;
-		case 0x10: strcpy(DSCPStr, "CS2"); break;
-		case 0x18: strcpy(DSCPStr, "CS3"); break;
-		case 0x20: strcpy(DSCPStr, "CS4"); break;
-		case 0x28: strcpy(DSCPStr, "CS5"); break;
-		case 0x30: strcpy(DSCPStr, "CS6"); break;
-		case 0x38: strcpy(DSCPStr, "CS7"); break;
-		default:
-			sprintf(DSCPStr, "%02x", Flow->IPDSCP);	
-			break;
-		}
-
-		if (Flow->IPDSCP != 0) FlowTemplate_WriteString   (OutputStr, FLOW_TEMPLATE_IPV4_DSCP, 	DSCPStr);
-
-		// per protocol info
-		switch (Flow->IPProto)
-		{
-		case IPv4_PROTO_UDP:
-		{
-			FlowTemplate_WriteU64	(OutputStr, FLOW_TEMPLATE_UDP_PORT_SRC, Flow->PortSrc);
-			FlowTemplate_WriteU64	(OutputStr, FLOW_TEMPLATE_UDP_PORT_DST, Flow->PortDst);
-		}
-		break;
-
-		case IPv4_PROTO_TCP:
-		{
-			FlowTemplate_WriteU64	(OutputStr, FLOW_TEMPLATE_TCP_PORT_SRC, 	Flow->PortSrc);
-			FlowTemplate_WriteU64	(OutputStr, FLOW_TEMPLATE_TCP_PORT_DST, 	Flow->PortDst);
-
-			FlowTemplate_WriteU64	(OutputStr, FLOW_TEMPLATE_TCP_FIN, 			Flow->TCPFINCnt); 
-			FlowTemplate_WriteU64	(OutputStr, FLOW_TEMPLATE_TCP_SYN, 			Flow->TCPSYNCnt); 
-			FlowTemplate_WriteU64	(OutputStr, FLOW_TEMPLATE_TCP_RST, 			Flow->TCPRSTCnt); 
-			FlowTemplate_WriteU64	(OutputStr, FLOW_TEMPLATE_TCP_PSH, 			Flow->TCPPSHCnt); 
-			FlowTemplate_WriteU64	(OutputStr, FLOW_TEMPLATE_TCP_ACK, 			Flow->TCPACKCnt); 
-			FlowTemplate_WriteU64	(OutputStr, FLOW_TEMPLATE_TCP_WIN_MIN,		Flow->TCPWindowMin); 
-			FlowTemplate_WriteU64	(OutputStr, FLOW_TEMPLATE_TCP_WIN_MAX,		Flow->TCPWindowMax); 
-			FlowTemplate_WriteU64	(OutputStr, FLOW_TEMPLATE_TCP_SACK,			Flow->TCPSACKCnt); 
-		}
-		break;
-		}
-	}
-	//printf("%s\n", OutputStr);
-
-	if (g_Output_Histogram)
-	{
-		HistogramDump_t	H;
-
-		memset(&H, 0, sizeof(H));
-		H.signature		= HISTOGRAM_SIG_V1;
-		H.FlowID		= FlowID;
-		H.MACProto		= Flow->EtherProto;
-		H.IPProto		= Flow->IPProto;
-		H.IPDSCP		= Flow->IPDSCP;
-		H.FirstTS		= Flow->FirstTS;
-		H.TotalPkt		= Flow->TotalPkt;
-
-		if (Flow->VLAN[0] != 0) SET_VLAN_BIT(&H, 0);
-		if (Flow->VLAN[1] != 0) SET_VLAN_BIT(&H, 1);
-		if (Flow->VLAN[2] != 0) SET_VLAN_BIT(&H, 2);
-		if (Flow->MPLS0 != 0) SET_MPLS_BIT(&H, 0);
-		if (Flow->MPLS1 != 0) SET_MPLS_BIT(&H, 1);
-		if (Flow->MPLS2 != 0) SET_MPLS_BIT(&H, 2);
-
-		PktInfo_HistogramPrint(g_Output_Histogram_FP, &H, Flow->PktInfoB);
-	}
-
-	return s_FlowTemplateLen; 
-#endif
-
-#if 0
-
-	// ES header for bulk upload
-	Output += sprintf(Output, "{\"index\":{\"_index\":\"%s\",\"_type\":\"flow_record\",\"_score\":null}}\n", g_CaptureName);
-
-	// as its multi threaded FormatTS can not be used
-	u8 TStr[128];
-	FormatTSStr(TStr, TS);
-
-	// actual payload
-	Output += sprintf(Output, "{\"timestamp\":%f,\"TS\":\"%s\",\"FlowCnt\":%lli,\"Device\":\"%s\"", TS/1e6, TStr, FlowID, g_DeviceName);
-
-	// print flow info
-	Output += sprintf(Output, ",\"hash\":\"%08x%08x%08x%08x%08x\"",	Flow->SHA1[0],
-																	Flow->SHA1[1],
-																	Flow->SHA1[2],
-																	Flow->SHA1[3],
-																	Flow->SHA1[4]);
-
-	Output += sprintf(Output, ",\"MACSrc\":\"%02x:%02x:%02x:%02x:%02x:%02x\",\"MACDst\":\"%02x:%02x:%02x:%02x:%02x:%02x\"",
-
-														Flow->EtherSrc[0],
-														Flow->EtherSrc[1],
-														Flow->EtherSrc[2],
-														Flow->EtherSrc[3],
-														Flow->EtherSrc[4],
-														Flow->EtherSrc[5],
-
-														Flow->EtherDst[0],
-														Flow->EtherDst[1],
-														Flow->EtherDst[2],
-														Flow->EtherDst[3],
-														Flow->EtherDst[4],
-														Flow->EtherDst[5]
-	);
-
-	// output human readable Ether protocol info
-	u8 MACProto[128];
-	switch (Flow->EtherProto)
-	{
-	case ETHER_PROTO_ARP:
-		strcpy(MACProto, "ARP");
-		break;
-	case ETHER_PROTO_IPV4:
-		strcpy(MACProto, "IPv4");
-		break;
-	case ETHER_PROTO_IPV6:
-		strcpy(MACProto, "IPv6");
-		break;
-	case ETHER_PROTO_VLAN:
-		strcpy(MACProto, "VLAN");
-		break;
-	case ETHER_PROTO_VNTAG:
-		strcpy(MACProto, "VNTAG");
-		break;
-	case ETHER_PROTO_MPLS:
-		strcpy(MACProto, "MPLS");
-		break;
-	default:
-		sprintf(MACProto, "%04x", Flow->EtherProto);
-		break;
-	}
-	Output += sprintf(Output, ",\"MACProto\":\"%s\"", MACProto); 
-
-	// print VLAN is valid
-	if (Flow->VLAN[0] != 0)
-	{
-		Output += sprintf(Output, ",\"VLAN.0\":%i",  Flow->VLAN[0]);
-	}
-	if (Flow->VLAN[1] != 0)
-	{
-		Output += sprintf(Output, ",\"VLAN.1\":%i",  Flow->VLAN[1]);
-	}
-
-	// print MPLS info
-	if (Flow->MPLS[0])
-	{
-		Output += sprintf(Output, ",\"MPLS.0.Label\":%i, \"MPLS.0.TC\":%i",  Flow->MPLS[0], Flow->MPLStc[0]);
-	}
-	if (Flow->MPLS[1])
-	{
-		Output += sprintf(Output, ",\"MPLS.1.Label\":%i, \"MPLS.1.TC\":%i",  Flow->MPLS[1], Flow->MPLStc[1]);
-	}
-
-	// IPv4 proto info
-	if (Flow->EtherProto ==  ETHER_PROTO_IPV4)
-	{
-		Output += sprintf(Output, ",\"IPv4.Src\":\"%i.%i.%i.%i\",\"IPv4.Dst\":\"%i.%i.%i.%i\" ",
-											Flow->IPSrc[0],
-											Flow->IPSrc[1],
-											Flow->IPSrc[2],
-											Flow->IPSrc[3],
-
-											Flow->IPDst[0],
-											Flow->IPDst[1],
-											Flow->IPDst[2],
-											Flow->IPDst[3]
+															Flow->EtherDst[0],
+															Flow->EtherDst[1],
+															Flow->EtherDst[2],
+															Flow->EtherDst[3],
+															Flow->EtherDst[4],
+															Flow->EtherDst[5]
 		);
 
-		// convert to readable names for common protocols 
-		u8 IPProto[128];
-		switch (Flow->IPProto) 
+		// output human readable Ether protocol info
+		u8 MACProto[128];
+		switch (Flow->EtherProto)
 		{
-		case IPv4_PROTO_UDP:	strcpy(IPProto, "UDP");		break;
-		case IPv4_PROTO_TCP:	strcpy(IPProto, "TCP");		break;
-		case IPv4_PROTO_IGMP:	strcpy(IPProto, "IGMP"); 	break;
-		case IPv4_PROTO_ICMP:	strcpy(IPProto, "ICMP"); 	break;
-		case IPv4_PROTO_GRE:	strcpy(IPProto, "GRE"); 	break;
-		case IPv4_PROTO_VRRP:	strcpy(IPProto, "VRRP"); 	break;
+		case ETHER_PROTO_ARP:
+			strcpy(MACProto, "ARP");
+			break;
+		case ETHER_PROTO_IPV4:
+			strcpy(MACProto, "IPv4");
+			break;
+		case ETHER_PROTO_IPV6:
+			strcpy(MACProto, "IPv6");
+			break;
+		case ETHER_PROTO_VLAN:
+			strcpy(MACProto, "VLAN");
+			break;
+		case ETHER_PROTO_VNTAG:
+			strcpy(MACProto, "VNTAG");
+			break;
+		case ETHER_PROTO_MPLS:
+			strcpy(MACProto, "MPLS");
+			break;
 		default:
-			sprintf(IPProto, "%02x", Flow->IPProto);
+			sprintf(MACProto, "%04x", Flow->EtherProto);
 			break;
 		}
-		Output += sprintf(Output, ",\"IPv4.Proto\":\"%s\"", IPProto);
+		Output += sprintf(Output, ",\"MACProto\":\"%s\"", MACProto); 
 
-		// per protocol info
-		switch (Flow->IPProto)
+		// print VLAN is valid
+		if (Flow->VLAN[0] != 0xffff)
 		{
-		case IPv4_PROTO_UDP:
-		{
-			Output += sprintf(Output, ",\"UDP.Port.Src\":%i,\"UDP.Port.Dst\":%i",
-												Flow->PortSrc,
-												Flow->PortDst	
-			);
+			Output += sprintf(Output, ",\"VLAN.0\":%i",  Flow->VLAN[0]);
 		}
-		break;
-
-		case IPv4_PROTO_TCP:
+		if (Flow->VLAN[1] != 0xffff)
 		{
-			if (g_IsJSONPacket)
+			Output += sprintf(Output, ",\"VLAN.1\":%i",  Flow->VLAN[1]);
+		}
+
+		// print MPLS info
+		if (Flow->MPLS0)
+		{
+			Output += sprintf(Output, ",\"MPLS.0.Label\":%i, \"MPLS.0.TC\":%i",  Flow->MPLS0, Flow->MPLStc0);
+		}
+		if (Flow->MPLS1)
+		{
+			Output += sprintf(Output, ",\"MPLS.1.Label\":%i, \"MPLS.1.TC\":%i",  Flow->MPLS1, Flow->MPLStc1);
+		}
+		if (Flow->MPLS2)
+		{
+			Output += sprintf(Output, ",\"MPLS.2.Label\":%i, \"MPLS.2.TC\":%i",  Flow->MPLS2, Flow->MPLStc2);
+		}
+
+
+		// IPv4 proto info
+		if (Flow->EtherProto ==  ETHER_PROTO_IPV4)
+		{
+			Output += sprintf(Output, ",\"IPv4.Src\":\"%i.%i.%i.%i\",\"IPv4.Dst\":\"%i.%i.%i.%i\" ",
+												Flow->IPSrc[0],
+												Flow->IPSrc[1],
+												Flow->IPSrc[2],
+												Flow->IPSrc[3],
+
+												Flow->IPDst[0],
+												Flow->IPDst[1],
+												Flow->IPDst[2],
+												Flow->IPDst[3]
+			);
+
+			if (Flow->IP4FragCnt != 0)
 			{
-				TCPHeader_t* TCP = &Flow->TCPHeader; 
-				u16 Flags = swap16(TCP->Flags);
-				Output += sprintf(Output,",\"TCP.SeqNo\":%u,\"TCP.AckNo\":%u,\"TCP.FIN\":%i,\"TCP.SYN\":%i,\"TCP.RST\":%i,\"TCP.PSH\":%i,\"TCP.ACK\":%i,\"TCP.Window\":%i",
-						swap32(TCP->SeqNo),
-						swap32(TCP->AckNo),
-						TCP_FLAG_FIN(Flags),
-						TCP_FLAG_SYN(Flags),
-						TCP_FLAG_RST(Flags),
-						TCP_FLAG_PSH(Flags),
-						TCP_FLAG_ACK(Flags),
-						swap16(TCP->Window)
+				Output += sprintf(Output, ",\"IPv4.Fragment\":\"%i\"", Flow->IP4FragCnt);
+			}
+
+			// convert to readable names for common protocols 
+			u8 IPProto[128];
+			switch (Flow->IPProto) 
+			{
+			case IPv4_PROTO_UDP:	strcpy(IPProto, "UDP");		break;
+			case IPv4_PROTO_TCP:	strcpy(IPProto, "TCP");		break;
+			case IPv4_PROTO_IGMP:	strcpy(IPProto, "IGMP"); 	break;
+			case IPv4_PROTO_ICMP:	strcpy(IPProto, "ICMP"); 	break;
+			case IPv4_PROTO_GRE:	strcpy(IPProto, "GRE"); 	break;
+			case IPv4_PROTO_VRRP:	strcpy(IPProto, "VRRP"); 	break;
+			default:
+				sprintf(IPProto, "%02x", Flow->IPProto);
+				break;
+			}
+			Output += sprintf(Output, ",\"IPv4.Proto\":\"%s\"", IPProto);
+
+			// per protocol info
+			switch (Flow->IPProto)
+			{
+			case IPv4_PROTO_UDP:
+			{
+				Output += sprintf(Output, ",\"UDP.Port.Src\":%i,\"UDP.Port.Dst\":%i",
+													Flow->PortSrc,
+													Flow->PortDst	
 				);
 			}
-			else
+			break;
+
+			case IPv4_PROTO_TCP:
 			{
-				Output += sprintf(Output,",\"TCP.FIN\":%i,\"TCP.SYN\":%i,\"TCP.RST\":%i,\"TCP.PSH\":%i,\"TCP.ACK\":%i,\"TCP.WindowMin\":%i,\"TCP.WindowMax\":%i,\"TCP.ACKDup\":%i,\"TCP.SACK\":%i",
+				Output += sprintf(Output,",\"TCP.FIN\":%i,\"TCP.SYN\":%i,\"TCP.RST\":%i,\"TCP.PSH\":%i,\"TCP.ACK\":%i,\"TCP.IsSACK\":%i,\"TCP.WinZero\":%i,\"TCP.SACK\":%i",
 						Flow->TCPFINCnt,
 						Flow->TCPSYNCnt,
 						Flow->TCPRSTCnt,
 						Flow->TCPPSHCnt,
 						Flow->TCPACKCnt,
-						Flow->TCPWindowMin,
-						Flow->TCPWindowMax,
-						Flow->TCPACKDupCnt,
+
+						Flow->TCPIsSACK,
+						Flow->TCPWindowZero,
 						Flow->TCPSACKCnt
 				);
+				Output += sprintf(Output, ",\"TCP.Port.Src\":%i,\"TCP.Port.Dst\":%i",
+											Flow->PortSrc,
+											Flow->PortDst	
+				);
 			}
-			Output += sprintf(Output, ",\"TCP.Port.Src\":%i,\"TCP.Port.Dst\":%i",
-										Flow->PortSrc,
-										Flow->PortDst	
-			);
+			break;
+			}
 		}
-		break;
-		}
+
+		Output += sprintf(Output, ",\"TotalPkt\":%lli,\"TotalByte\":%lli,\"TotalBits\":%lli",
+										Flow->TotalPkt,
+										Flow->TotalByte,
+										Flow->TotalByte*8ULL
+		);
+
+		Output += sprintf(Output, "}\n");
+
+		return Output - OutputStr;
 	}
-
-	Output += sprintf(Output, ",\"TotalPkt\":%lli,\"TotalByte\":%lli,\"TotalBits\":%lli",
-									Flow->TotalPkt,
-									Flow->TotalByte,
-									Flow->TotalByte*8ULL
-	);
-
-	Output += sprintf(Output, "}\n");
-
-	return Output - OutputStr;
-#endif
+	// null output
+	else
+	{
+		return 0;
+	}
 }
 
 //---------------------------------------------------------------------------------------------
@@ -1785,7 +967,13 @@ void DecodePacket(	u32 CPUID,
 	FlowPkt->EtherDst[4]	= Ether->Dst[4];
 	FlowPkt->EtherDst[5]	= Ether->Dst[5];
 
-	// VLAN decoder
+	// VLAN decoder. as VLAN = 0 is not uncommon, use a non 0 value
+	// to determin if vlan is enabled or disabled
+	FlowPkt->VLAN[0]		= 0xffff; 
+	FlowPkt->VLAN[1]		= 0xffff; 
+	FlowPkt->VLAN[2]		= 0xffff; 
+	FlowPkt->VLAN[3]		= 0xffff; 
+
 	if (EtherProto == ETHER_PROTO_VLAN)
 	{
 		VLANTag_t* Header 	= (VLANTag_t*)(Ether+1);
@@ -2058,6 +1246,14 @@ void DecodePacket(	u32 CPUID,
 		// NOTE: each CPU has its own FlowIndex no need to lock it 
 		FlowInsert(CPUID, FlowIndex, FlowPkt, SHA1State, PktHeader->LengthWire, PktHeader->TS);
 	}
+	else if (g_IsJSONPacket)
+	{
+		u8 Buffer[8192];
+		FlowDump(Buffer, PktHeader->TS, FlowPkt, 0, 0);
+
+		printf("%s", Buffer);
+		//fflush(stdout);
+	}
 }
 
 //---------------------------------------------------------------------------------------------
@@ -2243,151 +1439,154 @@ void* Flow_Worker(void* User)
 				__sync_fetch_and_add(&s_PktCntTotal, PktBlock->PktCnt);
 
 				// output the snapshot  
-				if (g_IsJSONFlow & PktBlock->IsFlowIndexDump)
+				if (PktBlock->IsFlowIndexDump)
 				{
-					// write to output
-					u64 TSC0 = rdtsc();
-
-					// wait for all workers to complete
-					// ensures workers processing on Indexs 
-					// that need to be aggregated into this one
-					// have completed processing
-					u32 Timeout = 0; 
-					while (FlowIndexRoot->PktBlockCnt < FlowIndexRoot->PktBlockMax - 1)
+					// flow snapshot merging and output 
+					if (g_IsJSONFlow)
 					{
-						usleep(0);
-						assert(Timeout++ < 1e6);	
-					}
-					u64 TSC1 = rdtsc();
+						// write to output
+						u64 TSC0 = rdtsc();
 
-					// merge everything into this CPUs index 
-					// merge flows
-					FlowMerge(FlowIndex, FlowIndexRoot, s_FlowIndexSub);
-
-					// if top talkers is enabled, reduce the flow list
-					if (g_FlowTopNEnable)
-					{
-						for (int i=0; i < g_FlowTopNMac; i++)
+						// wait for all workers to complete
+						// ensures workers processing on Indexs 
+						// that need to be aggregated into this one
+						// have completed processing
+						u32 Timeout = 0; 
+						while (FlowIndexRoot->PktBlockCnt < FlowIndexRoot->PktBlockMax - 1)
 						{
-							if (g_FlowTopNMac)
+							usleep(0);
+							assert(Timeout++ < 1e6);	
+						}
+						u64 TSC1 = rdtsc();
+
+						// merge everything into this CPUs index 
+						// merge flows
+						FlowMerge(FlowIndex, FlowIndexRoot, s_FlowIndexSub);
+
+						// if top talkers is enabled, reduce the flow list
+						if (g_FlowTopNEnable)
+						{
+							for (int i=0; i < g_FlowTopNMac; i++)
 							{
-								SortListCnt[i] = FlowTopN(SortList[i], FlowIndex, g_FlowTopNMax, g_FlowTopNsMac[i], g_FlowTopNdMac[i]);
+								if (g_FlowTopNMac)
+								{
+									SortListCnt[i] = FlowTopN(SortList[i], FlowIndex, g_FlowTopNMax, g_FlowTopNsMac[i], g_FlowTopNdMac[i]);
+								}
+								else
+								{
+									SortListCnt[i] = FlowTopN(SortList[i], FlowIndex, g_FlowTopNMax, NULL, NULL);
+								}
 							}
-							else
+							// we need default TopN in all the cases
+							SortListCnt[g_FlowTopNMac] = FlowTopN(SortList[g_FlowTopNMac], FlowIndex, g_FlowTopNMax, NULL, NULL);
+						}
+						// use a linear map / no sorting 
+						else
+						{
+							SortListCnt[0] = FlowIndex->FlowCntSnapshot;
+							for (int i=0; i < FlowIndex->FlowCntSnapshot; i++)
 							{
-								SortListCnt[i] = FlowTopN(SortList[i], FlowIndex, g_FlowTopNMax, NULL, NULL);
+								SortList[0][i] = i;
 							}
 						}
-						// we need default TopN in all the cases
-						SortListCnt[g_FlowTopNMac] = FlowTopN(SortList[g_FlowTopNMac], FlowIndex, g_FlowTopNMax, NULL, NULL);
-					}
-					// use a linear map / no sorting 
-					else
-					{
-						SortListCnt[0] = FlowIndex->FlowCntSnapshot;
-						for (int i=0; i < FlowIndex->FlowCntSnapshot; i++)
+
+						u64 TSC2 = rdtsc();
+
+						u64 StallTSC = 0;
+						u64 TotalPkt = 0;
+
+						u8* JSONBuffer 			= FlowIndexRoot->JSONBuffer;
+						u32 JSONBufferOffset 	= 0;
+						u32 JSONLineCnt			= 0;
+						
+
+						// count total flows in this snapshot
+						u32 FlowTotal			= 0; 
+						for (int j=0; j < SortListDepth; j++)
 						{
-							SortList[0][i] = i;
-						}
-					}
-
-					u64 TSC2 = rdtsc();
-
-
-					// dump flows
-					u64 StallTSC = 0;
-					u64 TotalPkt = 0;
-
-					u8* JSONBuffer 			= FlowIndexRoot->JSONBuffer;
-					u32 JSONBufferOffset 	= 0;
-					u32 JSONLineCnt			= 0;
-					
-
-					// count total flows in this snapshot
-					u32 FlowTotal			= 0; 
-					for (int j=0; j < SortListDepth; j++)
-					{
-						for (int i=0; i < SortListCnt[j]; i++)
-						{
-							FlowTotal++;
-						}
-					}
-
-					// dump all flows
-					u32 FlowDepthTotal		 = 0;
-					u32 FlowCnt = 0;
-					for (int j=0; j < SortListDepth; j++)
-					{
-						for (int i=0; i < SortListCnt[j]; i++)
-						{
-							u32 FIndex =  SortList[j][i];
-							FlowRecord_t* Flow = &FlowIndex->FlowList[ FIndex ];	
-
-							// dump the flow
-							JSONBufferOffset += FlowDump(JSONBuffer + JSONBufferOffset, PktBlock->TSSnapshot, Flow, FlowCnt, FlowTotal);
-							JSONLineCnt++;
-
-							// flush to output 
-							if (JSONBufferOffset > FlowIndexRoot->JSONBufferMax - kKB(16))
+							for (int i=0; i < SortListCnt[j]; i++)
 							{
-								StallTSC += Output_BufferAdd(s_Output, JSONBuffer, JSONBufferOffset, JSONLineCnt);
-
-								JSONBufferOffset 	= 0;
-								JSONLineCnt 		= 0;
+								FlowTotal++;
 							}
-							TotalPkt += Flow->TotalPkt;
-
-							// update flow depth histogram
-							u32 HIndex = Flow->TotalPkt / s_FlowDepthHistoBin;
-							if (HIndex >= s_FlowDepthHistoMax) HIndex = s_FlowDepthHistoMax - 1;
-							s_FlowDepthHisto	[CPUID][HIndex]++;
-							s_FlowDepthHistoCnt	[CPUID]++;
-							FlowDepthTotal++;
-							FlowCnt++;
-
-	//						Flow->TotalPkt 	= 0;
-	//						Flow->TotalByte = 0;
 						}
-					}
 
-					// find median flow depth
-					u32 FlowDepthSum = 0;
-					for (int i=0; i < s_FlowDepthHistoMax; i++)
-					{
-						FlowDepthSum += s_FlowDepthHisto[CPUID][i];
-						if (FlowDepthSum  >= FlowDepthTotal / 2)
+						// dump all flows
+						u32 FlowDepthTotal		 = 0;
+						u32 FlowCnt = 0;
+						for (int j=0; j < SortListDepth; j++)
 						{
-							s_FlowDepthMedian = i * s_FlowDepthHistoBin; 
-							break;
+							for (int i=0; i < SortListCnt[j]; i++)
+							{
+								u32 FIndex =  SortList[j][i];
+								FlowRecord_t* Flow = &FlowIndex->FlowList[ FIndex ];	
+
+								JSONBufferOffset += FlowDump(JSONBuffer + JSONBufferOffset, PktBlock->TSSnapshot, Flow, FlowCnt, FlowTotal);
+								JSONLineCnt++;
+
+								// flush to output 
+								if (JSONBufferOffset > FlowIndexRoot->JSONBufferMax - kKB(16))
+								{
+									StallTSC += Output_BufferAdd(s_Output, JSONBuffer, JSONBufferOffset, JSONLineCnt);
+
+									JSONBufferOffset 	= 0;
+									JSONLineCnt 		= 0;
+								}
+								TotalPkt += Flow->TotalPkt;
+
+								// update flow depth histogram
+								u32 HIndex = Flow->TotalPkt / s_FlowDepthHistoBin;
+								if (HIndex >= s_FlowDepthHistoMax) HIndex = s_FlowDepthHistoMax - 1;
+								s_FlowDepthHisto	[CPUID][HIndex]++;
+								s_FlowDepthHistoCnt	[CPUID]++;
+								FlowDepthTotal++;
+								FlowCnt++;
+
+		//						Flow->TotalPkt 	= 0;
+		//						Flow->TotalByte = 0;
+							}
 						}
+
+						// find median flow depth
+						u32 FlowDepthSum = 0;
+						for (int i=0; i < s_FlowDepthHistoMax; i++)
+						{
+							FlowDepthSum += s_FlowDepthHisto[CPUID][i];
+							if (FlowDepthSum  >= FlowDepthTotal / 2)
+							{
+								s_FlowDepthMedian = i * s_FlowDepthHistoBin; 
+								break;
+							}
+						}
+
+						u64 TSC3 = rdtsc();
+
+						// flush remaining lines in the buffer 
+						StallTSC += Output_BufferAdd(s_Output, JSONBuffer, JSONBufferOffset, JSONLineCnt);
+
+						// add total number of flows output 
+						s_FlowCntTotal += FlowIndex->FlowCntSnapshot;
+
+						// save total merged flow count 
+						s_FlowCntSnapshotLast = FlowIndex->FlowCntSnapshot;
+						s_PktCntSnapshotLast  = TotalPkt; 
+
+						u64 TSC4 = rdtsc();
+						//assert(FlowIndexRoot->IsUse == true);
+
+
+						u64 TSC5 						= rdtsc();
+						s_DecodeThreadTSCOutput	[CPUID] += TSC4 - TSC0;
+						s_DecodeThreadTSCOStall	[CPUID] += StallTSC;
+						s_DecodeThreadTSCMerge 	[CPUID] += TSC2 - TSC1; 
+						s_DecodeThreadTSCWrite 	[CPUID] += TSC3 - TSC2; 
+						s_DecodeThreadTSCOut	[CPUID] += TSC4 - TSC3;
+						s_DecodeThreadTSCReset	[CPUID] += TSC5 - TSC4;
+						s_DecodeThreadTSCWorker	[CPUID] += TSC1 - TSC0;
 					}
-
-					u64 TSC3 = rdtsc();
-
-					// flush remaining lines in the buffer 
-					StallTSC += Output_BufferAdd(s_Output, JSONBuffer, JSONBufferOffset, JSONLineCnt);
-
-					// add total number of flows output 
-					s_FlowCntTotal += FlowIndex->FlowCntSnapshot;
-
-					// save total merged flow count 
-					s_FlowCntSnapshotLast = FlowIndex->FlowCntSnapshot;
-					s_PktCntSnapshotLast  = TotalPkt; 
-
-					u64 TSC4 = rdtsc();
-					//assert(FlowIndexRoot->IsUse == true);
 
 					// release the root index + cpu subs 
+					// NOTE: in packet mode need to release this also 
 					FlowIndexFree(FlowIndexRoot);
-
-					u64 TSC5 						= rdtsc();
-					s_DecodeThreadTSCOutput	[CPUID] += TSC4 - TSC0;
-					s_DecodeThreadTSCOStall	[CPUID] += StallTSC;
-					s_DecodeThreadTSCMerge 	[CPUID] += TSC2 - TSC1; 
-					s_DecodeThreadTSCWrite 	[CPUID] += TSC3 - TSC2; 
-					s_DecodeThreadTSCOut	[CPUID] += TSC4 - TSC3;
-					s_DecodeThreadTSCReset	[CPUID] += TSC5 - TSC4;
-					s_DecodeThreadTSCWorker	[CPUID] += TSC1 - TSC0;
 				}
 				else
 				{
@@ -2479,7 +1678,7 @@ void Flow_PacketFree(PacketBuffer_t* B)
 
 //---------------------------------------------------------------------------------------------
 // allocate memory and house keeping
-void Flow_Open(struct Output_t* Out, u32 CPUMapCnt, s32* CPUMap, u32 FlowIndexDepth, u64 FlowMax, u8* FlowTemplateStr)
+void Flow_Open(struct Output_t* Out, u32 CPUMapCnt, s32* CPUMap, u32 FlowIndexDepth, u64 FlowMax)
 {
 	assert(Out != NULL);
 
@@ -2498,16 +1697,6 @@ void Flow_Open(struct Output_t* Out, u32 CPUMapCnt, s32* CPUMap, u32 FlowIndexDe
 
 		Flow_PacketFree(B);
 	}
-
-	// custom flow template was created? 
-	if (FlowTemplateStr)
-	{
-		fprintf(stderr, "Customized flow Template\n");
-		s_FlowTemplateDefault = FlowTemplateStr;
-	}
-
-	// create output template
-	FlowTemplate();
 
 	// create worker threads
 	u32 CPUCnt = 0;
