@@ -1088,6 +1088,10 @@ void DecodePacket(	u32 CPUID,
 		{
 			// count ip fragmentation 
 			FlowPkt->IP4FragCnt++;
+
+			// wireshark considers fragmented ip protocols to be
+			// "data" packets without any protocol
+			FlowPkt->IPProto	= 0; 
 		}
 		else
 		{
@@ -1248,6 +1252,13 @@ void DecodePacket(	u32 CPUID,
 	}
 	else if (g_IsJSONPacket)
 	{
+		// because TCPSACKCnt is set in FlowInsert update it
+		// here so in packet mode the SACKCnt value is correct
+		if (FlowPkt->TCPIsSACK &  TCP_SACK_OPTION)
+		{
+			FlowPkt->TCPSACKCnt++;
+		}
+
 		u8 Buffer[8192];
 		FlowDump(Buffer, PktHeader->TS, FlowPkt, 0, 0);
 
