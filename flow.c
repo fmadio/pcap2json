@@ -208,6 +208,9 @@ extern bool				g_Output_NULL;
 extern bool				g_Output_STDOUT;
 extern u8*				g_Output_PipeName;
 
+extern u8*				g_FlowIndexRollRead;
+extern u8*				g_FlowIndexRollWrite;
+
 //---------------------------------------------------------------------------------------------
 // static
 static volatile bool			s_Exit = false;
@@ -268,6 +271,10 @@ static u32						s_FlowDepthHisto[128][128];				// monitors the depth of each flo
 																		// or is it 1 flow with the majority of packets						
 static u32						s_FlowDepthHistoCnt[128];				// number of updates
 static float 					s_FlowDepthMedian = 0;					// calculated median depth of each flow entry
+
+static u64						s_FlowPreloadTS		= 0;				// timestamp of preloaded flow snapshot 
+static u32						s_FlowPreloadCnt	= 0;				// number of preloaded flows
+static FlowRecord_t*			s_FlowPreload		= NULL;				// preloaded flow data
 
 
 //---------------------------------------------------------------------------------------------
@@ -840,6 +847,41 @@ static void FlowMerge(FlowIndex_t* IndexOut, FlowIndex_t* IndexRoot, u32 IndexCn
 	}
 }
 
+// merge into preloaded flowsa (once per startup)
+static void FlowMergePreload(FlowIndex_t* IndexOut)
+{
+	printf("preload merge %i\n", s_FlowPreloadCnt);
+	for (int i=0; i < s_FlowPreloadCnt; i++)
+	{
+		// source flow to merge from
+		FlowRecord_t* Flow = &s_FlowPreload[i];
+
+		// merge into a single FlowIndex 
+		FlowRecord_t* F = FlowAdd(IndexOut, Flow, Flow->SHA1);
+
+		F->TotalPkt 	+= Flow->TotalPkt;
+		F->TotalByte 	+= Flow->TotalByte;
+		F->FirstTS 		= min64ne0(F->FirstTS, Flow->FirstTS);
+		F->LastTS 		= max64(F->LastTS, Flow->LastTS);
+		F->TotalFCS		+= Flow->TotalFCS;	
+		F->IP4FragCnt	+= Flow->IP4FragCnt; 
+
+		// TCP stats
+		if (F->IPProto == IPv4_PROTO_TCP)
+		{
+			F->TCPFINCnt		+= Flow->TCPFINCnt; 
+			F->TCPSYNCnt		+= Flow->TCPSYNCnt; 
+			F->TCPSYNACKCnt		+= Flow->TCPSYNACKCnt; 
+			F->TCPSYNSACKCnt	+= Flow->TCPSYNSACKCnt; 
+			F->TCPRSTCnt		+= Flow->TCPRSTCnt; 
+			F->TCPPSHCnt		+= Flow->TCPPSHCnt; 
+			F->TCPACKCnt		+= Flow->TCPACKCnt; 
+			F->TCPSACKCnt		+= Flow->TCPSACKCnt; 
+			F->TCPWindowZero 	+= Flow->TCPWindowZero; 
+		}
+	}
+}
+
 static int cmp_long(const void* a, const void* b)
 {
 	const u64* a64 = (const u64*)a;
@@ -1348,7 +1390,7 @@ void Flow_PacketQueue(PacketBuffer_t* Pkt, bool IsFlush)
 		if (IsFlush)
 		{
 			Pkt->IsFlowIndexDump	= true;
-			Pkt->IsFlowIndexFlush	= true;
+			Pkt->IsFlowIndexFlush	= (g_FlowIndexRollWrite != NULL);
 			Pkt->TSSnapshot	 		= s_FlowSampleTSLast;
 
 			// force new allocation on next Queue 
@@ -1475,6 +1517,12 @@ void* Flow_Worker(void* User)
 						// merge flows
 						FlowMerge(FlowIndex, FlowIndexRoot, s_FlowIndexSub);
 
+						// merge int preloadded snapshot
+						if (PktBlock->TSSnapshot == s_FlowPreloadTS)
+						{
+							FlowMergePreload(FlowIndex);
+						}
+
 						// if top talkers is enabled, reduce the flow list
 						if (g_FlowTopNEnable)
 						{
@@ -1573,7 +1621,10 @@ void* Flow_Worker(void* User)
 						// flush partial snapshot, so next spinup can load 
 						else
 						{
-							printf("flush to disk\n");
+
+							FILE* F = fopen(g_FlowIndexRollWrite, "w+");
+							assert(F != NULL);
+
 							for (int j=0; j < SortListDepth; j++)
 							{
 								for (int i=0; i < SortListCnt[j]; i++)
@@ -1581,9 +1632,14 @@ void* Flow_Worker(void* User)
 									u32 FIndex =  SortList[j][i];
 									FlowRecord_t* Flow = &FlowIndex->FlowList[ FIndex ];	
 
-									printf("flow\n");
+									// set snapshot TS
+									Flow->SnapshotTS = PktBlock->TSSnapshot;
+
+									// write flow to disk 
+									fwrite(Flow, 1, sizeof(FlowRecord_t), F);
 								}
 							}
+							fclose(F);
 						}
 
 						u64 TSC3 = rdtsc();
@@ -1804,6 +1860,31 @@ void Flow_Open(struct Output_t* Out, u32 CPUMapCnt, s32* CPUMap, u32 FlowIndexDe
 	// ensure first 64B of flow record is correctly aligned
 	fprintf(stderr, "Flow Record %i\n", offsetof(FlowRecord_t, TCPACKCnt));
 	assert(offsetof(FlowRecord_t, TCPACKCnt) == 64);
+
+	// attempt to load any previous flow data
+	if (g_FlowIndexRollRead)
+	{
+		FILE* F = fopen(g_FlowIndexRollRead, "r");
+		if (F)
+		{
+			struct stat s;
+			stat(g_FlowIndexRollRead, &s);
+
+			u64 FlowSize 		= s.st_size;	
+			s_FlowPreloadCnt	= FlowSize / sizeof(FlowRecord_t);
+			s_FlowPreload 		= malloc( FlowSize );
+			for (int i=0; i < s_FlowPreloadCnt; i++)
+			{
+				FlowRecord_t* Flow = s_FlowPreload + i;	
+				fread(Flow,  1, sizeof(FlowRecord_t), F);
+
+				// set the snapshot this preload belongs to 
+				//printf("%lli : %lli\n",  Flow->SnapshotTS, Flow->FirstTS); 
+				s_FlowPreloadTS = Flow->SnapshotTS; 	
+			}
+			printf("Preload: %i %lli\n", s_FlowPreloadCnt, s_FlowPreloadTS);
+		}
+	}
 }
 
 //---------------------------------------------------------------------------------------------

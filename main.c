@@ -99,6 +99,10 @@ u32				g_FlowTopNMax		= 1000;				// number of top flow to output
 u8				g_FlowTopNMac		= 0;				// count of topN flows for particuar MAC address
 u8				g_FlowTopNsMac[MAX_TOPN_MAC][6];		// topN source MAC
 u8				g_FlowTopNdMac[MAX_TOPN_MAC][6];		// topN destination MAC
+u8*				g_FlowIndexRollRead	= NULL;				// read the last (partial) snapshot to disk
+u8*				g_FlowIndexRollWrite= NULL;				// write the last (partial) snapshot to disk
+														// used so durning capture roll there is a single snapshot
+														// instead of multiple json etnries 
 
 bool			g_Output_NULL		= false;			// benchmarking mode output to /dev/null 
 bool			g_Output_STDOUT		= true;				// by default output to stdout 
@@ -175,6 +179,8 @@ static void help(void)
 	fprintf(stderr, " --flow-top-n <number>              : only output the top N flows\n"); 
 	fprintf(stderr, " --flow-top-n-circuit <sMAC_dMAC>   : output top N flows based on specified src/dest MAC\n"); 
 	fprintf(stderr, " --flow-template \"<template>\"     : Use a customized template for JSON output\n"); 
+	fprintf(stderr, " --flow-roll-read \"temp file\"     : Capture roll read parital snapshot to disk\n"); 
+	fprintf(stderr, " --flow-roll-write \"temp file\"    : Capture roll write parital snapshot to disk\n"); 
 
 	fprintf(stderr, "\n");
 	fprintf(stderr, "Elastic Stack options\n");
@@ -345,6 +351,20 @@ static bool ParseCommandLine(u8* argv[])
 		fprintf(stderr, "  Flow NULL benchmarking\n"); 
 		cnt	+= 1;
 	}
+	// flow capture roll 
+	if (strcmp(argv[0], "--flow-roll-read") == 0)
+	{
+		g_FlowIndexRollRead =  strdup(argv[1]); 
+		fprintf(stderr, "  Flow Roll Read [%s]\n", g_FlowIndexRollRead); 
+		cnt	+= 2;
+	}
+	if (strcmp(argv[0], "--flow-roll-write") == 0)
+	{
+		g_FlowIndexRollWrite =  strdup(argv[1]); 
+		fprintf(stderr, "  Flow Roll Write [%s]\n", g_FlowIndexRollWrite); 
+		cnt	+= 2;
+	}
+
 
 	// create a unique id so calling applications
 	// can identify it with ps 
