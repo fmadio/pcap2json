@@ -18,6 +18,7 @@ typedef struct PacketBuffer_t
 	u32						BufferLength;		// length of valid data in buffer
 
 	bool					IsFlowIndexDump;	// time to dump the sample
+	bool					IsFlowIndexFlush;	// flush flow to disk 
 	u64						TSSnapshot;			// TS for the snapshot to be output
 	struct FlowIndex_t*		FlowIndex;			// which flow index to use
 

@@ -1348,10 +1348,11 @@ void Flow_PacketQueue(PacketBuffer_t* Pkt, bool IsFlush)
 		if (IsFlush)
 		{
 			Pkt->IsFlowIndexDump	= true;
+			Pkt->IsFlowIndexFlush	= true;
 			Pkt->TSSnapshot	 		= s_FlowSampleTSLast;
 
 			// force new allocation on next Queue 
-			s_FlowIndexQueue = NULL;
+			s_FlowIndexQueue 		= NULL;
 		}
 
 		s_DecodeQueuePut++;
@@ -1509,7 +1510,6 @@ void* Flow_Worker(void* User)
 						u8* JSONBuffer 			= FlowIndexRoot->JSONBuffer;
 						u32 JSONBufferOffset 	= 0;
 						u32 JSONLineCnt			= 0;
-						
 
 						// count total flows in this snapshot
 						u32 FlowTotal			= 0; 
@@ -1521,51 +1521,68 @@ void* Flow_Worker(void* User)
 							}
 						}
 
-						// dump all flows
-						u32 FlowDepthTotal		 = 0;
-						u32 FlowCnt = 0;
-						for (int j=0; j < SortListDepth; j++)
+						// write to downstream 
+						if (!PktBlock->IsFlowIndexFlush)
 						{
-							for (int i=0; i < SortListCnt[j]; i++)
+							// dump all flows
+							u32 FlowDepthTotal		 = 0;
+							u32 FlowCnt = 0;
+							for (int j=0; j < SortListDepth; j++)
 							{
-								u32 FIndex =  SortList[j][i];
-								FlowRecord_t* Flow = &FlowIndex->FlowList[ FIndex ];	
-
-								JSONBufferOffset += FlowDump(JSONBuffer + JSONBufferOffset, PktBlock->TSSnapshot, Flow, FlowCnt, FlowTotal);
-								JSONLineCnt++;
-
-								// flush to output 
-								if (JSONBufferOffset > FlowIndexRoot->JSONBufferMax - kKB(16))
+								for (int i=0; i < SortListCnt[j]; i++)
 								{
-									StallTSC += Output_BufferAdd(s_Output, JSONBuffer, JSONBufferOffset, JSONLineCnt);
+									u32 FIndex =  SortList[j][i];
+									FlowRecord_t* Flow = &FlowIndex->FlowList[ FIndex ];	
 
-									JSONBufferOffset 	= 0;
-									JSONLineCnt 		= 0;
+									JSONBufferOffset += FlowDump(JSONBuffer + JSONBufferOffset, PktBlock->TSSnapshot, Flow, FlowCnt, FlowTotal);
+									JSONLineCnt++;
+
+									// flush to output 
+									if (JSONBufferOffset > FlowIndexRoot->JSONBufferMax - kKB(16))
+									{
+										StallTSC += Output_BufferAdd(s_Output, JSONBuffer, JSONBufferOffset, JSONLineCnt);
+
+										JSONBufferOffset 	= 0;
+										JSONLineCnt 		= 0;
+									}
+									TotalPkt += Flow->TotalPkt;
+
+									// update flow depth histogram
+									u32 HIndex = Flow->TotalPkt / s_FlowDepthHistoBin;
+									if (HIndex >= s_FlowDepthHistoMax) HIndex = s_FlowDepthHistoMax - 1;
+									s_FlowDepthHisto	[CPUID][HIndex]++;
+									s_FlowDepthHistoCnt	[CPUID]++;
+									FlowDepthTotal++;
+									FlowCnt++;
 								}
-								TotalPkt += Flow->TotalPkt;
+							}
 
-								// update flow depth histogram
-								u32 HIndex = Flow->TotalPkt / s_FlowDepthHistoBin;
-								if (HIndex >= s_FlowDepthHistoMax) HIndex = s_FlowDepthHistoMax - 1;
-								s_FlowDepthHisto	[CPUID][HIndex]++;
-								s_FlowDepthHistoCnt	[CPUID]++;
-								FlowDepthTotal++;
-								FlowCnt++;
 
-		//						Flow->TotalPkt 	= 0;
-		//						Flow->TotalByte = 0;
+							// find median flow depth
+							u32 FlowDepthSum = 0;
+							for (int i=0; i < s_FlowDepthHistoMax; i++)
+							{
+								FlowDepthSum += s_FlowDepthHisto[CPUID][i];
+								if (FlowDepthSum  >= FlowDepthTotal / 2)
+								{
+									s_FlowDepthMedian = i * s_FlowDepthHistoBin; 
+									break;
+								}
 							}
 						}
-
-						// find median flow depth
-						u32 FlowDepthSum = 0;
-						for (int i=0; i < s_FlowDepthHistoMax; i++)
+						// flush partial snapshot, so next spinup can load 
+						else
 						{
-							FlowDepthSum += s_FlowDepthHisto[CPUID][i];
-							if (FlowDepthSum  >= FlowDepthTotal / 2)
+							printf("flush to disk\n");
+							for (int j=0; j < SortListDepth; j++)
 							{
-								s_FlowDepthMedian = i * s_FlowDepthHistoBin; 
-								break;
+								for (int i=0; i < SortListCnt[j]; i++)
+								{
+									u32 FIndex =  SortList[j][i];
+									FlowRecord_t* Flow = &FlowIndex->FlowList[ FIndex ];	
+
+									printf("flow\n");
+								}
 							}
 						}
 
@@ -1666,6 +1683,7 @@ PacketBuffer_t* Flow_PacketAlloc(void)
 	B->TSFirst			= 0;
 	B->TSLast			= 0;
 	B->IsFlowIndexDump	= false;
+	B->IsFlowIndexFlush	= false;
 
 	return B;
 }
