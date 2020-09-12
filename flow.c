@@ -1206,12 +1206,10 @@ void DecodePacket(	u32 CPUID,
 							case 0x5:
 								{
 									// ensure options length is valid (2 x 32 bit words)
-									if (Len > 1)
+									if ((Len > 1) && (FlowPkt->TCPLength > 0))
 									{
-
 										// flag all packets with SACK
 										FlowPkt->TCPIsSACK |= TCP_SACK_OPTION;
-
 
 										//u32  *D32 = (u32*)(Options + 2);
 										// get 1st blocks byte delta
