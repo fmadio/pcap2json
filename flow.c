@@ -1206,23 +1206,20 @@ void DecodePacket(	u32 CPUID,
 							case 0x5:
 								{
 									// ensure options length is valid (2 x 32 bit words)
-									if ((Len > 1) && (FlowPkt->TCPLength > 0))
+									if (Len > 1)
 									{
-										// flag all packets with SACK
-										FlowPkt->TCPIsSACK |= TCP_SACK_OPTION;
-
-										//u32  *D32 = (u32*)(Options + 2);
+										u32  *D32 = (u32*)(Options + 2);
 										// get 1st blocks byte delta
 										// ignore any subsiquent left/right blocks
 										// as only want to know if there was a gap, not how many 
-										//s32 Delta = swap32(D32[1]) - swap32(D32[0]);
+										s32 Delta = swap32(D32[1]) - swap32(D32[0]);
 
 										// if there is gaps 
-										//if (Delta > 1)
-										//{
-										//	FlowPkt->TCPIsSACK |= TCP_SACK_GAP;
-										//	//printf("SACK %i %08x %08x (%8i)\n", Len, D32[0], D32[1], Delta); 
-										//}	
+										if (Delta > 1)
+										{
+											// flag all packets with SACK
+											FlowPkt->TCPIsSACK |= TCP_SACK_OPTION;
+										}
 									}
 								}
 								break;
