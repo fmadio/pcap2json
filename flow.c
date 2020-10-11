@@ -211,6 +211,9 @@ extern u8*				g_Output_PipeName;
 extern u8*				g_FlowIndexRollRead;
 extern u8*				g_FlowIndexRollWrite;
 
+extern u8				g_InstanceID;
+extern u8				g_InstanceMax;
+
 //---------------------------------------------------------------------------------------------
 // static
 static volatile bool			s_Exit = false;
@@ -608,6 +611,10 @@ static u32 FlowDump(u8* OutputStr, u64 TS, FlowRecord_t* Flow, u32 FlowID, u32 F
 	Flow->FlowInstance 	= 0;
 	Flow->FlowNo 		= FlowID;
 	Flow->TotalFlows 	= FlowTotal;
+
+	// global isntance settings
+	Flow->InstanceID 	= g_InstanceID;
+	Flow->InstanceMax 	= g_InstanceMax;
 
 	// pipe output
 	if (g_Output_PipeName != NULL)

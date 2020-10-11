@@ -122,6 +122,9 @@ u64				s_TotalPkt			= 0;				// total packets processed
 u64				s_TotalByteCapture	= 0;				// total bytes captured 
 u64				s_TotalByteWire		= 0;				// total bytes on the wire incomming 
 
+u8				g_InstanceID			= 0;			// instance id 
+u8				g_InstanceMax			= 0;			// total number of instances 
+
 u64				s_StreamCAT_BytePending = 0;			// number of bytes pending in stream cat
 float			s_StreamCAT_CPUActive 	= 0;			// stream_cat cpu active pct
 float			s_StreamCAT_CPUFetch 	= 0;			// stream_cat cpu fetch from stroage utilization 
@@ -159,6 +162,10 @@ static void help(void)
 	fprintf(stderr, " --json-packet                      : write JSON packet data\n");
 	fprintf(stderr, " --json-flow                        : write JSON flow data\n");
 	fprintf(stderr, "\n");
+
+	fprintf(stderr, "Instance Info\n");
+	fprintf(stderr, " --instance-id						 : instance id of this pcap2json FE\n");
+	fprintf(stderr, " --instance-max					 : total number of pcap2json FE instances\n");
 
 	fprintf(stderr, "Output Mode\n");
 	fprintf(stderr, " --output-stdout                    : writes output to STDOUT\n");
@@ -262,6 +269,22 @@ static bool ParseCommandLine(u8* argv[])
 		fprintf(stderr, "  Capture Name[%s]\n", g_CaptureName);
 		cnt	+= 2;
 	}
+
+	// instance id of this app 
+	if (strcmp(argv[0], "--instance-id") == 0)
+	{
+		g_InstanceID 	=  atoi(argv[1]);
+		fprintf(stderr, "  Instance ID:%i\n", g_InstanceID);
+		cnt	+= 2;
+	}
+	// total number of instnacesc 
+	if (strcmp(argv[0], "--instance-max") == 0)
+	{
+		g_InstanceMax 	=  atoi(argv[1]);
+		fprintf(stderr, "  Instance Max:%i\n", g_InstanceMax);
+		cnt	+= 2;
+	}
+
 	// benchmarking write to /dev/null 
 	if (strcmp(argv[0], "--output-null") == 0)
 	{

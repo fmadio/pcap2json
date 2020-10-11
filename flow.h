@@ -62,7 +62,6 @@ typedef struct FlowRecord_t
 	//----------------------------------------------------------------------------
 	// anything above the line is used for unique per flow hash
 
-
 	u16						TCPACKCnt;			// TCP ACK count within the time period	
 	u16						TCPFINCnt;			// TCP FIN count within the time period	
 	u16						TCPSYNCnt;			// TCP SYN count within the time period	
@@ -103,14 +102,12 @@ typedef struct FlowRecord_t
 
 	TCPHeader_t				TCPHeader;			// copy of the TCP Header
 
-	//u8					StrProtoMAC[8];		// text description of MAC rptocol 
-	//u8					StrProtoFlow[8];	// text description of protocol 
-	//u8					StrProtoIP[8];		// text description of IP protocol 
-	//u8					StrDSCP[8];			// text description of DSCP 
-
 	u8						FlowInstance;		// generation instance number		
 	u32						FlowNo;				// flow ID in this snapshot 
 	u32						TotalFlows;			// total number of flows for this snapshot	
+
+	u8						InstanceID;			// which instance this is	
+	u8						InstanceMax;		// total number of isntances 
 
 	struct PacketInfoBulk_t	*PktInfoB;
 	struct FlowRecord_t*	Next;				// next flow record
