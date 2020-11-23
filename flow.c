@@ -9,6 +9,27 @@
 // source upload:
 // fmadio@fmadio40v2-194:/mnt/store1/tmp$ lz4 -d -c interop17_hotstage_20170609_133953.717.953.280.pcap.lz4  | sudo stream_upload --time-compress 100 --slice 192 --name interop17
 //
+// upload reference stats
+//
+// Total Packets: 86780961
+// TotalBytes     : 98611504825
+// TotalPackets   : 86780961
+// PayloadCRC     : 58321125ac63e0b8
+// ErrorSeq       : 0
+// ErrorPktSize   : 0
+// LastByte       : 0x00000000
+// SeqStart       : 0x00000000 0x00000000 0x00000000 0x00000000 : 0x00000000
+// SeqEnd         : 0x00000000 0x00000000 0x00000000 0x00000000 : 0x00000000
+// PacketCnt      : 0 0 0 0
+// TimeOrder      : 0
+// CRCFail        : 0
+// Time First     : 20170609_223953 13:39:53.717.953.280
+// Time Last      : 20170609_223956 13:39:56.807.825.664
+// TotalPCAPTime  : 3089872384 ns
+// Bandwidth      : 255.315 Gbps
+// Packet Rate    : 28.086 Mpps
+//
+//
 // on the interop timecompressed(x100) + (192B sliced) data following performance is seen
 //
 //
