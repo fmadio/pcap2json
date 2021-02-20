@@ -1403,7 +1403,10 @@ void Flow_PacketQueue(PacketBuffer_t* Pkt, bool IsFlush)
 			Pkt->TSSnapshot	 		= s_FlowSampleTSLast;
 
 			// add next snapshot time 
-			s_FlowSampleTSLast 		+= g_FlowSampleRate; 
+			while ((Pkt->TSLast - s_FlowSampleTSLast) > g_FlowSampleRate)
+			{
+				s_FlowSampleTSLast 		+= g_FlowSampleRate; 
+			}
 
 			// force new allocation on next Queue 
 			s_FlowIndexQueue = NULL;
