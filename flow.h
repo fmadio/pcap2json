@@ -34,6 +34,7 @@ typedef struct PacketBuffer_t
 typedef struct TCPFullDup_t
 {
 	u8							IPProto;
+
 	u8							IP_A[4];
 	u8							IP_B[4];
 
