@@ -14,18 +14,18 @@ u32 TCPEventDump(u8* OutputStr, u64 TS, TCPHeader_t* tcp_header, FlowRecord_t* F
 
 void FlowPktToTCPFullDup(FlowRecord_t* FlowPkt, TCPFullDup_t* TCPFullDup)
 {
-    TCPFullDup->EtherProto = FlowPkt->EtherProto;
+    TCPFullDup->IPProto = FlowPkt->IPProto;
 
     // Sort FlowPkt's MAC src-dst deterministically and set to TCPFullDup's A/B
     // accordingly
-    s8 cmp = memcmp(FlowPkt->EtherSrc, FlowPkt->EtherDst, sizeof(FlowPkt->EtherSrc));
-    // TODO: if (cmp == 0) cmp = memcmp(IP)? or port?
+    s8 cmp = memcmp(FlowPkt->IPSrc, FlowPkt->IPDst, sizeof(FlowPkt->IPSrc));
+    if (cmp == 0)
+    {
+        cmp = FlowPkt->PortSrc < FlowPkt->PortDst ? 1 : -1;
+    }
 
     if (cmp > 0)
     {
-        memcpy(TCPFullDup->EtherA, FlowPkt->EtherSrc, sizeof(FlowPkt->EtherSrc));
-        memcpy(TCPFullDup->EtherB, FlowPkt->EtherDst, sizeof(FlowPkt->EtherDst));
-
         memcpy(TCPFullDup->IP_A, FlowPkt->IPSrc, sizeof(FlowPkt->IPSrc));
         memcpy(TCPFullDup->IP_B, FlowPkt->IPDst, sizeof(FlowPkt->IPDst));
 
@@ -34,9 +34,6 @@ void FlowPktToTCPFullDup(FlowRecord_t* FlowPkt, TCPFullDup_t* TCPFullDup)
     }
     else
     {
-        memcpy(TCPFullDup->EtherA, FlowPkt->EtherDst, sizeof(FlowPkt->EtherDst));
-        memcpy(TCPFullDup->EtherB, FlowPkt->EtherSrc, sizeof(FlowPkt->EtherSrc));
-
         memcpy(TCPFullDup->IP_A, FlowPkt->IPDst, sizeof(FlowPkt->IPDst));
         memcpy(TCPFullDup->IP_B, FlowPkt->IPSrc, sizeof(FlowPkt->IPSrc));
 
