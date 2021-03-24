@@ -1,6 +1,7 @@
 OBJS =
 OBJS += main.o
 OBJS += flow.o
+OBJS += tcpevent.o
 OBJS += sha1.o
 OBJS += output.o
 OBJS += fProfile.o
