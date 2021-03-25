@@ -3,13 +3,86 @@
 #include "fTypes.h"
 #include "flow.h"
 
-u32 TCPEventDump(u8* OutputStr, u64 TS, TCPHeader_t* tcp_header, FlowRecord_t* FlowPkt)
+enum TCP_OPS {
+	TCP_OP_NULL,
+	TCP_OP_SYN,
+	TCP_OP_SYNACK,
+	TCP_OP_RST,
+	TCP_OP_FIN,
+	TCP_OP_TOTAL_COUNT
+};
+char *TCP_OP_STR[TCP_OP_TOTAL_COUNT] = {
+	"TCP_OP_NULL",
+
+	"TCP_OP_SYN",
+	"TCP_OP_SYNACK",
+	"TCP_OP_RST",
+	"TCP_OP_FIN",
+
+	"TCP_OP_NULL",
+};
+
+u32 TCPEventDump(u8* OutputStr, u64 TS, IP4Header_t* IP4, FlowRecord_t* FlowPkt)
 {
-    // TODO: We want to at least output enough details for RTT to be calculated,
-    // ideally much more (retransmissions/SACKs, window sizes, flow
-    // control/congestion events, etc.)
-    u8* Output = OutputStr;
-    Output += sprintf(Output, "");
+	// TODO: We want to at least output enough details for RTT to be calculated,
+	// ideally much more (retransmissions/SACKs, window sizes, flow
+	// control/congestion events, etc.)
+
+	u32 IPOffset = (IP4->Version & 0x0f)*4;
+	TCPHeader_t* TCP = (TCPHeader_t*)((u8*)IP4 + IPOffset);
+	u16 TCPFlags = swap16(TCP->Flags);
+	u8 TCPOp = TCP_OP_NULL;
+	u8* Output = OutputStr;
+
+	memset(Output, 0, strlen(Output));
+
+	if (FlowPkt->IPProto == IPv4_PROTO_TCP)
+	{
+		if (TCP_FLAG_SYN(TCPFlags) == 1)
+		{
+			if (TCP_FLAG_ACK(TCPFlags) == 1)
+				TCPOp = TCP_OP_SYNACK;
+			else
+				TCPOp = TCP_OP_SYN;
+		}
+		else if (TCP_FLAG_FIN(TCPFlags) == 1)
+		{
+			TCPOp = TCP_OP_FIN;
+		}
+		else if (TCP_FLAG_RST(TCPFlags) == 1)
+		{
+			TCPOp = TCP_OP_RST;
+		}
+	}
+
+	// TODO: Analyze TCP Options and log state change related info (window size, TS)
+
+	if (TCPOp == TCP_OP_NULL)
+	{
+		// exit since there is no TCP OP to log
+		return 0;
+	}
+
+	u8 TStr[128];
+	FormatTSStr(TStr, TS);
+
+	Output += sprintf(Output,
+					  "{\"timestamp\":%f,\"TS\":\"%s\",\"tcp_op\":\"%s\"",
+					  TS/1e6,
+					  TStr,
+					  TCP_OP_STR[TCPOp]);
+
+	Output += sprintf(Output,
+					  ",\"hash_full_duplex\":\"%08x%08x%08x%08x%08x\"",
+					  FlowPkt->SHA1FullDuplex[0],
+					  FlowPkt->SHA1FullDuplex[1],
+					  FlowPkt->SHA1FullDuplex[2],
+					  FlowPkt->SHA1FullDuplex[3],
+					  FlowPkt->SHA1FullDuplex[4]);
+
+	Output += sprintf(Output, "}\n");
+
+	assert(TCPOp != TCP_OP_NULL);
 }
 
 void FlowPktToTCPFullDup(FlowRecord_t* FlowPkt, TCPFullDup_t* TCPFullDup)

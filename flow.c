@@ -1509,6 +1509,8 @@ void DecodePacket(	u32 CPUID,
 
 	if (FlowPkt->EtherProto == ETHER_PROTO_IPV4)
 	{
+		// Handle TCP event steam
+		IP4Header_t* IP4 = (IP4Header_t*)Payload;
 		TCPFullDup_t TCPFullDup = { 0 };
 
 		// Convert FlowPkt to determinstic TCPFullDup_t so we can create
@@ -1527,6 +1529,10 @@ void DecodePacket(	u32 CPUID,
 
 		u64 TSC1 = rdtsc();
 		s_DecodeThreadTSCHash[CPUID] += TSC1 - TSC0;
+
+		u8 Buffer[8192];
+		TCPEventDump(Buffer, PktHeader->TS, IP4, FlowPkt);
+		printf("%s", Buffer);
 	}
 
 	// update the flow records
