@@ -7,6 +7,8 @@ enum TCP_OPS {
 	TCP_OP_NULL,
 	TCP_OP_SYN,
 	TCP_OP_SYNACK,
+	TCP_OP_ACK,
+	TCP_OP_PSH,
 	TCP_OP_RST,
 	TCP_OP_FIN,
 	TCP_OP_TOTAL_COUNT
@@ -16,10 +18,10 @@ char *TCP_OP_STR[TCP_OP_TOTAL_COUNT] = {
 
 	"TCP_OP_SYN",
 	"TCP_OP_SYNACK",
+	"TCP_OP_ACK",
+	"TCP_OP_PSH",
 	"TCP_OP_RST",
-	"TCP_OP_FIN",
-
-	"TCP_OP_NULL",
+	"TCP_OP_FIN"
 };
 
 u32 TCPEventDump(u8* OutputStr, u64 TS, IP4Header_t* IP4, FlowRecord_t* FlowPkt)
@@ -45,6 +47,14 @@ u32 TCPEventDump(u8* OutputStr, u64 TS, IP4Header_t* IP4, FlowRecord_t* FlowPkt)
 			else
 				TCPOp = TCP_OP_SYN;
 		}
+		else if (TCP_FLAG_ACK(TCPFlags) == 1)
+		{
+			TCPOp = TCP_OP_ACK;
+		}
+		else if (TCP_FLAG_PSH(TCPFlags) == 1)
+		{
+			TCPOp = TCP_OP_PSH;
+		}
 		else if (TCP_FLAG_FIN(TCPFlags) == 1)
 		{
 			TCPOp = TCP_OP_FIN;
@@ -67,10 +77,13 @@ u32 TCPEventDump(u8* OutputStr, u64 TS, IP4Header_t* IP4, FlowRecord_t* FlowPkt)
 	FormatTSStr(TStr, TS);
 
 	Output += sprintf(Output,
-					  "{\"timestamp\":%f,\"TS\":\"%s\",\"tcp_op\":\"%s\"",
+					  "{\"timestamp\":%f,\"TS\":\"%s\",\"tcp_op\":\"%s\",\"seq\":%u,\"ack\":%u,\"len\":%u",
 					  TS/1e6,
 					  TStr,
-					  TCP_OP_STR[TCPOp]);
+					  TCP_OP_STR[TCPOp],
+					  TCP->SeqNo,
+					  TCP->AckNo,
+					  FlowPkt->TCPLength);
 
 	Output += sprintf(Output,
 					  ",\"hash_full_duplex\":\"%08x%08x%08x%08x%08x\"",
