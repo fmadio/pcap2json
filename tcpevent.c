@@ -47,11 +47,11 @@ u32 TCPEventDump(u8* OutputStr, u64 TS, IP4Header_t* IP4, FlowRecord_t* FlowPkt)
 			else
 				TCPOp = TCP_OP_SYN;
 		}
-		else if (TCP_FLAG_ACK(TCPFlags) == 1)
+		else if (FlowPkt->TCPLength == 0 && TCP_FLAG_ACK(TCPFlags) == 1)
 		{
 			TCPOp = TCP_OP_ACK;
 		}
-		else if (TCP_FLAG_PSH(TCPFlags) == 1)
+		else if (FlowPkt->TCPLength != 0 && TCP_FLAG_PSH(TCPFlags) == 1)
 		{
 			TCPOp = TCP_OP_PSH;
 		}
