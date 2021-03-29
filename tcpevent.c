@@ -24,6 +24,38 @@ char *TCP_OP_STR[TCP_OP_TOTAL_COUNT] = {
 	"TCP_OP_FIN"
 };
 
+s8 FlowPktToTCPFullDup(FlowRecord_t* FlowPkt, TCPFullDup_t* TCPFullDup)
+{
+	TCPFullDup->IPProto = FlowPkt->IPProto;
+
+	// Sort FlowPkt's MAC src-dst deterministically and set to TCPFullDup's A/B
+	// accordingly
+	s8 cmp = memcmp(FlowPkt->IPSrc, FlowPkt->IPDst, sizeof(FlowPkt->IPSrc));
+	if (cmp == 0)
+	{
+		cmp = FlowPkt->PortSrc < FlowPkt->PortDst ? 1 : -1;
+	}
+
+	if (cmp > 0)
+	{
+		memcpy(TCPFullDup->IP_A, FlowPkt->IPSrc, sizeof(FlowPkt->IPSrc));
+		memcpy(TCPFullDup->IP_B, FlowPkt->IPDst, sizeof(FlowPkt->IPDst));
+
+		TCPFullDup->PortA = FlowPkt->PortSrc;
+		TCPFullDup->PortB = FlowPkt->PortDst;
+	}
+	else
+	{
+		memcpy(TCPFullDup->IP_A, FlowPkt->IPDst, sizeof(FlowPkt->IPDst));
+		memcpy(TCPFullDup->IP_B, FlowPkt->IPSrc, sizeof(FlowPkt->IPSrc));
+
+		TCPFullDup->PortA = FlowPkt->PortDst;
+		TCPFullDup->PortB = FlowPkt->PortSrc;
+	}
+
+	return cmp;
+}
+
 u32 TCPEventDump(u8* OutputStr, u64 TS, IP4Header_t* IP4, FlowRecord_t* FlowPkt)
 {
 	// TODO: We want to at least output enough details for RTT to be calculated,
@@ -96,34 +128,4 @@ u32 TCPEventDump(u8* OutputStr, u64 TS, IP4Header_t* IP4, FlowRecord_t* FlowPkt)
 	Output += sprintf(Output, "}\n");
 
 	assert(TCPOp != TCP_OP_NULL);
-}
-
-void FlowPktToTCPFullDup(FlowRecord_t* FlowPkt, TCPFullDup_t* TCPFullDup)
-{
-	TCPFullDup->IPProto = FlowPkt->IPProto;
-
-	// Sort FlowPkt's MAC src-dst deterministically and set to TCPFullDup's A/B
-	// accordingly
-	s8 cmp = memcmp(FlowPkt->IPSrc, FlowPkt->IPDst, sizeof(FlowPkt->IPSrc));
-	if (cmp == 0)
-	{
-		cmp = FlowPkt->PortSrc < FlowPkt->PortDst ? 1 : -1;
-	}
-
-	if (cmp > 0)
-	{
-		memcpy(TCPFullDup->IP_A, FlowPkt->IPSrc, sizeof(FlowPkt->IPSrc));
-		memcpy(TCPFullDup->IP_B, FlowPkt->IPDst, sizeof(FlowPkt->IPDst));
-
-		TCPFullDup->PortA = FlowPkt->PortSrc;
-		TCPFullDup->PortB = FlowPkt->PortDst;
-	}
-	else
-	{
-		memcpy(TCPFullDup->IP_A, FlowPkt->IPDst, sizeof(FlowPkt->IPDst));
-		memcpy(TCPFullDup->IP_B, FlowPkt->IPSrc, sizeof(FlowPkt->IPSrc));
-
-		TCPFullDup->PortA = FlowPkt->PortDst;
-		TCPFullDup->PortB = FlowPkt->PortSrc;
-	}
 }
