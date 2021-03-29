@@ -29,6 +29,20 @@ typedef struct PacketBuffer_t
 
 } PacketBuffer_t;
 
+// Meant to be used as a determinstically sorted 5-tuple that can be hashed to
+// tag full-duplex TCP connections
+typedef struct TCPFullDup_t
+{
+	u8							IPProto;
+	u8							IP_A[4];
+	u8							IP_B[4];
+
+	u16						PortA;
+	u16						PortB;
+
+	// SHA1 calcuated on the first 64B, so we pad it up
+	u8							pad[38];
+} __attribute__((packed)) TCPFullDup_t;
 
 typedef struct FlowRecord_t 
 {
@@ -90,7 +104,8 @@ typedef struct FlowRecord_t
 
 	//-------------------------------------------------------------------------------
 	
-	u32						SHA1[5];			// SHA of the flow
+	u32						SHA1[5];			// SHA of the half-duplex flow
+	u32						HashFullDuplex[5];	// SHA of the full-duplex flow
 
 	u64						SnapshotTS;			// snapshot of the snapshot 
 	u64						FirstTS;			// first TS seen
@@ -137,6 +152,8 @@ void 			Flow_PacketQueue		(PacketBuffer_t* Pkt, bool IsFlush);
 
 PacketBuffer_t* Flow_PacketAlloc		(void);
 void 			Flow_PacketFree			(PacketBuffer_t* B);
+
+s8				FlowPktToTCPFullDup	(FlowRecord_t* FlowPkt, TCPFullDup_t* TCPFullDup);
 
 #define MAX_TOPN_MAC 64
 
