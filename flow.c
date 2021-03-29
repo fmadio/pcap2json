@@ -342,6 +342,40 @@ static u32 HashIndex(u32* SHA1)
 }
 
 //---------------------------------------------------------------------------------------------
+// Generate a deterministic 5-tuple struct that can then be hashed
+s8 FlowPktToTCPFullDup(FlowRecord_t* FlowPkt, TCPFullDup_t* TCPFullDup)
+{
+	TCPFullDup->IPProto = FlowPkt->IPProto;
+
+	// Sort FlowPkt's IP src-dst deterministically and set to TCPFullDup's A/B
+	// accordingly
+	s8 cmp = memcmp(FlowPkt->IPSrc, FlowPkt->IPDst, sizeof(FlowPkt->IPSrc));
+	if (cmp == 0)
+	{
+		cmp = FlowPkt->PortSrc < FlowPkt->PortDst ? 1 : -1;
+	}
+
+	if (cmp > 0)
+	{
+		memcpy(TCPFullDup->IP_A, FlowPkt->IPSrc, sizeof(FlowPkt->IPSrc));
+		memcpy(TCPFullDup->IP_B, FlowPkt->IPDst, sizeof(FlowPkt->IPDst));
+
+		TCPFullDup->PortA = FlowPkt->PortSrc;
+		TCPFullDup->PortB = FlowPkt->PortDst;
+	}
+	else
+	{
+		memcpy(TCPFullDup->IP_A, FlowPkt->IPDst, sizeof(FlowPkt->IPDst));
+		memcpy(TCPFullDup->IP_B, FlowPkt->IPSrc, sizeof(FlowPkt->IPSrc));
+
+		TCPFullDup->PortA = FlowPkt->PortDst;
+		TCPFullDup->PortB = FlowPkt->PortSrc;
+	}
+
+	return cmp;
+}
+
+//---------------------------------------------------------------------------------------------
 
 static FlowRecord_t* FlowAlloc(FlowIndex_t* FlowIndex, FlowRecord_t* F)
 {
@@ -527,6 +561,12 @@ static FlowRecord_t* FlowAdd(FlowIndex_t* FlowIndex, FlowRecord_t* FlowPkt, u32*
 		}
 	}
 
+	F->HashFullDuplex[0] = FlowPkt->HashFullDuplex[0];
+	F->HashFullDuplex[1] = FlowPkt->HashFullDuplex[1];
+	F->HashFullDuplex[2] = FlowPkt->HashFullDuplex[2];
+	F->HashFullDuplex[3] = FlowPkt->HashFullDuplex[3];
+	F->HashFullDuplex[4] = FlowPkt->HashFullDuplex[4];
+
 	//u64 TSC1 = rdtsc();
 	//s_DecodeThreadTSCInsert[CPUID] += TSC1 - TSC0;
 
@@ -661,6 +701,17 @@ static u32 FlowDump(u8* OutputStr, u64 TS, FlowRecord_t* Flow, u32 FlowID, u32 F
 																		Flow->SHA1[2],
 																		Flow->SHA1[3],
 																		Flow->SHA1[4]);
+
+		if (Flow->EtherProto == ETHER_PROTO_IPV4)
+		{
+			Output += sprintf(Output,
+							  ",\"HashFullDuplex\":\"%08x%08x%08x%08x%08x\"",
+							  Flow->HashFullDuplex[0],
+							  Flow->HashFullDuplex[1],
+							  Flow->HashFullDuplex[2],
+							  Flow->HashFullDuplex[3],
+							  Flow->HashFullDuplex[4]);
+		}
 
 		Output += sprintf(Output, ",\"MACSrc\":\"%02x:%02x:%02x:%02x:%02x:%02x\",\"MACDst\":\"%02x:%02x:%02x:%02x:%02x:%02x\"",
 
@@ -1307,6 +1358,28 @@ void DecodePacket(	u32 CPUID,
 
 	u64 TSC1 = rdtsc();
 	s_DecodeThreadTSCHash[CPUID] += TSC1 - TSC0;
+
+	if (FlowPkt->EtherProto == ETHER_PROTO_IPV4)
+	{
+		TCPFullDup_t TCPFullDup = { 0 };
+
+		// Convert FlowPkt to determinstic TCPFullDup_t so we can create
+		// full-duplex hash
+		FlowPktToTCPFullDup(FlowPkt, &TCPFullDup);
+
+		u64 TSC0 = rdtsc();
+
+		u32 SHA1State[5] = { 0, 0, 0, 0, 0 };
+		sha1_compress(SHA1State, (u8*)&TCPFullDup);
+		FlowPkt->HashFullDuplex[0] = SHA1State[0];
+		FlowPkt->HashFullDuplex[1] = SHA1State[1];
+		FlowPkt->HashFullDuplex[2] = SHA1State[2];
+		FlowPkt->HashFullDuplex[3] = SHA1State[3];
+		FlowPkt->HashFullDuplex[4] = SHA1State[4];
+
+		u64 TSC1 = rdtsc();
+		s_DecodeThreadTSCHash[CPUID] += TSC1 - TSC0;
+	}
 
 	// update the flow records
 	if (g_IsJSONFlow)
