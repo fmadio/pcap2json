@@ -117,8 +117,8 @@ u32 TCPEventDump(u8* OutputStr, u64 TS, IP4Header_t* IP4, FlowRecord_t* FlowPkt)
                       TStr,
                       TCP_OP_STR[TCPOp],
                       TCP_OP_FLAG_STR[TCPFlag],
-                      TCP->SeqNo,
-                      TCP->AckNo,
+                      swap32(TCP->SeqNo),
+                      swap32(TCP->AckNo),
                       FlowPkt->TCPLength);
 
     Output += sprintf(Output,
