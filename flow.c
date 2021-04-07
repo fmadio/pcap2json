@@ -696,21 +696,22 @@ static u32 FlowDump(u8* OutputStr, u64 TS, FlowRecord_t* Flow, u32 FlowID, u32 F
 		Output += sprintf(Output, "{\"timestamp\":%f,\"TS\":\"%s\",\"FlowCnt\":%lli,\"Device\":\"%s\"", TS/1e6, TStr, FlowID, g_DeviceName);
 
 		// print flow info
-		Output += sprintf(Output, ",\"hash\":\"%08x%08x%08x%08x%08x\"",	Flow->SHA1[0],
-																		Flow->SHA1[1],
-																		Flow->SHA1[2],
-																		Flow->SHA1[3],
-																		Flow->SHA1[4]);
+		Output += sprintf(Output, ",\"hash\":\"%08x%08x%08x%08x%08x\"",
+						  swap32(Flow->SHA1[0]),
+						  swap32(Flow->SHA1[1]),
+						  swap32(Flow->SHA1[2]),
+						  swap32(Flow->SHA1[3]),
+						  swap32(Flow->SHA1[4]));
 
 		if (Flow->EtherProto == ETHER_PROTO_IPV4)
 		{
 			Output += sprintf(Output,
 							  ",\"HashFullDuplex\":\"%08x%08x%08x%08x%08x\"",
-							  Flow->HashFullDuplex[0],
-							  Flow->HashFullDuplex[1],
-							  Flow->HashFullDuplex[2],
-							  Flow->HashFullDuplex[3],
-							  Flow->HashFullDuplex[4]);
+							  swap32(Flow->HashFullDuplex[0]),
+							  swap32(Flow->HashFullDuplex[1]),
+							  swap32(Flow->HashFullDuplex[2]),
+							  swap32(Flow->HashFullDuplex[3]),
+							  swap32(Flow->HashFullDuplex[4]));
 		}
 
 		Output += sprintf(Output, ",\"MACSrc\":\"%02x:%02x:%02x:%02x:%02x:%02x\",\"MACDst\":\"%02x:%02x:%02x:%02x:%02x:%02x\"",
