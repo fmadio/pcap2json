@@ -133,6 +133,8 @@ float			s_StreamCAT_CPUSend 	= 0;			// stream_cat cpu send down pipe utilization
 bool			g_Output_Histogram		= false;		// generate histograms file
 FILE			*g_Output_Histogram_FP	= NULL;			// histogram file pointer
 
+bool			g_ICMPOverwrite			= false;		// overwrite IP information for ICMP unreachable messages 
+
 //---------------------------------------------------------------------------------------------
 
 static void* Push_Worker(void* _User);
@@ -196,6 +198,10 @@ static void help(void)
 	fprintf(stderr, " --es-compress                      : enables gzip compressed POST\n");
 	fprintf(stderr, " --es-null                          : use ES Null target for perf testing\n");
 	fprintf(stderr, " --es-queue-path                    : ES Output queue is file backed\n");
+
+	fprintf(stderr, "\n");
+	fprintf(stderr, "ICMP options\n");
+	fprintf(stderr, " --icmp-overwrite                   : overwrite IP Proto info for ICMP packets\n");
 }
 
 //---------------------------------------------------------------------------------------------
@@ -283,6 +289,14 @@ static bool ParseCommandLine(u8* argv[])
 		g_InstanceMax 	=  atoi(argv[1]);
 		fprintf(stderr, "  Instance Max:%i\n", g_InstanceMax);
 		cnt	+= 2;
+	}
+
+	// icmp overwrite mode 
+	if (strcmp(argv[0], "--icmp-overwrite") == 0)
+	{
+		fprintf(stderr, "  ICMP Overwrite Mode\n"); 
+		cnt	+= 1;
+		g_ICMPOverwrite = true;
 	}
 
 	// benchmarking write to /dev/null 

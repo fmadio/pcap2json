@@ -101,11 +101,22 @@ typedef struct FlowRecord_t
 												// NOTE: request the outer MPLS tag
 												//       not be included in the hash calculation
 												// 		 see https://github.com/fmadio/pcap2json/issues/15 
+	u8						ICMPUnreachNet;			// ICMP unreachable network 
+	u8						ICMPUnreachHost;		// ICMP unreachable host 
+	u8						ICMPUnreachProto;		// ICMP unreachable proto
+	u8						ICMPUnreachPort;		// ICMP unreachable port
+	u8						ICMPUnreachProhibitNet;	// ICMP prohibited network
+	u8						ICMPUnreachProhibitHost;// ICMP prohibited host
+	u8						ICMPUnreachProhibit;	// ICMP communication denied 
+	u8						ICMPTimeExceed;			// ICMP time exceeded
+	u8						ICMPOther;				// ICMP all other messages
+	u8						ICMPOverwrite;			// ICMP IP information was overwritten 
+	IP4_t					ICMPSrc;				// ICMP IP source address (e.g. switch)
 
 	//-------------------------------------------------------------------------------
 	
-	u32						SHA1[5];			// SHA of the half-duplex flow
-	u32						HashFullDuplex[5];	// SHA of the full-duplex flow
+	u32						SHA1Half[5];		// SHA of the half-duplex flow
+	u32						SHA1Full[5];		// SHA of the full-duplex flow
 
 	u64						SnapshotTS;			// snapshot of the snapshot 
 	u64						FirstTS;			// first TS seen

@@ -554,6 +554,40 @@ typedef struct
 
 } __attribute__((packed)) UDPHeader_t;
 
+#define ICMP_CODE_ECHO_REPLY			0
+#define ICMP_CODE_DEST_UNREACH			3
+#define ICMP_CODE_REDIRECT				5
+#define ICMP_CODE_ECHO_REQ				8
+#define ICMP_CODE_ROUTER_ADVERT			9
+#define ICMP_CODE_ROUTER_SSOLICIT		10	
+#define ICMP_CODE_TIME_EXCEED			11	
+
+#define ICMP_UNREACH_NETWORK			0
+#define ICMP_UNREACH_HOST				1
+#define ICMP_UNREACH_PROTO				2
+#define ICMP_UNREACH_PORT				3
+#define ICMP_UNREACH_PROHIBIT_NET		9	
+#define ICMP_UNREACH_PROHIBIT_HOST		10	
+#define ICMP_UNREACH_PROHIBIT			13	
+
+
+typedef struct
+{
+	u8			Type;
+	u8			Code;
+	u16			CSUM;
+
+	u8			Data[0];
+
+} __attribute__((packed)) ICMPHeader_t;
+
+typedef struct
+{
+	u16			Unused;
+	u16			NextMTU;
+
+} __attribute((packed)) ICMPUnreach_t;
+
 // VLAN 
 typedef struct
 {

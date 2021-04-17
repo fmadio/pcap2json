@@ -235,6 +235,8 @@ extern u8*				g_FlowIndexRollWrite;
 extern u8				g_InstanceID;
 extern u8				g_InstanceMax;
 
+extern bool				g_ICMPOverwrite;
+
 //---------------------------------------------------------------------------------------------
 // static
 static volatile bool			s_Exit = false;
@@ -483,25 +485,25 @@ static FlowIndex_t* FlowIndexAlloc(void)
 
 //---------------------------------------------------------------------------------------------
 // returns the flow entry or creates one in the index
-static FlowRecord_t* FlowAdd(FlowIndex_t* FlowIndex, FlowRecord_t* FlowPkt, u32* SHA1)
+static FlowRecord_t* FlowAdd(FlowIndex_t* FlowIndex, FlowRecord_t* FlowPkt, u32* SHA1Half)
 {
 	//u64 TSC0 = rdtsc();
 
 	bool IsFlowNew = false;
 	FlowRecord_t* F = NULL;
 
-	u32 Index = HashIndex(SHA1);
+	u32 Index = HashIndex(SHA1Half);
 
 	// first record ?
 	if (FlowIndex->FlowHashFrameID[ Index ] != FlowIndex->FrameID)
 	{
 		F = FlowAlloc(FlowIndex, FlowPkt);
 
-		F->SHA1[0] = SHA1[0];
-		F->SHA1[1] = SHA1[1];
-		F->SHA1[2] = SHA1[2];
-		F->SHA1[3] = SHA1[3];
-		F->SHA1[4] = SHA1[4];
+		F->SHA1Half[0] = SHA1Half[0];
+		F->SHA1Half[1] = SHA1Half[1];
+		F->SHA1Half[2] = SHA1Half[2];
+		F->SHA1Half[3] = SHA1Half[3];
+		F->SHA1Half[4] = SHA1Half[4];
 
 		F->Next		= NULL;
 		F->Prev		= NULL;
@@ -523,11 +525,11 @@ static FlowRecord_t* FlowAdd(FlowIndex_t* FlowIndex, FlowRecord_t* FlowPkt, u32*
 		{
 			bool IsHit = true;
 
-			IsHit &= (F->SHA1[0] == SHA1[0]);
-			IsHit &= (F->SHA1[1] == SHA1[1]);
-			IsHit &= (F->SHA1[2] == SHA1[2]);
-			IsHit &= (F->SHA1[3] == SHA1[3]);
-			IsHit &= (F->SHA1[4] == SHA1[4]);
+			IsHit &= (F->SHA1Half[0] == SHA1Half[0]);
+			IsHit &= (F->SHA1Half[1] == SHA1Half[1]);
+			IsHit &= (F->SHA1Half[2] == SHA1Half[2]);
+			IsHit &= (F->SHA1Half[3] == SHA1Half[3]);
+			IsHit &= (F->SHA1Half[4] == SHA1Half[4]);
 
 			if (IsHit)
 			{
@@ -545,11 +547,11 @@ static FlowRecord_t* FlowAdd(FlowIndex_t* FlowIndex, FlowRecord_t* FlowPkt, u32*
 		{
 			F = FlowAlloc(FlowIndex, FlowPkt);
 
-			F->SHA1[0] = SHA1[0];
-			F->SHA1[1] = SHA1[1];
-			F->SHA1[2] = SHA1[2];
-			F->SHA1[3] = SHA1[3];
-			F->SHA1[4] = SHA1[4];
+			F->SHA1Half[0] = SHA1Half[0];
+			F->SHA1Half[1] = SHA1Half[1];
+			F->SHA1Half[2] = SHA1Half[2];
+			F->SHA1Half[3] = SHA1Half[3];
+			F->SHA1Half[4] = SHA1Half[4];
 
 			F->Next		= NULL;
 			F->Prev		= NULL;
@@ -561,11 +563,11 @@ static FlowRecord_t* FlowAdd(FlowIndex_t* FlowIndex, FlowRecord_t* FlowPkt, u32*
 		}
 	}
 
-	F->HashFullDuplex[0] = FlowPkt->HashFullDuplex[0];
-	F->HashFullDuplex[1] = FlowPkt->HashFullDuplex[1];
-	F->HashFullDuplex[2] = FlowPkt->HashFullDuplex[2];
-	F->HashFullDuplex[3] = FlowPkt->HashFullDuplex[3];
-	F->HashFullDuplex[4] = FlowPkt->HashFullDuplex[4];
+	F->SHA1Full[0] = FlowPkt->SHA1Full[0];
+	F->SHA1Full[1] = FlowPkt->SHA1Full[1];
+	F->SHA1Full[2] = FlowPkt->SHA1Full[2];
+	F->SHA1Full[3] = FlowPkt->SHA1Full[3];
+	F->SHA1Full[4] = FlowPkt->SHA1Full[4];
 
 	//u64 TSC1 = rdtsc();
 	//s_DecodeThreadTSCInsert[CPUID] += TSC1 - TSC0;
@@ -655,6 +657,27 @@ static void FlowInsert(u32 CPUID, FlowIndex_t* FlowIndex, FlowRecord_t* FlowPkt,
 			}
 		}
 	}
+
+	// ICMP may have overwritten the IP protocol so always update
+	if (FlowPkt->ICMPOverwrite)
+	{
+		F->ICMPUnreachNet			+= FlowPkt->ICMPUnreachNet;
+		F->ICMPUnreachHost			+= FlowPkt->ICMPUnreachHost;
+		F->ICMPUnreachProto			+= FlowPkt->ICMPUnreachProto;
+		F->ICMPUnreachPort			+= FlowPkt->ICMPUnreachPort;
+		F->ICMPUnreachProhibitNet	+= FlowPkt->ICMPUnreachProhibitNet;
+		F->ICMPUnreachProhibitHost	+= FlowPkt->ICMPUnreachProhibitHost;
+		F->ICMPUnreachProhibit		+= FlowPkt->ICMPUnreachProhibit;
+		F->ICMPTimeExceed			+= FlowPkt->ICMPTimeExceed;
+		F->ICMPOther				+= FlowPkt->ICMPOther;
+		F->ICMPOverwrite			+= FlowPkt->ICMPOverwrite;
+
+		if ((F->ICMPSrc.IP4 != 0) && (F->ICMPSrc.IP4 != FlowPkt->ICMPSrc.IP4))
+		{
+			printf("missmatch %08x %08x\n", F->ICMPSrc.IP4, FlowPkt->ICMPSrc.IP4);
+		}
+		F->ICMPSrc					= FlowPkt->ICMPSrc;
+	}
 }
 
 //---------------------------------------------------------------------------------------------
@@ -696,21 +719,21 @@ static u32 FlowDump(u8* OutputStr, u64 TS, FlowRecord_t* Flow, u32 FlowID, u32 F
 		Output += sprintf(Output, "{\"timestamp\":%f,\"TS\":\"%s\",\"FlowCnt\":%lli,\"Device\":\"%s\"", TS/1e6, TStr, FlowID, g_DeviceName);
 
 		// print flow info
-		Output += sprintf(Output, ",\"hash\":\"%08x%08x%08x%08x%08x\"",	Flow->SHA1[0],
-																		Flow->SHA1[1],
-																		Flow->SHA1[2],
-																		Flow->SHA1[3],
-																		Flow->SHA1[4]);
+		Output += sprintf(Output, ",\"hashHalf\":\"%08x%08x%08x%08x%08x\"",	Flow->SHA1Half[0],
+																			Flow->SHA1Half[1],
+																			Flow->SHA1Half[2],
+																			Flow->SHA1Half[3],
+																			Flow->SHA1Half[4]);
 
 		if (Flow->EtherProto == ETHER_PROTO_IPV4)
 		{
 			Output += sprintf(Output,
-							  ",\"HashFullDuplex\":\"%08x%08x%08x%08x%08x\"",
-							  Flow->HashFullDuplex[0],
-							  Flow->HashFullDuplex[1],
-							  Flow->HashFullDuplex[2],
-							  Flow->HashFullDuplex[3],
-							  Flow->HashFullDuplex[4]);
+							  ",\"hashFull\":\"%08x%08x%08x%08x%08x\"",
+							  Flow->SHA1Full[0],
+							  Flow->SHA1Full[1],
+							  Flow->SHA1Full[2],
+							  Flow->SHA1Full[3],
+							  Flow->SHA1Full[4]);
 		}
 
 		Output += sprintf(Output, ",\"MACSrc\":\"%02x:%02x:%02x:%02x:%02x:%02x\",\"MACDst\":\"%02x:%02x:%02x:%02x:%02x:%02x\"",
@@ -851,6 +874,27 @@ static u32 FlowDump(u8* OutputStr, u64 TS, FlowRecord_t* Flow, u32 FlowID, u32 F
 			}
 			break;
 			}
+
+			if (Flow->ICMPOverwrite)
+			{
+
+				Output += sprintf(Output,",\"ICMP.UnreachNet\":%i,\"ICMP.UnreachHost\":%i,\"ICMP.UnreachProto\":%i,\"ICMP.UnreachPort\":%i,\"ICMP.UnreachProhibitNet\":%i,\"ICMP.UnreachProhibitHost\":%i,\"ICMP.UnreachProhibit\":%i,\"ICMP.TimeExceed\":%i,\"ICMP.Other\":%i,\"ICMP.Overwrite\":%i,\"ICMP.srcIP\":\"%i.%i.%i.%i\"",
+						Flow->ICMPUnreachNet,
+						Flow->ICMPUnreachHost,
+						Flow->ICMPUnreachProto,
+						Flow->ICMPUnreachPort,
+						Flow->ICMPUnreachProhibitNet,
+						Flow->ICMPUnreachProhibitHost,
+						Flow->ICMPUnreachProhibit,
+						Flow->ICMPTimeExceed,
+						Flow->ICMPOther,
+						Flow->ICMPOverwrite,
+						Flow->ICMPSrc.IP[0],
+						Flow->ICMPSrc.IP[1],
+						Flow->ICMPSrc.IP[2],
+						Flow->ICMPSrc.IP[3]
+				);
+			}
 		}
 
 		Output += sprintf(Output, ",\"TotalPkt\":%lli,\"TotalByte\":%lli,\"TotalBits\":%lli",
@@ -886,7 +930,7 @@ static void FlowMerge(FlowIndex_t* IndexOut, FlowIndex_t* IndexRoot, u32 IndexCn
 			FlowRecord_t* Flow = &Source->FlowList[i];
 
 			// merge into a single FlowIndex 
-			FlowRecord_t* F = FlowAdd(IndexOut, Flow, Flow->SHA1);
+			FlowRecord_t* F = FlowAdd(IndexOut, Flow, Flow->SHA1Half);
 
 			F->TotalPkt 	+= Flow->TotalPkt;
 			F->TotalByte 	+= Flow->TotalByte;
@@ -922,6 +966,19 @@ static void FlowMerge(FlowIndex_t* IndexOut, FlowIndex_t* IndexRoot, u32 IndexCn
 				F->TCPSACKCnt		+= Flow->TCPSACKCnt; 
 				F->TCPWindowZero 	+= Flow->TCPWindowZero; 
 			}
+
+			// ICMP may have overwritten protocol info so always add them
+			F->ICMPUnreachNet			+= Flow->ICMPUnreachNet;
+			F->ICMPUnreachHost			+= Flow->ICMPUnreachHost;
+			F->ICMPUnreachProto			+= Flow->ICMPUnreachProto;
+			F->ICMPUnreachPort			+= Flow->ICMPUnreachPort;
+			F->ICMPUnreachProhibitNet	+= Flow->ICMPUnreachProhibitNet;
+			F->ICMPUnreachProhibitHost	+= Flow->ICMPUnreachProhibitHost;
+			F->ICMPUnreachProhibit		+= Flow->ICMPUnreachProhibit;
+			F->ICMPTimeExceed			+= Flow->ICMPTimeExceed;
+			F->ICMPOther				+= Flow->ICMPOther;
+			F->ICMPOverwrite			+= Flow->ICMPOverwrite;
+			F->ICMPSrc					= Flow->ICMPSrc;
 		}
 	}
 }
@@ -936,7 +993,7 @@ static void FlowMergePreload(FlowIndex_t* IndexOut)
 		FlowRecord_t* Flow = &s_FlowPreload[i];
 
 		// merge into a single FlowIndex 
-		FlowRecord_t* F = FlowAdd(IndexOut, Flow, Flow->SHA1);
+		FlowRecord_t* F = FlowAdd(IndexOut, Flow, Flow->SHA1Half);
 
 		F->TotalPkt 	+= Flow->TotalPkt;
 		F->TotalByte 	+= Flow->TotalByte;
@@ -999,7 +1056,7 @@ static u32 FlowTopN(u32* SortList, FlowIndex_t* FlowIndex, u32 FlowMax, u8 *sMac
 			{
 				List[j*3 + 0] = i;
 				List[j*3 + 1] = F->TotalByte;
-				List[j*3 + 2] = F->SHA1[4];
+				List[j*3 + 2] = F->SHA1Half[4];
 				j++;
 			}
 			else if (MAC_CMP(FlowIndex->FlowList[i].EtherDst, dMac) &&
@@ -1007,7 +1064,7 @@ static u32 FlowTopN(u32* SortList, FlowIndex_t* FlowIndex, u32 FlowMax, u8 *sMac
 			{
 				List[j*3 + 0] = i;
 				List[j*3 + 1] = F->TotalByte;
-				List[j*3 + 2] = F->SHA1[4];
+				List[j*3 + 2] = F->SHA1Half[4];
 				j++;
 			}
 
@@ -1336,6 +1393,102 @@ void DecodePacket(	u32 CPUID,
 				FlowPkt->PortDst	= swap16(UDP->PortDst);
 			}
 			break;
+
+			case IPv4_PROTO_ICMP:
+			{
+				ICMPHeader_t* ICMP = (ICMPHeader_t*)(Payload + IPOffset);
+
+				switch (ICMP->Type)
+				{
+				//case ICMP_CODE_ECHO_REQ: 		FlowPkt->ICMPEchoReq 		= 1; break;
+				//case ICMP_CODE_ECHO_REPLY: 		FlowPkt->ICMPEchoRes 		= 1; break;
+
+				// deliberate fall thru, so IP info can be overwirtten 
+				case ICMP_CODE_TIME_EXCEED: 			
+				case ICMP_CODE_DEST_UNREACH:
+				{
+						
+					if (ICMP->Type == ICMP_CODE_TIME_EXCEED) FlowPkt->ICMPTimeExceed 		= 1;
+					else
+					{
+						switch (ICMP->Code)
+						{
+						case ICMP_UNREACH_NETWORK: 			FlowPkt->ICMPUnreachNet 			= 1; break;
+						case ICMP_UNREACH_HOST: 			FlowPkt->ICMPUnreachHost 			= 1; break;
+						case ICMP_UNREACH_PROTO: 			FlowPkt->ICMPUnreachProto 			= 1; break;
+						case ICMP_UNREACH_PORT: 			FlowPkt->ICMPUnreachPort 			= 1; break;
+						case ICMP_UNREACH_PROHIBIT_NET: 	FlowPkt->ICMPUnreachProhibitNet 	= 1; break;
+						case ICMP_UNREACH_PROHIBIT_HOST: 	FlowPkt->ICMPUnreachProhibitHost 	= 1; break;
+						case ICMP_UNREACH_PROHIBIT: 		FlowPkt->ICMPUnreachProhibit 		= 1; break;
+						default:							FlowPkt->ICMPOther					= 1; break; 
+						}
+
+					// overwrite the packets IP info from the ICMP unreachable header + time exeeded info 
+					if (g_ICMPOverwrite)
+					{
+						// flag the flow info has been updated by the ICMP packet
+						FlowPkt->ICMPOverwrite	= 1;
+
+						// keep copy of ICMP src info
+						FlowPkt->ICMPSrc		= IP4->Src;
+
+						// skip
+						u8* IPPayload	= (u8*)(ICMP + 1) + 4;
+
+						// IP4 header
+						IP4Header_t* UIP4 = (IP4Header_t*)IPPayload;
+						FlowPkt->IPSrc[0] = UIP4->Src.IP[0];	
+						FlowPkt->IPSrc[1] = UIP4->Src.IP[1];	
+						FlowPkt->IPSrc[2] = UIP4->Src.IP[2];	
+						FlowPkt->IPSrc[3] = UIP4->Src.IP[3];	
+
+						FlowPkt->IPDst[0] = UIP4->Dst.IP[0];	
+						FlowPkt->IPDst[1] = UIP4->Dst.IP[1];	
+						FlowPkt->IPDst[2] = UIP4->Dst.IP[2];	
+						FlowPkt->IPDst[3] = UIP4->Dst.IP[3];	
+
+						FlowPkt->IPProto 	= UIP4->Proto;
+						FlowPkt->IPDSCP		= 0; 
+
+						// IPv4 protocol decoders 
+						u32 IPOffset = (UIP4->Version & 0x0f)*4; 
+						switch (UIP4->Proto)
+						{
+						case IPv4_PROTO_TCP:
+						{
+							TCPHeader_t* TCP = (TCPHeader_t*)(IPPayload + IPOffset);
+
+							// ensure TCP data is valid and not hashing 
+							// random data in memeory
+							if (((u8*)TCP - (u8*)Ether) + sizeof(TCPHeader_t) < PktHeader->LengthCapture)
+							{
+								FlowPkt->PortSrc	= swap16(TCP->PortSrc);
+								FlowPkt->PortDst	= swap16(TCP->PortDst);
+							}
+						}
+						break;
+
+						case IPv4_PROTO_UDP:
+						{
+							UDPHeader_t* UDP = (UDPHeader_t*)(IPPayload + IPOffset);
+
+							FlowPkt->PortSrc	= swap16(UDP->PortSrc);
+							FlowPkt->PortDst	= swap16(UDP->PortDst);
+						}
+						break;
+
+						default:
+							break;
+						}
+					}
+					}
+				}
+				break;
+
+				default:						FlowPkt->ICMPOther			= 1; break;
+				}
+			}
+			break;
 			}
 		}
 	}
@@ -1350,11 +1503,11 @@ void DecodePacket(	u32 CPUID,
 	u32 SHA1State[5] = { 0, 0, 0, 0, 0 };
 	sha1_compress(SHA1State, (u8*)FlowPkt);
 
-	FlowPkt->SHA1[0] = SHA1State[0];
-	FlowPkt->SHA1[1] = SHA1State[1];
-	FlowPkt->SHA1[2] = SHA1State[2];
-	FlowPkt->SHA1[3] = SHA1State[3];
-	FlowPkt->SHA1[4] = SHA1State[4];
+	FlowPkt->SHA1Half[0] = SHA1State[0];
+	FlowPkt->SHA1Half[1] = SHA1State[1];
+	FlowPkt->SHA1Half[2] = SHA1State[2];
+	FlowPkt->SHA1Half[3] = SHA1State[3];
+	FlowPkt->SHA1Half[4] = SHA1State[4];
 
 	u64 TSC1 = rdtsc();
 	s_DecodeThreadTSCHash[CPUID] += TSC1 - TSC0;
@@ -1371,11 +1524,11 @@ void DecodePacket(	u32 CPUID,
 
 		u32 SHA1State[5] = { 0, 0, 0, 0, 0 };
 		sha1_compress(SHA1State, (u8*)&TCPFullDup);
-		FlowPkt->HashFullDuplex[0] = SHA1State[0];
-		FlowPkt->HashFullDuplex[1] = SHA1State[1];
-		FlowPkt->HashFullDuplex[2] = SHA1State[2];
-		FlowPkt->HashFullDuplex[3] = SHA1State[3];
-		FlowPkt->HashFullDuplex[4] = SHA1State[4];
+		FlowPkt->SHA1Full[0] = SHA1State[0];
+		FlowPkt->SHA1Full[1] = SHA1State[1];
+		FlowPkt->SHA1Full[2] = SHA1State[2];
+		FlowPkt->SHA1Full[3] = SHA1State[3];
+		FlowPkt->SHA1Full[4] = SHA1State[4];
 
 		u64 TSC1 = rdtsc();
 		s_DecodeThreadTSCHash[CPUID] += TSC1 - TSC0;
