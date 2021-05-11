@@ -165,6 +165,7 @@
 #include "fProfile.h"
 #include "output.h"
 #include "flow.h"
+#include "tcpevent.h"
 #include "histogram.h"
 
 typedef void BusyWait_f(void);
@@ -232,6 +233,9 @@ extern bool				g_Output_NULL;
 extern bool				g_Output_STDOUT;
 extern u8*				g_Output_PipeName;
 
+extern bool			g_Output_TCP_STDOUT;
+extern u8*				g_Output_TCP_PipeName;
+
 extern u8*				g_FlowIndexRollRead;
 extern u8*				g_FlowIndexRollWrite;
 
@@ -285,6 +289,7 @@ static u64						s_DecodeQueueMsk 	= 1023;
 static volatile PacketBuffer_t*	s_DecodeQueue[1024];					// list of packets pending processing
 
 static struct Output_t*			s_Output			= NULL;				// output module
+static struct Output_t*			s_TCP_Output		= NULL;				// TCP event output module
 
 static u64						s_PacketQueueCnt	= 0;
 static u64						s_PacketDecodeCnt	= 0;
@@ -568,11 +573,13 @@ static FlowRecord_t* FlowAdd(FlowIndex_t* FlowIndex, FlowRecord_t* FlowPkt, u32*
 		}
 	}
 
+	// Copy properties that FlowAlloc skips
 	F->SHA1Full[0] = FlowPkt->SHA1Full[0];
 	F->SHA1Full[1] = FlowPkt->SHA1Full[1];
 	F->SHA1Full[2] = FlowPkt->SHA1Full[2];
 	F->SHA1Full[3] = FlowPkt->SHA1Full[3];
 	F->SHA1Full[4] = FlowPkt->SHA1Full[4];
+	F->TCPEventCount += FlowPkt->TCPEventCount;
 
 	//u64 TSC1 = rdtsc();
 	//s_DecodeThreadTSCInsert[CPUID] += TSC1 - TSC0;
@@ -895,6 +902,10 @@ static u32 FlowDump(u8* OutputStr, u64 TS, FlowRecord_t* Flow, u32 FlowID, u32 F
 										Flow->TotalByte*8ULL
 		);
 
+		if (g_Output_TCP_STDOUT)
+		{
+			Output += sprintf(Output, ",\"TCPEventCount\":%llu", Flow->TCPEventCount);
+		}
 		Output += sprintf(Output, "}\n");
 
 		return Output - OutputStr;
@@ -1102,6 +1113,7 @@ static u32 FlowTopN(u32* SortList, FlowIndex_t* FlowIndex, u32 FlowMax, u8 *sMac
 //
 void DecodePacket(	u32 CPUID,
 					struct Output_t* Out, 
+					u64 SnapshotTS,
 					FMADPacket_t* PktHeader, 
 					FlowIndex_t* FlowIndex)
 {
@@ -1118,6 +1130,9 @@ void DecodePacket(	u32 CPUID,
 	fEther_t* Ether 		= (fEther_t*)(PktHeader + 1);	
 	u8* Payload 			= (u8*)(Ether + 1);
 	u16 EtherProto 			= swap16(Ether->Proto);
+
+	// Used by TCPEventDump
+	u32 TCPWindowScale = 0;
 
 	FlowPkt->EtherProto		= EtherProto;
 	FlowPkt->EtherSrc[0]	= Ether->Src[0];
@@ -1317,6 +1332,7 @@ void DecodePacket(	u32 CPUID,
 							case 0x3:
 								//printf("Window Scale: %i\n", Options[2]);
 								//FlowPkt->TCPWindowScale = Options[2];
+								TCPWindowScale = Options[2];
 								break;
 
 							// SACK Enabled 
@@ -1510,7 +1526,6 @@ void DecodePacket(	u32 CPUID,
 	if (FlowPkt->EtherProto == ETHER_PROTO_IPV4)
 	{
 		// Handle TCP event steam
-		IP4Header_t* IP4 = (IP4Header_t*)Payload;
 		TCPFullDup_t TCPFullDup = { 0 };
 
 		// Convert FlowPkt to determinstic TCPFullDup_t so we can create
@@ -1531,8 +1546,12 @@ void DecodePacket(	u32 CPUID,
 		s_DecodeThreadTSCHash[CPUID] += TSC1 - TSC0;
 
 		u8 Buffer[8192];
-		TCPEventDump(Buffer, PktHeader->TS, IP4, FlowPkt);
-		printf("%s", Buffer);
+		IP4Header_t* IP4 = (IP4Header_t*)Payload;
+		FlowPkt->TCPEventCount = TCPEventDump(Buffer, s_TCP_Output, PktHeader->TS, IP4, FlowPkt, TCPWindowScale);
+		if (g_Output_TCP_STDOUT)
+		{
+			printf("%s", Buffer);
+		}
 	}
 
 	// update the flow records
@@ -1738,7 +1757,7 @@ void* Flow_Worker(void* User)
 					assert(PktHeader->LengthCapture < 16*1024);
 
 					// process the packet
-					DecodePacket(CPUID, s_Output, PktHeader, FlowIndex);
+					DecodePacket(CPUID, s_Output, PktBlock->TSSnapshot, PktHeader, FlowIndex);
 
 					// update size histo
 					u32 SizeIndex = (PktHeader->LengthWire / s_PacketSizeHistoBin);
@@ -1837,6 +1856,8 @@ void* Flow_Worker(void* User)
 								{
 									u32 FIndex =  SortList[j][i];
 									FlowRecord_t* Flow = &FlowIndex->FlowList[ FIndex ];	
+									// Can't have more events than packets in the flow record
+									assert(Flow->TotalPkt >= Flow->TCPEventCount);
 
 									JSONBufferOffset += FlowDump(JSONBuffer + JSONBufferOffset, PktBlock->TSSnapshot, Flow, FlowCnt, FlowTotal);
 									JSONLineCnt++;
@@ -2022,11 +2043,12 @@ void Flow_PacketFree(PacketBuffer_t* B)
 
 //---------------------------------------------------------------------------------------------
 // allocate memory and house keeping
-void Flow_Open(struct Output_t* Out, u32 CPUMapCnt, s32* CPUMap, u32 FlowIndexDepth, u64 FlowMax)
+void Flow_Open(struct Output_t* Out, struct Output_t* OutTCP, u32 CPUMapCnt, s32* CPUMap, u32 FlowIndexDepth, u64 FlowMax)
 {
 	assert(Out != NULL);
 
 	s_Output 	= Out;
+	s_TCP_Output 	= OutTCP;
 	s_FlowMax	= FlowMax;
 
 	// allocate packet buffers

@@ -127,6 +127,7 @@ typedef struct FlowRecord_t
 	u8						FlowInstance;		// generation instance number		
 	u32						FlowNo;				// flow ID in this snapshot 
 	u32						TotalFlows;			// total number of flows for this snapshot	
+	u64						TCPEventCount;			// total number of TCPEvents for this snapshot
 
 	u8						InstanceID;			// which instance this is	
 	u8						InstanceMax;		// total number of isntances 
@@ -137,7 +138,7 @@ typedef struct FlowRecord_t
 
 } __attribute__((packed)) FlowRecord_t;
 
-void 			Flow_Open				(struct Output_t* Out, u32 CPUMapCnt, s32* CPUMap, u32 FlowIndexDepth, u64 FlowMax);
+void 			Flow_Open				(struct Output_t* Out, struct Output_t* OutTCP, u32 CPUMapCnt, s32* CPUMap, u32 FlowIndexDepth, u64 FlowMax);
 void 			Flow_Close				(struct Output_t* Out, u64 LastTS);
 void 			Flow_Stats				(bool   IsReset,
 										 u64*   pFlowCntSnapShot,

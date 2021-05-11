@@ -1,7 +1,10 @@
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include "fTypes.h"
+#include "output.h"
 #include "flow.h"
+#include "tcpevent.h"
 
 // For a 32-bit TCP event, the MSB (i.e. highest 8 bits) are for the flag mask,
 // and the bottom 24 bits are for the TCP OP itself
@@ -40,11 +43,14 @@ char *TCP_OP_FLAG_STR[3] = {
     "H1"
 };
 
-u32 TCPEventDump(u8* OutputStr, u64 TS, IP4Header_t* IP4, FlowRecord_t* FlowPkt)
+u32 TCPEventDump(u8* OutputStr, Output_t* TCPOutput, u64 SnapshotTS, IP4Header_t* IP4, FlowRecord_t* FlowPkt, u32 TCPWindowScale)
 {
     // TODO: We want to at least output enough details for RTT to be calculated,
     // ideally much more (retransmissions/SACKs, window sizes, flow
     // control/congestion events, etc.)
+
+    // Skip TCP events since no flags were set
+    if (!g_Output_TCP_STDOUT && !g_Output_TCP_PipeName) return 0;
 
     u32 IPOffset = (IP4->Version & 0x0f)*4;
     TCPHeader_t* TCP = (TCPHeader_t*)((u8*)IP4 + IPOffset);
@@ -109,27 +115,56 @@ u32 TCPEventDump(u8* OutputStr, u64 TS, IP4Header_t* IP4, FlowRecord_t* FlowPkt)
     }
 
     u8 TStr[128];
-    FormatTSStr(TStr, TS);
+    FormatTSStr(TStr, SnapshotTS);
 
-    Output += sprintf(Output,
-                      "{\"timestamp\":%f,\"TS\":\"%s\",\"tcp_op\":\"%s_%s\",\"seq\":%u,\"ack\":%u,\"len\":%u",
-                      TS/1e6,
-                      TStr,
-                      TCP_OP_STR[TCPOp],
-                      TCP_OP_FLAG_STR[TCPFlag],
-                      swap32(TCP->SeqNo),
-                      swap32(TCP->AckNo),
-                      FlowPkt->TCPLength);
+    if (!g_Output_TCP_STDOUT && g_Output_TCP_PipeName != NULL && TCPOutput)
+    {
+        TCPEvent_t tcp_output = { 0 };
+        tcp_output.SnapshotTS = SnapshotTS;
+        tcp_output.Event = TCPEvent;
+        tcp_output.Length = FlowPkt->TCPLength;
+        tcp_output.SeqNo = swap32(TCP->SeqNo);
+        tcp_output.AckNo = swap32(TCP->AckNo);
+        tcp_output.Flag = swap32(TCP->Flags);
+        tcp_output.CRC = swap32(TCP->CSUM);
+        memcpy(&tcp_output.HashFullDuplex, FlowPkt->SHA1Full, sizeof(FlowPkt->SHA1Full));
 
-    Output += sprintf(Output,
-                      ",\"hash_full_duplex\":\"%08x%08x%08x%08x%08x\"",
-                      FlowPkt->SHA1Full[0],
-                      FlowPkt->SHA1Full[1],
-                      FlowPkt->SHA1Full[2],
-                      FlowPkt->SHA1Full[3],
-                      FlowPkt->SHA1Full[4]);
+        if (TCP_FLAG_SYN(TCPFlags) == 1)
+            tcp_output.Window = TCPWindowScale;
+        else
+            tcp_output.Window = swap16(TCP->Window);
 
-    Output += sprintf(Output, "}\n");
+        Output_BufferAdd(TCPOutput, (u8*) &tcp_output, sizeof(TCPEvent_t), 1);
+
+        return 1;
+    }
+    else
+    {
+        u32 window = (TCP_FLAG_SYN(TCPFlags) == 1) ? TCPWindowScale : swap16(TCP->Window);
+
+        Output += sprintf(Output,
+                          "{\"timestamp\":%llu,\"TS\":\"%s\",\"tcp_op\":\"%s_%s\",\"win\":%u,\"seq\":%u,\"ack\":%u,\"len\":%u",
+                          SnapshotTS,
+                          TStr,
+                          TCP_OP_STR[TCPOp],
+                          TCP_OP_FLAG_STR[TCPFlag],
+                          window,
+                          swap32(TCP->SeqNo),
+                          swap32(TCP->AckNo),
+                          FlowPkt->TCPLength);
+
+        Output += sprintf(Output,
+                          ",\"hash_full_duplex\":\"%08x%08x%08x%08x%08x\"",
+                          swap32(FlowPkt->SHA1Full[0]),
+                          swap32(FlowPkt->SHA1Full[1]),
+                          swap32(FlowPkt->SHA1Full[2]),
+                          swap32(FlowPkt->SHA1Full[3]),
+                          swap32(FlowPkt->SHA1Full[4]));
+
+        Output += sprintf(Output, "}\n");
+        return 1;
+    }
 
     assert(TCPOp != TCP_OP_NULL);
+    return 0;
 }

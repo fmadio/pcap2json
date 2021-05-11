@@ -52,6 +52,7 @@
 #include "fProfile.h"
 #include "output.h"
 #include "flow.h"
+#include "tcpevent.h"
 
 double TSC2Nano = 0;
 
@@ -107,6 +108,8 @@ u8*				g_FlowIndexRollWrite= NULL;				// write the last (partial) snapshot to di
 bool			g_Output_NULL		= false;			// benchmarking mode output to /dev/null 
 bool			g_Output_STDOUT		= true;				// by default output to stdout 
 u8*				g_Output_PipeName	= NULL;				// name of pipe to output to
+bool			g_Output_TCP_STDOUT	= false;			// by default output TCP to stdout
+u8*			g_Output_TCP_PipeName	= NULL;			// name of TCP out pipe
 
 u32				g_Output_BufferCnt	= 64;				// number of output buffers
 bool			g_Output_Keepalive	= false;			// ES connection would be keepalive/persistent
@@ -321,6 +324,21 @@ static bool ParseCommandLine(u8* argv[])
 		g_Output_STDOUT 	= false;
 		g_Output_PipeName	= strdup(argv[1]);
 		fprintf(stderr, "  Output to Pipe (%s)\n", g_Output_PipeName);
+		cnt	+= 2;
+	}
+	// default tcp output to stdout
+	if (strcmp(argv[0], "--output-tcp-stdout") == 0)
+	{
+		g_Output_TCP_STDOUT = true;
+		fprintf(stderr, "  Output TCP events to STDOUT\n");
+		cnt	+= 1;
+	}
+	// write tcp events to a named pipe
+	if (strcmp(argv[0], "--output-tcp-pipe") == 0)
+	{
+		g_Output_TCP_STDOUT = false;
+		g_Output_TCP_PipeName	= strdup(argv[1]);
+		fprintf(stderr, "  Output TCP events to Pipe (%s)\n", g_Output_TCP_PipeName);
 		cnt	+= 2;
 	}
 	// flow specific
@@ -815,9 +833,18 @@ int main(int argc, u8* argv[])
 											sizeof(FlowRecord_t),	
 											g_CPUOutput
 										);
-													
+	// TCP event output
+	struct Output_t* OutTCP = Output_Create(	false,
+											g_Output_TCP_STDOUT,
+											1,
+											g_Output_TCP_PipeName,
+											"TCPEvent_t",
+											sizeof(TCPEvent_t),
+											g_CPUOutput
+										);
+
 	// init flow state
-	Flow_Open(Out, g_CPUFlowCnt, g_CPUFlow, g_FlowIndexDepth, g_FlowMax);
+	Flow_Open(Out, OutTCP, g_CPUFlowCnt, g_CPUFlow, g_FlowIndexDepth, g_FlowMax);
 
 	u64 PacketTSFirst 	= 0;
 	u64 PacketTSLast  	= 0;
@@ -1173,6 +1200,7 @@ int main(int argc, u8* argv[])
 
 	// shutdown/flush the output
 	Output_Close(Out);
+	Output_Close(OutTCP);
 
 	ProfileDump(Out);
 
