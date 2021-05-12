@@ -6,6 +6,8 @@
 #include "flow.h"
 #include "tcpevent.h"
 
+extern struct TCPEventFilter g_TCPEventFilter;
+
 // For a 32-bit TCP event, the MSB (i.e. highest 8 bits) are for the flag mask,
 // and the bottom 24 bits are for the TCP OP itself
 enum TCP_OPS {
@@ -65,28 +67,16 @@ u32 TCPEventDump(u8* OutputStr, Output_t* TCPOutput, u64 SnapshotTS, IP4Header_t
     if (FlowPkt->IPProto == IPv4_PROTO_TCP)
     {
         // Set TCP OP
-        if (TCP_FLAG_SYN(TCPFlags) == 1)
+        if ((g_TCPEventFilter.netRTT || g_TCPEventFilter.window) && TCP_FLAG_SYN(TCPFlags) == 1)
         {
             if (TCP_FLAG_ACK(TCPFlags) == 1)
                 TCPEvent = TCP_OP_SYNACK;
             else
                 TCPEvent = TCP_OP_SYN;
         }
-        else if (FlowPkt->TCPLength == 0 && TCP_FLAG_ACK(TCPFlags) == 1)
-        {
-            TCPEvent = TCP_OP_ACK;
-        }
-        else if (FlowPkt->TCPLength != 0 && TCP_FLAG_ACK(TCPFlags) == 1)
+        else if ((g_TCPEventFilter.appRTT || g_TCPEventFilter.window) && FlowPkt->TCPLength != 0 && TCP_FLAG_ACK(TCPFlags) == 1)
         {
             TCPEvent = TCP_OP_PSH;
-        }
-        else if (TCP_FLAG_FIN(TCPFlags) == 1)
-        {
-            TCPEvent = TCP_OP_FIN;
-        }
-        else if (TCP_FLAG_RST(TCPFlags) == 1)
-        {
-            TCPEvent = TCP_OP_RST;
         }
 
         // Set MSB of TCP OP to directional flag

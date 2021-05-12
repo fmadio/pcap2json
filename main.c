@@ -111,6 +111,8 @@ u8*				g_Output_PipeName	= NULL;				// name of pipe to output to
 bool			g_Output_TCP_STDOUT	= false;			// by default output TCP to stdout
 u8*			g_Output_TCP_PipeName	= NULL;			// name of TCP out pipe
 
+struct TCPEventFilter g_TCPEventFilter = { true, true, true };
+
 u32				g_Output_BufferCnt	= 64;				// number of output buffers
 bool			g_Output_Keepalive	= false;			// ES connection would be keepalive/persistent
 bool			g_Output_FilterPath	= false;			// use filter_path to return only took,errors on _bulk upload 
@@ -339,6 +341,32 @@ static bool ParseCommandLine(u8* argv[])
 		g_Output_TCP_STDOUT = false;
 		g_Output_TCP_PipeName	= strdup(argv[1]);
 		fprintf(stderr, "  Output TCP events to Pipe (%s)\n", g_Output_TCP_PipeName);
+		cnt	+= 2;
+	}
+	// filter which tcp events are output
+	if (strcmp(argv[0], "--tcp-events") == 0)
+	{
+		if (!strstr(argv[1], "all"))
+		{
+			// We're filtering events, so turn them all off first
+			memset(&g_TCPEventFilter, 0, sizeof(g_TCPEventFilter));
+		}
+
+		if (strstr(argv[1], "netRTT"))
+		{
+			g_TCPEventFilter.netRTT = true;
+		}
+		if (strstr(argv[1], "appRTT"))
+		{
+			g_TCPEventFilter.appRTT = true;
+		}
+		if (strstr(argv[1], "window"))
+		{
+			g_TCPEventFilter.window = true;
+		}
+
+		fprintf(stderr, "  Filter TCP events (%s netRTT=%d appRTT=%d window=%d)\n", argv[1], g_TCPEventFilter.netRTT, g_TCPEventFilter.appRTT, g_TCPEventFilter.window);
+
 		cnt	+= 2;
 	}
 	// flow specific

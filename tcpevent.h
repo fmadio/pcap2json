@@ -23,6 +23,12 @@ typedef struct
 struct Output_t;
 typedef struct Output_t Output_t;
 
+struct TCPEventFilter {
+	bool netRTT;
+	bool appRTT;
+	bool window;
+};
+
 u32 TCPEventDump(u8* OutputStr, Output_t* TCPOutput, u64 SnapshotTS, IP4Header_t* IP4, FlowRecord_t* FlowPkt, u32 TCPWindowScale);
 
 #endif
