@@ -1128,7 +1128,17 @@ int main(int argc, u8* argv[])
 		fProfile_Start(8, "PacketQueue");
 
 		// queue the packet for processing 
-		Flow_PacketQueue(PktBlock, false);
+		while (!Flow_PacketQueue(PktBlock, false, false))
+		{
+			// update SHMRing HB so stream_cat does not timeout
+			if (IsFMADRING)
+			{
+				// update consumer HB
+				SHMRingHeader->HBGetTSC = rdtsc();
+			}
+
+			usleep(0);
+		}
 
 		fProfile_Stop(8);
 

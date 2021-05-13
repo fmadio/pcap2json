@@ -1561,7 +1561,7 @@ void DecodePacket(	u32 CPUID,
 //---------------------------------------------------------------------------------------------
 // queue a packet for processing 
 static FlowIndex_t* s_FlowIndexQueue = NULL;
-void Flow_PacketQueue(PacketBuffer_t* Pkt, bool IsFlush)
+bool Flow_PacketQueue(PacketBuffer_t* Pkt, bool IsFlush, bool IsBlock)
 {
 	// multi-core version
 	if (!g_IsFlowNULL)
@@ -1572,6 +1572,13 @@ void Flow_PacketQueue(PacketBuffer_t* Pkt, bool IsFlush)
 		u32 Timeout = 0; 
 		while ((s_DecodeQueuePut  - s_DecodeQueueGet) >= (s_DecodeQueueMax - s_DecodeCPUActive - 4))
 		{
+			// dont block
+			if (!IsBlock)
+			{
+				fProfile_Stop(9);
+				return false;
+			}
+
 			//ndelay(250);
 			usleep(0);
 //			assert(Timeout++ < 1e9);
@@ -1657,6 +1664,8 @@ void Flow_PacketQueue(PacketBuffer_t* Pkt, bool IsFlush)
 		// benchmarking mode just release the buffer
 		Flow_PacketFree(Pkt);
 	}
+
+	return true;
 }
 
 //---------------------------------------------------------------------------------------------
@@ -2150,7 +2159,7 @@ void Flow_Close(struct Output_t* Out, u64 LastTS)
 	// in a fully pipelined manner 
 	PacketBuffer_t*	PktBlock 	= Flow_PacketAlloc();
 	PktBlock->PktCnt			= 0;
-	Flow_PacketQueue(PktBlock, true);
+	Flow_PacketQueue(PktBlock, true, true);
 
 	// wait for all queues to drain
 	u32 Timeout = 0;
