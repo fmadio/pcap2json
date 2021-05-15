@@ -621,6 +621,23 @@ static void ProfileDump(struct Output_t* Out)
 }
 
 //---------------------------------------------------------------------------------------------
+// busy wait update
+static OutputHeader_t* s_SHMRingHeader	= NULL; 
+static void SHMRingBusyWait(void)
+{
+	//fprintf(stderr, "ring hb %p\n", s_SHMRingHeader);
+	s_SHMRingHeader->HBGetTSC = rdtsc();
+}
+
+static void DefaultBusyWait(void)
+{
+	//fprintf(stderr, "default busy wait\n");
+}
+
+typedef void BusyWait_f(void);
+BusyWait_f*  g_BusyWaitFn = &DefaultBusyWait;
+
+//---------------------------------------------------------------------------------------------
 
 int main(int argc, u8* argv[])
 {
@@ -783,6 +800,10 @@ int main(int argc, u8* argv[])
 		SHMRingData	= (u8*)(SHMRingHeader + 1);
 
 		fprintf(stderr, "SHM Initial State Put:%08x Get:%08x\n", SHMRingHeader->Get, SHMRingHeader->Put);
+
+		// set busy wait header
+		s_SHMRingHeader	= SHMRingHeader;
+		g_BusyWaitFn 	= &SHMRingBusyWait;
 	}
 
 	// output + add all the ES targets
@@ -895,6 +916,7 @@ int main(int argc, u8* argv[])
 
 		fProfile_Start(7, "PacketStall");
 
+		// keep trying until get an alloc
 		PacketBuffer_t*	PktBlock = Flow_PacketAlloc();
 
 		fProfile_Stop(7);
@@ -1032,8 +1054,8 @@ int main(int argc, u8* argv[])
 			bool IsExit = false;
 			do
 			{
-				// update consumer HB
-				SHMRingHeader->HBGetTSC = rdtsc();
+				// update SHM Ring HB 
+				g_BusyWaitFn();
 
 				// check producer is alive still & producer did not
 				// exit due to end of stream
@@ -1128,17 +1150,7 @@ int main(int argc, u8* argv[])
 		fProfile_Start(8, "PacketQueue");
 
 		// queue the packet for processing 
-		while (!Flow_PacketQueue(PktBlock, false, false))
-		{
-			// update SHMRing HB so stream_cat does not timeout
-			if (IsFMADRING)
-			{
-				// update consumer HB
-				SHMRingHeader->HBGetTSC = rdtsc();
-			}
-
-			usleep(0);
-		}
+		Flow_PacketQueue(PktBlock, false);
 
 		fProfile_Stop(8);
 
@@ -1154,6 +1166,7 @@ int main(int argc, u8* argv[])
 	fProfile_Stop(0);
 
 	fprintf(stderr, "pipe exit %s %lli\n", FormatTS(PacketTSLast), PacketTSLast);
+	fflush(stderr);
 
 	// flush any remaining flows
 	Flow_Close(Out, PacketTSLast);
