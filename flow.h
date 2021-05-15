@@ -159,7 +159,7 @@ void 			Flow_Stats				(bool   IsReset,
 										);
 void 			Flow_PktSizeHisto		(void);
 
-bool 			Flow_PacketQueue		(PacketBuffer_t* Pkt, bool IsFlush);
+void 			Flow_PacketQueue		(PacketBuffer_t* Pkt, bool IsFlush);
 
 PacketBuffer_t* Flow_PacketAlloc		(void);
 void 			Flow_PacketFree			(PacketBuffer_t* B);

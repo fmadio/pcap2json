@@ -1566,7 +1566,7 @@ void DecodePacket(	u32 CPUID,
 //---------------------------------------------------------------------------------------------
 // queue a packet for processing 
 static FlowIndex_t* s_FlowIndexQueue = NULL;
-bool Flow_PacketQueue(PacketBuffer_t* Pkt, bool IsFlush)
+void Flow_PacketQueue(PacketBuffer_t* Pkt, bool IsFlush)
 {
 	// multi-core version
 	if (!g_IsFlowNULL)
@@ -1665,8 +1665,6 @@ bool Flow_PacketQueue(PacketBuffer_t* Pkt, bool IsFlush)
 		// benchmarking mode just release the buffer
 		Flow_PacketFree(Pkt);
 	}
-
-	return true;
 }
 
 //---------------------------------------------------------------------------------------------
