@@ -664,25 +664,15 @@ static void FlowInsert(u32 CPUID, FlowIndex_t* FlowIndex, FlowRecord_t* FlowPkt,
 	}
 
 	// ICMP may have overwritten the IP protocol so always update
-	if (FlowPkt->ICMPOverwrite)
-	{
-		F->ICMPUnreachNet			+= FlowPkt->ICMPUnreachNet;
-		F->ICMPUnreachHost			+= FlowPkt->ICMPUnreachHost;
-		F->ICMPUnreachProto			+= FlowPkt->ICMPUnreachProto;
-		F->ICMPUnreachPort			+= FlowPkt->ICMPUnreachPort;
-		F->ICMPUnreachProhibitNet	+= FlowPkt->ICMPUnreachProhibitNet;
-		F->ICMPUnreachProhibitHost	+= FlowPkt->ICMPUnreachProhibitHost;
-		F->ICMPUnreachProhibit		+= FlowPkt->ICMPUnreachProhibit;
-		F->ICMPTimeExceed			+= FlowPkt->ICMPTimeExceed;
-		F->ICMPOther				+= FlowPkt->ICMPOther;
-		F->ICMPOverwrite			+= FlowPkt->ICMPOverwrite;
+	F->ICMPUnreach			+= FlowPkt->ICMPUnreach;
+	F->ICMPTimeout			+= FlowPkt->ICMPTimeout;
+	F->ICMPOverwrite		+= FlowPkt->ICMPOverwrite;
 
-		if ((F->ICMPSrc.IP4 != 0) && (F->ICMPSrc.IP4 != FlowPkt->ICMPSrc.IP4))
-		{
-			printf("missmatch %08x %08x\n", F->ICMPSrc.IP4, FlowPkt->ICMPSrc.IP4);
-		}
-		F->ICMPSrc					= FlowPkt->ICMPSrc;
+	if ((F->ICMPSrc.IP4 != 0) && (F->ICMPSrc.IP4 != FlowPkt->ICMPSrc.IP4))
+	{
+		printf("missmatch %08x %08x\n", F->ICMPSrc.IP4, FlowPkt->ICMPSrc.IP4);
 	}
+	F->ICMPSrc					= FlowPkt->ICMPSrc;
 }
 
 //---------------------------------------------------------------------------------------------
@@ -883,16 +873,9 @@ static u32 FlowDump(u8* OutputStr, u64 TS, FlowRecord_t* Flow, u32 FlowID, u32 F
 			if (Flow->ICMPOverwrite)
 			{
 
-				Output += sprintf(Output,",\"ICMP.UnreachNet\":%i,\"ICMP.UnreachHost\":%i,\"ICMP.UnreachProto\":%i,\"ICMP.UnreachPort\":%i,\"ICMP.UnreachProhibitNet\":%i,\"ICMP.UnreachProhibitHost\":%i,\"ICMP.UnreachProhibit\":%i,\"ICMP.TimeExceed\":%i,\"ICMP.Other\":%i,\"ICMP.Overwrite\":%i,\"ICMP.srcIP\":\"%i.%i.%i.%i\"",
-						Flow->ICMPUnreachNet,
-						Flow->ICMPUnreachHost,
-						Flow->ICMPUnreachProto,
-						Flow->ICMPUnreachPort,
-						Flow->ICMPUnreachProhibitNet,
-						Flow->ICMPUnreachProhibitHost,
-						Flow->ICMPUnreachProhibit,
-						Flow->ICMPTimeExceed,
-						Flow->ICMPOther,
+				Output += sprintf(Output,",\"ICMP.Unreach\":%i,\"ICMP.Timeout\":%i,\"ICMP.Overwrite\":%i,\"ICMP.srcIP\":\"%i.%i.%i.%i\"",
+						Flow->ICMPUnreach,
+						Flow->ICMPTimeout,
 						Flow->ICMPOverwrite,
 						Flow->ICMPSrc.IP[0],
 						Flow->ICMPSrc.IP[1],
@@ -973,17 +956,10 @@ static void FlowMerge(FlowIndex_t* IndexOut, FlowIndex_t* IndexRoot, u32 IndexCn
 			}
 
 			// ICMP may have overwritten protocol info so always add them
-			F->ICMPUnreachNet			+= Flow->ICMPUnreachNet;
-			F->ICMPUnreachHost			+= Flow->ICMPUnreachHost;
-			F->ICMPUnreachProto			+= Flow->ICMPUnreachProto;
-			F->ICMPUnreachPort			+= Flow->ICMPUnreachPort;
-			F->ICMPUnreachProhibitNet	+= Flow->ICMPUnreachProhibitNet;
-			F->ICMPUnreachProhibitHost	+= Flow->ICMPUnreachProhibitHost;
-			F->ICMPUnreachProhibit		+= Flow->ICMPUnreachProhibit;
-			F->ICMPTimeExceed			+= Flow->ICMPTimeExceed;
-			F->ICMPOther				+= Flow->ICMPOther;
-			F->ICMPOverwrite			+= Flow->ICMPOverwrite;
-			F->ICMPSrc					= Flow->ICMPSrc;
+			F->ICMPUnreach			+= Flow->ICMPUnreach;
+			F->ICMPTimeout			+= Flow->ICMPTimeout;
+			F->ICMPOverwrite		+= Flow->ICMPOverwrite;
+			F->ICMPSrc				= Flow->ICMPSrc;
 		}
 	}
 }
@@ -1006,6 +982,10 @@ static void FlowMergePreload(FlowIndex_t* IndexOut)
 		F->LastTS 		= max64(F->LastTS, Flow->LastTS);
 		F->TotalFCS		+= Flow->TotalFCS;	
 		F->IP4FragCnt	+= Flow->IP4FragCnt; 
+
+		F->ICMPUnreach		+= Flow->ICMPUnreach; 
+		F->ICMPTimeout		+= Flow->ICMPTimeout; 
+		F->ICMPOverwrite	+= Flow->ICMPOverwrite; 
 
 		// TCP stats
 		if (F->IPProto == IPv4_PROTO_TCP)
@@ -1412,10 +1392,15 @@ void DecodePacket(	u32 CPUID,
 				case ICMP_CODE_TIME_EXCEED: 			
 				case ICMP_CODE_DEST_UNREACH:
 				{
-						
-					if (ICMP->Type == ICMP_CODE_TIME_EXCEED) FlowPkt->ICMPTimeExceed 		= 1;
+					// set in flow hash
+					FlowPkt->ICMPType = ICMP->Type;
+
+					// bit more detail
+					if (ICMP->Type == ICMP_CODE_TIME_EXCEED) FlowPkt->ICMPTimeout 		= 1;
 					else
 					{
+						FlowPkt->ICMPUnreach		= 1;
+						/*
 						switch (ICMP->Code)
 						{
 						case ICMP_UNREACH_NETWORK: 			FlowPkt->ICMPUnreachNet 			= 1; break;
@@ -1427,6 +1412,8 @@ void DecodePacket(	u32 CPUID,
 						case ICMP_UNREACH_PROHIBIT: 		FlowPkt->ICMPUnreachProhibit 		= 1; break;
 						default:							FlowPkt->ICMPOther					= 1; break; 
 						}
+						*/
+					}
 
 					// overwrite the packets IP info from the ICMP unreachable header + time exeeded info 
 					if (g_ICMPOverwrite)
@@ -1486,11 +1473,10 @@ void DecodePacket(	u32 CPUID,
 							break;
 						}
 					}
-					}
 				}
 				break;
 
-				default:						FlowPkt->ICMPOther			= 1; break;
+				//default:						FlowPkt->ICMPOther			= 1; break;
 				}
 			}
 			break;
