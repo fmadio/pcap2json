@@ -667,11 +667,15 @@ static void FlowInsert(u32 CPUID, FlowIndex_t* FlowIndex, FlowRecord_t* FlowPkt,
 	F->ICMPUnreach			+= FlowPkt->ICMPUnreach;
 	F->ICMPTimeout			+= FlowPkt->ICMPTimeout;
 	F->ICMPOverwrite		+= FlowPkt->ICMPOverwrite;
-
-	if ((F->ICMPSrc.IP4 != 0) && (F->ICMPSrc.IP4 != FlowPkt->ICMPSrc.IP4))
+	/*
+	if (F->ICMPOverwrite > 0)
 	{
-		printf("missmatch %08x %08x\n", F->ICMPSrc.IP4, FlowPkt->ICMPSrc.IP4);
+		if ((F->ICMPSrc.IP4 != 0) && (F->ICMPSrc.IP4 != FlowPkt->ICMPSrc.IP4))
+		{
+			printf("missmatch (%i) %08x %08x\n", F->ICMPOverwrite, F->ICMPSrc.IP4, FlowPkt->ICMPSrc.IP4);
+		}
 	}
+	*/
 	F->ICMPSrc					= FlowPkt->ICMPSrc;
 }
 
