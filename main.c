@@ -124,6 +124,7 @@ u8 				g_CaptureName[256];						// name of the capture / index to push to
 u8				g_DeviceName[128];						// name of the device this is sourced from
 
 u64				s_TotalPkt			= 0;				// total packets processed
+u64				s_TotalEvents		= 0;				// total events generated
 u64				s_TotalByteCapture	= 0;				// total bytes captured 
 u64				s_TotalByteWire		= 0;				// total bytes on the wire incomming 
 
@@ -1248,7 +1249,7 @@ int main(int argc, u8* argv[])
 
 	float PCAPWallTime = (PacketTSLast - PacketTSFirst) / 1e9;
 	fprintf(stderr, "PCAPWall time: %.2f sec ProcessTime %.2f sec (%.3f)\n", PCAPWallTime, dT, dT / PCAPWallTime);
-	fprintf(stderr, "Ingress TotalPkt:%lli TotalCapture:%lli TotalWire:%lli PayloadCRC:%08x\n", s_TotalPkt, s_TotalByteCapture, s_TotalByteWire, PayloadCRC); 
+	fprintf(stderr, "Ingress TotalPkt:%lli TotalEvent:%lli TotalCapture:%lli TotalWire:%lli PayloadCRC:%08x\n", s_TotalPkt, s_TotalEvents, s_TotalByteCapture, s_TotalByteWire, PayloadCRC);
 
 	fprintf(stderr, "Total Time: %.2f sec RawInput[Wire %.3f Gbps Capture %.3f Gbps %.3f Mpps] Output[%.3f Gbps] TotalLine:%lli %.f Line/Sec\n", 
 			dT, 

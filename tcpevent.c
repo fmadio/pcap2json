@@ -7,6 +7,7 @@
 #include "tcpevent.h"
 
 extern struct TCPEventFilter g_TCPEventFilter;
+extern u64 s_TotalEvents;
 
 // For a 32-bit TCP event, the MSB (i.e. highest 8 bits) are for the flag mask,
 // and the bottom 24 bits are for the TCP OP itself
@@ -125,6 +126,7 @@ u32 TCPEventDump(u8* OutputStr, Output_t* TCPOutput, u64 SnapshotTS, IP4Header_t
             tcp_output.Window = swap16(TCP->Window);
 
         Output_BufferAdd(TCPOutput, (u8*) &tcp_output, sizeof(TCPEvent_t), 1);
+        s_TotalEvents++;
 
         return 1;
     }
