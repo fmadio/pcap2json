@@ -1547,7 +1547,7 @@ void DecodePacket(	u32 CPUID,
 
 		u8 Buffer[8192];
 		IP4Header_t* IP4 = (IP4Header_t*)Payload;
-		FlowPkt->TCPEventCount = TCPEventDump(Buffer, s_TCP_Output, PktHeader->TS, IP4, FlowPkt, TCPWindowScale);
+		FlowPkt->TCPEventCount = TCPEventDump(Buffer, s_TCP_Output, SnapshotTS, IP4, FlowPkt, TCPWindowScale);
 		if (g_Output_TCP_STDOUT)
 		{
 			printf("%s", Buffer);
@@ -1757,7 +1757,7 @@ void* Flow_Worker(void* User)
 					assert(PktHeader->LengthCapture < 16*1024);
 
 					// process the packet
-					DecodePacket(CPUID, s_Output, PktBlock->TSSnapshot, PktHeader, FlowIndex);
+					DecodePacket(CPUID, s_Output, (u64) (PktBlock->TSFirst / g_FlowSampleRate) * g_FlowSampleRate, PktHeader, FlowIndex);
 
 					// update size histo
 					u32 SizeIndex = (PktHeader->LengthWire / s_PacketSizeHistoBin);
