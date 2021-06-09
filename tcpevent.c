@@ -126,8 +126,8 @@ u32 TCPEventDump(u8* OutputStr, Output_t* TCPOutput, u64 SnapshotTS, IP4Header_t
             tcp_output.Window = swap16(TCP->Window);
 
         Output_BufferAdd(TCPOutput, (u8*) &tcp_output, sizeof(TCPEvent_t), 1);
-        s_TotalEvents++;
 
+        __sync_fetch_and_add(&s_TotalEvents, 1);
         return 1;
     }
     else
