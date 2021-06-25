@@ -1855,12 +1855,20 @@ void* Flow_Worker(void* User)
 								for (int i=0; i < SortListCnt[j]; i++)
 								{
 									u32 FIndex =  SortList[j][i];
-									FlowRecord_t* Flow = &FlowIndex->FlowList[ FIndex ];	
+									FlowRecord_t* Flow = &FlowIndex->FlowList[ FIndex ];
+									// TODO: Is this required?
+									u64 pTS = PktBlock->TSFirst == 0 ? PktBlock->TSSnapshot : PktBlock->TSFirst;
+									u64 fTS = (u64) (pTS / g_FlowSampleRate) * g_FlowSampleRate;
 									// Can't have more events than packets in the flow record
 									assert(Flow->TotalPkt >= Flow->TCPEventCount);
-
-									JSONBufferOffset += FlowDump(JSONBuffer + JSONBufferOffset, PktBlock->TSSnapshot, Flow, FlowCnt, FlowTotal);
+									JSONBufferOffset += FlowDump(JSONBuffer + JSONBufferOffset, fTS, Flow, FlowCnt, FlowTotal);
 									JSONLineCnt++;
+
+									if (Flow->SnapshotTS <= 0)
+									{
+										fprintf(stderr, "[error] f.ts=%llu p.tsfirst=%llu p.tss=%llu\n", Flow->SnapshotTS, PktBlock->TSFirst, PktBlock->TSSnapshot);
+										assert(Flow->SnapshotTS > 0);
+									}
 
 									// flush to output 
 									if (JSONBufferOffset > FlowIndexRoot->JSONBufferMax - kKB(16))
@@ -1910,7 +1918,7 @@ void* Flow_Worker(void* User)
 									FlowRecord_t* Flow = &FlowIndex->FlowList[ FIndex ];	
 
 									// set snapshot TS
-									Flow->SnapshotTS = PktBlock->TSSnapshot;
+									Flow->SnapshotTS = (u64) (PktBlock->TSFirst / g_FlowSampleRate) * g_FlowSampleRate;
 
 									// write flow to disk 
 									fwrite(Flow, 1, sizeof(FlowRecord_t), F);
