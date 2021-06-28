@@ -6,7 +6,9 @@ extern u8*				g_Output_TCP_PipeName;			// name of TCP pipe to
 
 typedef struct
 {
-	u64		SnapshotTS;			// timestamp of last byte
+	u64		SnapshotTS;			// snapshot TS for which this event was
+										// generated
+	u64		TS;					// timestamp of the event
 	u32		Event;					// 32-bit TCP event - with flag+OP
 	u16		Length;				// number of bytes in this packet
 	u32		HashFullDuplex[5];		// full-duplex hash
@@ -29,6 +31,6 @@ struct TCPEventFilter {
 	bool window;
 };
 
-u32 TCPEventDump(u8* OutputStr, Output_t* TCPOutput, u64 SnapshotTS, IP4Header_t* IP4, FlowRecord_t* FlowPkt, u32 TCPWindowScale);
+u32 TCPEventDump(u8* OutputStr, Output_t* TCPOutput, u64 SnapshotTS, u64 TS, IP4Header_t* IP4, FlowRecord_t* FlowPkt, u32 TCPWindowScale);
 
 #endif

@@ -46,7 +46,7 @@ char *TCP_OP_FLAG_STR[3] = {
     "H1"
 };
 
-u32 TCPEventDump(u8* OutputStr, Output_t* TCPOutput, u64 SnapshotTS, IP4Header_t* IP4, FlowRecord_t* FlowPkt, u32 TCPWindowScale)
+u32 TCPEventDump(u8* OutputStr, Output_t* TCPOutput, u64 SnapshotTS, u64 TS, IP4Header_t* IP4, FlowRecord_t* FlowPkt, u32 TCPWindowScale)
 {
     // TODO: We want to at least output enough details for RTT to be calculated,
     // ideally much more (retransmissions/SACKs, window sizes, flow
@@ -112,6 +112,7 @@ u32 TCPEventDump(u8* OutputStr, Output_t* TCPOutput, u64 SnapshotTS, IP4Header_t
     {
         TCPEvent_t tcp_output = { 0 };
         tcp_output.SnapshotTS = SnapshotTS;
+        tcp_output.TS = TS;
         tcp_output.Event = TCPEvent;
         tcp_output.Length = FlowPkt->TCPLength;
         tcp_output.SeqNo = swap32(TCP->SeqNo);

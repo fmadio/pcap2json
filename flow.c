@@ -1547,7 +1547,7 @@ void DecodePacket(	u32 CPUID,
 
 		u8 Buffer[8192];
 		IP4Header_t* IP4 = (IP4Header_t*)Payload;
-		FlowPkt->TCPEventCount = TCPEventDump(Buffer, s_TCP_Output, SnapshotTS, IP4, FlowPkt, TCPWindowScale);
+		FlowPkt->TCPEventCount = TCPEventDump(Buffer, s_TCP_Output, SnapshotTS, PktHeader->TS, IP4, FlowPkt, TCPWindowScale);
 		if (g_Output_TCP_STDOUT)
 		{
 			printf("%s", Buffer);
