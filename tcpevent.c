@@ -148,11 +148,11 @@ u32 TCPEventDump(u8* OutputStr, Output_t* TCPOutput, u64 SnapshotTS, u64 TS, IP4
 
         Output += sprintf(Output,
                           ",\"hash_full_duplex\":\"%08x%08x%08x%08x%08x\"",
-                          swap32(FlowPkt->SHA1Full[0]),
-                          swap32(FlowPkt->SHA1Full[1]),
-                          swap32(FlowPkt->SHA1Full[2]),
-                          swap32(FlowPkt->SHA1Full[3]),
-                          swap32(FlowPkt->SHA1Full[4]));
+                          FlowPkt->SHA1Full[0],
+                          FlowPkt->SHA1Full[1],
+                          FlowPkt->SHA1Full[2],
+                          FlowPkt->SHA1Full[3],
+                          FlowPkt->SHA1Full[4]);
 
         Output += sprintf(Output, "}\n");
         return 1;
