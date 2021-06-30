@@ -131,7 +131,7 @@ u32 TCPEventDump(u8* OutputStr, Output_t* TCPOutput, u64 SnapshotTS, u64 TS, IP4
         __sync_fetch_and_add(&s_TotalEvents, 1);
         return 1;
     }
-    else
+    else if (g_Output_TCP_STDOUT)
     {
         u32 window = (TCP_FLAG_SYN(TCPFlags) == 1) ? TCPWindowScale : swap16(TCP->Window);
 
