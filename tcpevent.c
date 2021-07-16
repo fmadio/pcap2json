@@ -48,10 +48,6 @@ char *TCP_OP_FLAG_STR[3] = {
 
 u32 TCPEventDump(u8* OutputStr, Output_t* TCPOutput, u64 SnapshotTS, u64 TS, IP4Header_t* IP4, FlowRecord_t* FlowPkt, u32 TCPWindowScale)
 {
-    // TODO: We want to at least output enough details for RTT to be calculated,
-    // ideally much more (retransmissions/SACKs, window sizes, flow
-    // control/congestion events, etc.)
-
     // Skip TCP events since no flags were set
     if (!g_Output_TCP_STDOUT && !g_Output_TCP_PipeName) return 0;
 
@@ -64,7 +60,6 @@ u32 TCPEventDump(u8* OutputStr, Output_t* TCPOutput, u64 SnapshotTS, u64 TS, IP4
 
     memset(Output, 0, strlen(Output));
 
-    // TODO: Only one TCP event / packet? Or multiple based on flags/events?
     if (FlowPkt->IPProto == IPv4_PROTO_TCP)
     {
         // Set TCP OP
@@ -96,8 +91,6 @@ u32 TCPEventDump(u8* OutputStr, Output_t* TCPOutput, u64 SnapshotTS, u64 TS, IP4
 
     u8 TCPOp = TCPEvent & TCP_OP_MASK;
     u8 TCPFlag = (TCPEvent & TCP_OP_FLAG_MASK) >> TCP_OP_FLAG_BIT_SHIFT;
-
-    // TODO: Analyze TCP Options and log state change related info (window size, TS)
 
     if (TCPOp == TCP_OP_NULL)
     {
