@@ -114,11 +114,9 @@ u32 TCPEventDump(u8* OutputStr, Output_t* TCPOutput, u64 SnapshotTS, u64 TS, IP4
         tcp_output.SnapshotTS = SnapshotTS;
         tcp_output.TS = TS;
         tcp_output.Event = TCPEvent;
-        tcp_output.Length = FlowPkt->TCPLength;
         tcp_output.SeqNo = swap32(TCP->SeqNo);
         tcp_output.AckNo = swap32(TCP->AckNo);
-        tcp_output.Flag = swap32(TCP->Flags);
-        tcp_output.CRC = swap32(TCP->CSUM);
+
         memcpy(&tcp_output.HashFullDuplex, FlowPkt->SHA1Full, sizeof(FlowPkt->SHA1Full));
 
         if (TCP_FLAG_SYN(TCPFlags) == 1)

@@ -10,15 +10,12 @@ typedef struct
 										// generated
 	u64		TS;					// timestamp of the event
 	u32		Event;					// 32-bit TCP event - with flag+OP
-	u16		Length;				// number of bytes in this packet
 	u32		HashFullDuplex[5];		// full-duplex hash
 
 	u32		SeqNo;				// current tcp seq no
 	u32		AckNo;				// current tcp ack no
 
 	u32		Window;				// tcp window size (or scale for syn)
-	u16		Flag;				// flags
-	u16		CRC;				// checksum
 
 } TCPEvent_t;
 
