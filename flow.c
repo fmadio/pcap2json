@@ -1525,7 +1525,6 @@ void DecodePacket(	u32 CPUID,
 
 	if (FlowPkt->EtherProto == ETHER_PROTO_IPV4)
 	{
-		// Handle TCP event steam
 		TCPFullDup_t TCPFullDup = { 0 };
 
 		// Convert FlowPkt to determinstic TCPFullDup_t so we can create
@@ -1545,6 +1544,7 @@ void DecodePacket(	u32 CPUID,
 		u64 TSC1 = rdtsc();
 		s_DecodeThreadTSCHash[CPUID] += TSC1 - TSC0;
 
+		// Handle TCP event steam
 		u8 Buffer[8192];
 		IP4Header_t* IP4 = (IP4Header_t*)Payload;
 		FlowPkt->TCPEventCount = TCPEventDump(Buffer, s_TCP_Output, SnapshotTS, PktHeader->TS, IP4, FlowPkt, TCPWindowScale);
@@ -1867,11 +1867,7 @@ void* Flow_Worker(void* User)
 									JSONBufferOffset += FlowDump(JSONBuffer + JSONBufferOffset, FlowTS, Flow, FlowCnt, FlowTotal);
 									JSONLineCnt++;
 
-									if (Flow->SnapshotTS <= 0)
-									{
-										fprintf(stderr, "[error] f.ts=%llu p.tsfirst=%llu p.tss=%llu\n", Flow->SnapshotTS, PktBlock->TSFirst, PktBlock->TSSnapshot);
-										assert(Flow->SnapshotTS > 0);
-									}
+									assert(Flow->SnapshotTS > 0);
 
 									// flush to output 
 									if (JSONBufferOffset > FlowIndexRoot->JSONBufferMax - kKB(16))
