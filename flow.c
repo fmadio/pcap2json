@@ -1756,8 +1756,9 @@ void* Flow_Worker(void* User)
 					assert(PktHeader->LengthWire    < 16*1024);
 					assert(PktHeader->LengthCapture < 16*1024);
 
+					u64 PktTS = (u64) (PktBlock->TSFirst / g_FlowSampleRate) * g_FlowSampleRate;
 					// process the packet
-					DecodePacket(CPUID, s_Output, (u64) (PktBlock->TSFirst / g_FlowSampleRate) * g_FlowSampleRate, PktHeader, FlowIndex);
+					DecodePacket(CPUID, s_Output, PktTS, PktHeader, FlowIndex);
 
 					// update size histo
 					u32 SizeIndex = (PktHeader->LengthWire / s_PacketSizeHistoBin);
@@ -1856,12 +1857,14 @@ void* Flow_Worker(void* User)
 								{
 									u32 FIndex =  SortList[j][i];
 									FlowRecord_t* Flow = &FlowIndex->FlowList[ FIndex ];
-									// TODO: Is this required?
-									u64 pTS = PktBlock->TSFirst == 0 ? PktBlock->TSSnapshot : PktBlock->TSFirst;
-									u64 fTS = (u64) (pTS / g_FlowSampleRate) * g_FlowSampleRate;
+									// TSFirst will be 0 when we're flushing the
+									// last packets from Flow_Close, since the
+									// main loop didn't set TSFirst
+									u64 PacketTS = PktBlock->TSFirst == 0 ? PktBlock->TSSnapshot : PktBlock->TSFirst;
+									u64 FlowTS = (u64) (PacketTS / g_FlowSampleRate) * g_FlowSampleRate;
 									// Can't have more events than packets in the flow record
 									assert(Flow->TotalPkt >= Flow->TCPEventCount);
-									JSONBufferOffset += FlowDump(JSONBuffer + JSONBufferOffset, fTS, Flow, FlowCnt, FlowTotal);
+									JSONBufferOffset += FlowDump(JSONBuffer + JSONBufferOffset, FlowTS, Flow, FlowCnt, FlowTotal);
 									JSONLineCnt++;
 
 									if (Flow->SnapshotTS <= 0)
