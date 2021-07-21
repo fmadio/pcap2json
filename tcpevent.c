@@ -110,7 +110,7 @@ u32 TCPEventDump(u8* OutputStr, Output_t* TCPOutput, u64 SnapshotTS, u64 TS, IP4
         tcp_output.SeqNo = swap32(TCP->SeqNo);
         tcp_output.AckNo = swap32(TCP->AckNo);
 
-        memcpy(&tcp_output.HashFullDuplex, FlowPkt->SHA1Full, sizeof(FlowPkt->SHA1Full));
+        memcpy(&tcp_output.SHA1Full, FlowPkt->SHA1Full, sizeof(FlowPkt->SHA1Full));
 
         if (TCP_FLAG_SYN(TCPFlags) == 1)
             tcp_output.Window = TCPWindowScale;
