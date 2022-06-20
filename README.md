@@ -2,16 +2,16 @@
 High Speed PCAP2JSON conversion utility  for importing PCAP network data into Elastic Search / ELK
 
 
-![Alt text](http://fmad.io/analytics/logo_pcap2json.png "fmadio flow analyzer logo")
+![Alt text](http://firmware.fmad.io/logo_pcap2json.png "fmadio flow analyzer logo")
 
-![Alt text](https://fmad.io/images/blog/20181126_netflow_snapshot2.png "fmadio snapshot flow")
+![Alt text](https://old.fmad.io/images/blog/20181126_netflow_snapshot2.png "fmadio snapshot flow")
 
 Example implementation 
 
-![Alt text](https://fmad.io/images/blog/20181126_fmadio_netflow_snapshot2.png "fmadio pcaket capture PCAP flow generator")
+![Alt text](https://old.fmad.io/images/blog/20181126_fmadio_netflow_snapshot2.png "fmadio pcaket capture PCAP flow generator")
 
 Full description is here
-[https://fmad.io/blog-network-flow-monitoring.html](https://fmad.io/blog-network-flow-monitoring.html)
+[https://www.fmad.io/blog/network-flow-monitoring](https://www.fmad.io/blog/network-flow-monitoring)
 
 
 ```
@@ -112,7 +112,7 @@ Using FMADIO 20Gv2 Packet Capture system uses 12 CPUs
 
 1M Flows @ 64B per packet 36Mpps. Using a 96 CPU + 384GB RAM m5.metal machine (Blue is reference running on FMADIO 20G Gen2 system)
 
-![Alt text](http://fmad.io/pcap2json/20190316_pcap2json_scaling_96cpu.JPG "pcap to json 1500B packet rate")
+![Alt text](http://old.fmad.io/pcap2json/20190316_pcap2json_scaling_96cpu.JPG "pcap to json 1500B packet rate")
 
 # Profile Snaphot 
 
