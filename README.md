@@ -103,11 +103,11 @@ Using FMADIO 20Gv2 Packet Capture system uses 12 CPUs
 
 100K Flows @ 64B per packet ~5.1Mpps
 
-![Alt text](http://fmad.io/pcap2json/20190301_pcap2json_perf64.JPG "pcap to json 64B packet rate")
+![Alt text](http://old.fmad.io/pcap2json/20190301_pcap2json_perf64.JPG "pcap to json 64B packet rate")
 
 100K Flows @ 1500B per packet 15.48Gbps 
 
-![Alt text](http://fmad.io/pcap2json/20190301_pcap2json_perf1500.JPG "pcap to json 1500B packet rate")
+![Alt text](http://old.fmad.io/pcap2json/20190301_pcap2json_perf1500.JPG "pcap to json 1500B packet rate")
 
 
 1M Flows @ 64B per packet 36Mpps. Using a 96 CPU + 384GB RAM m5.metal machine (Blue is reference running on FMADIO 20G Gen2 system)
