@@ -1945,6 +1945,10 @@ void* Flow_Worker(void* User)
 		u64 TSC1 = rdtsc();
 		s_DecodeThreadTSCTop[CPUID] += TSC1 - TSC0;
 	}
+	for (int i=0; i < SortListDepth; i++)
+	{
+		free(SortList[i]);
+	}
 
 	fprintf(stderr, "flow exit %i\n", CPUID);
 }
