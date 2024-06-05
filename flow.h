@@ -41,7 +41,7 @@ typedef struct TCPFullDup_t
 	u16						PortB;
 
 	// SHA1 calcuated on the first 64B, so we pad it up
-	u8							pad[38];
+	u8							pad[51];
 } __attribute__((packed)) TCPFullDup_t;
 
 typedef struct FlowRecord_t 
