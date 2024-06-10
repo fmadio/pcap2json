@@ -2074,6 +2074,7 @@ void Flow_Open(struct Output_t* Out, u32 CPUMapCnt, s32* CPUMap, u32 FlowIndexDe
 
 		FlowIndex->FlowHashFrameID = (u16*)memalign(4096, sizeof(u16) * (2 << 20) );
 		assert(FlowIndex->FlowHashFrameID != NULL);
+		memset(FlowIndex->FlowHashFrameID, 0, sizeof(u16) * (2 << 20) );
 
 		FlowIndex->FrameID = 1;
 
